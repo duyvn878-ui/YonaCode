@@ -233,6 +233,7 @@ type NodeConfig struct {
 	CpuIntensity  int    `json:"cpu_intensity"`
 	NodeMode      string `json:"node_mode"`
 	RewardAddress string `json:"reward_address"`
+	NodeID        string `json:"node_id,omitempty"` // Thêm NodeID để định danh cấu hình này thuộc về node nào
 }
 
 const maxTrackedTxs = 5000 // [VANGUARD-OPTIMIZATION] Giới hạn bộ đệm RAM 5,000 giao dịch để tránh phình to bộ nhớ và đĩa cứng dưới tải cao khi stress test
@@ -1060,13 +1061,26 @@ func (s *RPCServer) loadNodeConfig() {
 		log.Printf("[CONFIG] 🔥 Chế độ đào được giữ nguyên từ lệnh CLI: %s", s.nodeMode)
 	}
 
+	// [VANGUARD-NODEID-AUDIT] Chỉ nạp địa chỉ ví đào từ database nếu NodeID trùng khớp
+	var currentNodeID string
+	if s.netMgr != nil && s.netMgr.Host != nil {
+		currentNodeID = s.netMgr.Host.ID().String()
+	}
+
 	if cfg.RewardAddress != "" {
-		addr, err := hex.DecodeString(strings.TrimPrefix(cfg.RewardAddress, "0x"))
-		if err == nil && len(addr) == 32 {
-			s.minerAddr = addr
-			if s.cliApp != nil {
-				s.cliApp.SetMinerAddress(addr, nil, "")
+		// Chỉ khôi phục địa chỉ ví nhận thưởng nếu cấu hình này thuộc về chính NodeID hiện tại,
+		// Tránh trường hợp nạp database scl từ máy khác sang nhận nhầm ví đào cũ.
+		if cfg.NodeID == "" || cfg.NodeID == currentNodeID {
+			addr, err := hex.DecodeString(strings.TrimPrefix(cfg.RewardAddress, "0x"))
+			if err == nil && len(addr) == 32 {
+				s.minerAddr = addr
+				if s.cliApp != nil {
+					s.cliApp.SetMinerAddress(addr, nil, "")
+				}
+				log.Printf("[CONFIG] ✅ Đã khôi phục RewardAddress từ cấu hình: %s", cfg.RewardAddress)
 			}
+		} else {
+			log.Printf("[CONFIG-WARN] ⚠️ Phát hiện NodeID cấu hình cũ (%s) không khớp với NodeID hiện tại (%s). Bỏ qua RewardAddress cũ để bảo vệ tài sản.", cfg.NodeID, currentNodeID)
 		}
 	}
 
@@ -1077,10 +1091,16 @@ func (s *RPCServer) loadNodeConfig() {
 }
 
 func (s *RPCServer) saveNodeConfig() {
+	var currentNodeID string
+	if s.netMgr != nil && s.netMgr.Host != nil {
+		currentNodeID = s.netMgr.Host.ID().String()
+	}
+
 	cfg := NodeConfig{
 		CpuIntensity:  s.cpuIntensity,
 		NodeMode:      s.nodeMode,
 		RewardAddress: hex.EncodeToString(s.minerAddr),
+		NodeID:        currentNodeID, // Lưu kèm NodeID hiện tại vào database cấu hình
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -1090,7 +1110,7 @@ func (s *RPCServer) saveNodeConfig() {
 	if err := s.bridge.SetNodeConfig(data); err != nil {
 		log.Printf("[CONFIG] ❌ Không thể lưu cấu hình vào Rust: %v", err)
 	} else {
-		log.Printf("[CONFIG] ✅ Đã đồng bộ cấu hình vào Rust Core.")
+		log.Printf("[CONFIG] ✅ Đã đồng bộ cấu hình vào Rust Core (NodeID: %s).", currentNodeID)
 	}
 }
 

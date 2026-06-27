@@ -59,7 +59,23 @@ func InitDHT(ctx context.Context, h host.Host) (*kaddht.IpfsDHT, error) {
 			log.Printf("[P2P-WARN] ⚠️ Không thể trích xuất PeerInfo từ: %s", addrStr)
 			continue
 		}
-		go h.Connect(ctx, *peerinfo)
+		
+		// [TỐI ƯU KẾT NỐI] Tạo goroutine bám đuổi IP cứng tối đa 5 lần
+		go func(pi peer.AddrInfo) {
+			for i := 0; i < 5; i++ {
+				cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				err := h.Connect(cctx, pi)
+				cancel()
+				
+				if err == nil {
+					log.Printf("[P2P-BOOTSTRAP] ✅ Kết nối IP Hạt giống %s thành công ngay lập tức!", pi.ID.String()[:12])
+					return // Thành công thì thoát luôn
+				}
+				// Nếu xịt, đợi 2 giây rồi thử lại
+				time.Sleep(2 * time.Second)
+			}
+			log.Printf("[P2P-BOOTSTRAP] ⚠️ Không thể kết nối IP Hạt giống %s sau 5 lần thử.", pi.ID.String()[:12])
+		}(*peerinfo)
 	}
 
 	if err = kdht.Bootstrap(ctx); err != nil {
