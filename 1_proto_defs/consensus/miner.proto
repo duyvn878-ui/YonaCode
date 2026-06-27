@@ -1,0 +1,31 @@
+/**
+ * @file miner.proto
+ * @brief Định nghĩa giao diện gRPC gữa Go Node (Chỉ huy) và genz_miner.exe (Thợ đào).
+ * @date 2026-06-23
+ */
+
+syntax = "proto3";
+
+package btc_genz.consensus;
+
+option go_package = "btc_genz/proto";
+
+service MinerGateway {
+    // Luồng gRPC 2 chiều: Miner gửi thông tin lên, Node gửi lệnh xuống
+    rpc ConnectMiner(stream MinerMessage) returns (stream NodeCommand);
+}
+
+message NodeCommand {
+    bool is_paused = 1;           // Trạng thái Tắt/Bật đào từ giao diện điều khiển
+    uint32 cpu_intensity = 2;     // Cường độ CPU tối đa (1-100%)
+    bytes block_template = 3;     // Dữ liệu block header thô cần băm (MiningTask serialized bytes)
+    uint64 target_difficulty = 4; // Độ khó mục tiêu (Target difficulty)
+    uint64 session_id = 5;        // ID phiên khai thác hiện tại để phân biệt các block cũ/mới
+}
+
+message MinerMessage {
+    uint64 current_hashrate = 1;  // Hashrate thực tế (H/s) báo cáo lên UI
+    uint64 found_nonce = 2;       // Nonce kết quả đào được để đóng block
+    bytes block_hash = 3;         // Hash của block đào được
+    uint64 session_id = 4;        // ID phiên tương ứng của kết quả
+}

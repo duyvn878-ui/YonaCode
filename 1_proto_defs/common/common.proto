@@ -1,0 +1,35 @@
+/**
+ * @file common.proto
+ * @brief Định nghĩa các kiểu dữ liệu cơ sở cho toàn bộ hệ thống YonaCode.
+ * @details Chứa các cấu hình về mã Hash (Blake3), Chữ ký số (Ed25519), Khóa công khai và Địa chỉ ví.
+ * Đây là nền tảng cho việc xác thực và định danh trong mạng lưới.
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo)
+ * @date 2026-03-18
+ */
+
+syntax = "proto3";
+
+package btc_genz.common;
+
+option go_package = "btc_genz/proto";
+
+// Định nghĩa mã Hash (32 bytes cho Blake3)
+message Hash {
+    bytes value = 1;
+}
+
+// Định nghĩa Chữ ký số (64 bytes cho Ed25519)
+message Signature {
+    bytes value = 1;
+}
+
+// Định nghĩa Khóa công khai (32 bytes)
+message PublicKey {
+    bytes value = 1;
+}
+
+// Định nghĩa Địa chỉ ví (Dạng bytes hoặc string tùy chọn, ưu tiên bytes để tối ưu)
+message Address {
+    bytes value = 1;
+}

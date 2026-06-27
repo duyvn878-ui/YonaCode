@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BYTECODE | Quyền lực Đối trọng V1.1.2</title>
+    <!-- [PHỤ LỤC D] Font chữ Công nghiệp (JetBrains Mono & Outfit) -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* [PHỤ LỤC D] Bảng màu Anthracite & Neon */
+            --bg-deep: #05070a;
+            --surface-main: #0d1117;
+            --surface-card: #161b22;
+            --accent-neon: #00f3ff;
+            --accent-emerald: #00ffa3;
+            --accent-amber: #ffaa00;
+            --accent-red: #ff3e3e;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --border-neon: rgba(0, 243, 255, 0.15);
+            --header-height: 70px;
+            --glow-blue: 0 0 15px rgba(0, 243, 255, 0.3);
+            --glow-green: 0 0 15px rgba(0, 255, 163, 0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: var(--bg-deep); color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace; overflow-x: hidden;
+            background-image: radial-gradient(circle at 50% -20%, #112233 0%, transparent 50%);
+        }
+
+        header {
+            height: var(--header-height); background: rgba(13, 17, 23, 0.8);
+            backdrop-filter: blur(10px); border-bottom: 1px solid var(--border-neon);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 2rem; position: sticky; top: 0; z-index: 1000;
+        }
+
+        .logo-area { display: flex; align-items: center; gap: 12px; font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1.3rem; letter-spacing: -0.5px; }
+        .logo-icon { width: 36px; height: 36px; background: var(--accent-neon); color: black; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; box-shadow: var(--glow-blue); }
+
+        .nav-tabs { display: flex; gap: 2rem; }
+        .nav-item { 
+            display: flex; align-items: center; gap: 8px; text-decoration: none; 
+            color: var(--text-secondary); font-size: 0.75rem; text-transform: uppercase; 
+            font-weight: 600; letter-spacing: 1px; transition: 0.3s; 
+            padding: 1.5rem 0; border-bottom: 3px solid transparent; cursor: pointer; 
+        }
+        .nav-item.active { color: var(--accent-neon); border-bottom-color: var(--accent-neon); text-shadow: var(--glow-blue); }
+        
+        .lang-switch { display: flex; gap: 8px; font-size: 0.7rem; color: var(--text-secondary); }
+        .lang-btn { cursor: pointer; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; transition: 0.2s; }
+        .lang-btn.active { color: var(--accent-neon); border-color: var(--accent-neon); }
+
+        .app-container { max-width: 1300px; margin: 2rem auto; padding: 0 1.5rem; }
+        .card { 
+            background: var(--surface-main); border-radius: 12px; 
+            border: 1px solid rgba(255, 255, 255, 0.05); padding: 2rem; 
+            margin-bottom: 2rem; position: relative; overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .card::before { content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent-neon); opacity: 0.3; }
+        
+        .card-title { 
+            font-family: 'Outfit', sans-serif; font-size: 1.1rem; font-weight: 700; 
+            margin-bottom: 1.8rem; display: flex; align-items: center; gap: 12px;
+            color: var(--accent-neon); text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        .stat-box { background: var(--surface-card); padding: 1.5rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.03); text-align: center; }
+        .stat-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+        .stat-value { font-size: 1.8rem; font-weight: 700; font-family: 'Outfit'; color: white; }
+        .stat-sub { font-size: 0.7rem; color: var(--accent-emerald); margin-top: 5px; font-weight: 600; }
+
+        .badge { padding: 5px 10px; border-radius: 4px; font-size: 0.6rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-finalized { background: rgba(0, 255, 163, 0.1); color: var(--accent-emerald); border: 1px solid var(--accent-emerald); box-shadow: var(--glow-green); }
+        .badge-tempering { background: rgba(255, 170, 0, 0.1); color: var(--accent-amber); border: 1px solid var(--accent-amber); }
+
+        #notification-box { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--surface-main); border: 1px solid var(--accent-neon); padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: slideIn 0.3s ease-out; width: 320px; pointer-events: auto; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .btn { cursor: pointer; padding: 10px 20px; border-radius: 6px; border: none; font-weight: 600; letter-spacing: 0.5px; transition: 0.3s; }
+        .btn-primary { background: var(--accent-neon); color: black; }
+        .btn-primary:active { transform: scale(0.98); }
+        .tab-content { display: none; margin-top: 1rem; }
+        .tab-content.active { display: block; animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 15px; color: var(--text-secondary); font-size: 0.65rem; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        td { padding: 18px 15px; border-bottom: 1px solid rgba(255,255,255,0.02); font-size: 0.8rem; }
+        
+        .coin-id-box { background: rgba(0, 243, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed var(--accent-neon); margin: 1rem 0; font-size: 0.75rem; word-break: break-all; }
+        .hashrate-wall { height: 150px; background: rgba(0, 243, 255, 0.03); border-radius: 10px; position: relative; border: 1px solid rgba(0, 243, 255, 0.1); overflow: hidden; }
+        .wall-bar { position: absolute; bottom: 0; width: 4%; background: linear-gradient(to top, var(--accent-neon), transparent); border-radius: 4px 4px 0 0; transition: 1s; opacity: 0.6; }
+    </style>
+</head>
+<body>
+        .nav-item.active { color: var(--accent-neon); border-bottom-color: var(--accent-neon); text-shadow: var(--glow-blue); }
+        
+        .lang-switch { display: flex; gap: 8px; font-size: 0.7rem; color: var(--text-secondary); }
+        .lang-btn { cursor: pointer; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; transition: 0.2s; }
+        .lang-btn.active { color: var(--accent-neon); border-color: var(--accent-neon); }
+
+        .app-container { max-width: 1300px; margin: 2rem auto; padding: 0 1.5rem; }
+        .card { 
+            background: var(--surface-main); border-radius: 12px; 
+            border: 1px solid rgba(255, 255, 255, 0.05); padding: 2rem; 
+            margin-bottom: 2rem; position: relative; overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .card::before { content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent-neon); opacity: 0.3; }
+        
+        .card-title { 
+            font-family: 'Outfit', sans-serif; font-size: 1.1rem; font-weight: 700; 
+            margin-bottom: 1.8rem; display: flex; align-items: center; justify-content: space-between;
+            color: var(--accent-neon); text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        .stat-box { background: var(--surface-card); padding: 1.5rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.03); text-align: center; }
+        .stat-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+        .stat-value { font-size: 1.8rem; font-weight: 700; font-family: 'Outfit'; color: white; }
+        .stat-sub { font-size: 0.7rem; color: var(--accent-emerald); margin-top: 5px; font-weight: 600; }
+
+        .badge { padding: 5px 10px; border-radius: 4px; font-size: 0.6rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+        .badge-finalized { background: rgba(0, 255, 163, 0.1); color: var(--accent-emerald); border: 1px solid var(--accent-emerald); box-shadow: var(--glow-green); }
+        .badge-tempering { background: rgba(255, 170, 0, 0.1); color: var(--accent-amber); border: 1px solid var(--accent-amber); }
+
+        #notification-box { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--surface-main); border: 1px solid var(--accent-neon); padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: slideIn 0.3s ease-out; width: 320px; pointer-events: auto; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .btn { cursor: pointer; padding: 10px 20px; border-radius: 6px; border: none; font-weight: 600; letter-spacing: 0.5px; transition: 0.3s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-primary { background: var(--accent-neon); color: black; }
+        .btn-primary:hover { box-shadow: var(--glow-blue); transform: translateY(-2px); }
+        .btn-primary:active { transform: scale(0.98); }
+        
+        .btn-outline { background: transparent; border: 1px solid var(--accent-neon); color: var(--accent-neon); }
+        .btn-outline:hover { background: rgba(0, 243, 255, 0.1); }
+
+        .tab-content { display: none; margin-top: 1rem; }
+        .tab-content.active { display: block; animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 15px; color: var(--text-secondary); font-size: 0.65rem; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        td { padding: 18px 15px; border-bottom: 1px solid rgba(255,255,255,0.02); font-size: 0.8rem; }
+        
+        .coin-id-box { background: rgba(0, 243, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed var(--accent-neon); margin: 1rem 0; font-size: 0.75rem; word-break: break-all; }
+        .search-container { margin-bottom: 2rem; display: flex; gap: 10px; }
+        .search-input { 
+            flex: 1; background: var(--surface-card); border: 1px solid rgba(255,255,255,0.1); 
+            padding: 12px 20px; border-radius: 8px; color: white; font-family: 'JetBrains Mono';
+            transition: 0.3s;
+        }
+        .search-input:focus { border-color: var(--accent-neon); outline: none; box-shadow: var(--glow-blue); }
+
+        .chart-container { height: 250px; margin-bottom: 2rem; background: rgba(13, 17, 23, 0.5); border-radius: 12px; padding: 1rem; border: 1px solid rgba(255,255,255,0.03); }
+        
+        .load-more-area { display: flex; justify-content: center; margin-top: 2rem; padding: 1rem; }
+        
+        .txt-neon { color: var(--accent-neon); text-shadow: var(--glow-blue); }
+        .txt-emerald { color: var(--accent-emerald); }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="notification-box"></div>
+
+    <header>
+        <div class="logo-area"><div class="logo-icon">🜲</div> BYTECODE <span style="font-size:0.7rem; opacity:0.6; margin-left:5px;">V1.1.2</span></div>
+        <div class="nav-tabs">
+            <span class="nav-item active" data-tab="dashboard" data-i18n="nav_power">🏠 Quyền lực</span>
+            <span class="nav-item" data-tab="explorer" data-i18n="nav_explorer">🔍 Khám phá</span>
+            <span class="nav-item" data-tab="wallet" data-i18n="nav_wallet">💳 Ví Đặc nhiệm</span>
+            <span class="nav-item" data-tab="miner" data-i18n="nav_miner">⚡ Khai thác</span>
+        </div>
+        <div class="lang-switch">
+            <span class="lang-btn active" id="btn-vi" onclick="setLang('vi')">VI</span>
+            <span class="lang-btn" id="btn-en" onclick="setLang('en')">EN</span>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- 📊 POWER DASHBOARD -->
+        <div id="tab-dashboard" class="tab-content active">
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:1.5rem; margin-bottom:2rem;">
+                <div class="stat-box">
+                    <div class="stat-label" data-i18n="stat_hashrate">Bức tường Hashrate</div>
+                    <div class="stat-value" id="dash-hashrate">0 H/s</div>
+                    <div class="stat-sub">S+ SECURED</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label" data-i18n="stat_height">Chiều cao Chuỗi</div>
+                    <div class="stat-value" id="dash-height">0</div>
+                    <div class="stat-sub" id="dash-finalized">Finalized: 0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label" data-i18n="stat_epoch">Đại Thanh Trừng Epoch</div>
+                    <div class="stat-value" id="dash-epoch">#0</div>
+                    <div class="stat-sub" id="dash-prune-count">Còn: 1,152 khối</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label" data-i18n="stat_savings">Dung lượng rác đã xóa</div>
+                    <div class="stat-value" id="dash-savings" style="color:var(--accent-emerald);">0.0 GB</div>
+                    <div class="stat-sub">SIÊU NHẸ ACTIVE</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">🛡️ <span data-i18n="chart_title">Đồ thị Năng lượng Blake3</span></div>
+                <div class="chart-container">
+                    <canvas id="hashrateChart"></canvas>
+                </div>
+                <p style="margin-top:1rem; font-size:0.7rem; color:var(--text-secondary); text-align:center;" data-i18n="chart_desc">Công suất băm hiện tại bảo vệ tài sản của bạn trước các cuộc tấn công 51%.</p>
+            </div>
+        </div>
+
+        <!-- 🔍 EXPLORER VIEW -->
+        <div id="tab-explorer" class="tab-content">
+            <div class="search-container">
+                <input type="text" id="explorer-search" class="search-input" placeholder="Số khối, Mã băm, TxID hoặc Địa chỉ ví..." onkeypress="if(event.key==='Enter') searchExplorer()">
+                <button class="btn btn-primary" onclick="searchExplorer()">🔍 <span data-i18n="nav_explorer">Tìm kiếm</span></button>
+            </div>
+
+            <div class="card">
+                <div class="card-title">
+                    <span>📦 <span data-i18n="exp_title">Sổ cái Năng lượng (Mới nhất)</span></span>
+                    <div style="font-size:0.7rem; color:var(--text-secondary); font-weight:normal;">Auto-refresh: 5s</div>
+                </div>
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem; margin-bottom:2rem;">
+                    <div class="chart-container" style="height:180px;">
+                        <canvas id="difficultyChart"></canvas>
+                    </div>
+                    <div class="chart-container" style="height:180px;">
+                        <canvas id="blockTimeChart"></canvas>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th data-i18n="col_height">Độ cao</th><th data-i18n="col_anchor">Mỏ neo (Miner)</th><th data-i18n="col_data">Dữ liệu</th><th data-i18n="col_size">TXs</th><th data-i18n="col_status">Trạng thái</th></tr></thead>
+                        <tbody id="block-list"></tbody>
+                    </table>
+                </div>
+
+                <div class="load-more-area">
+                    <button id="btn-load-more" class="btn btn-outline" onclick="loadMoreBlocks()">
+                        <span id="load-more-text">⬇️ XEM TIẾP 200 KHỐI (VỀ QUÁ KHỨ)</span>
+                        <div id="load-more-spinner" style="display:none;" class="spinner"></div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 💳 WALLET VIEW -->
+        <div id="tab-wallet" class="tab-content">
+            <div id="wallet-auth-container"></div>
+            <div id="wallet-dashboard" class="card" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <div class="card-title" data-i18n="wallet_title">🛡️ Tài sản Đặc nhiệm</div>
+                        <h1 style="font-size:3rem; font-family:'Outfit';" id="wallet-balance">0.00 <span style="font-size:1.2rem; color:var(--text-secondary);">BTC_Z</span></h1>
+                        <div class="coin-id-box" id="wallet-address-info">0x...</div>
+                        <button class="btn btn-primary" onclick="verifyIntegrity()" style="font-size:0.7rem; background:transparent; border:1px solid var(--accent-emerald); color:var(--accent-emerald);" data-i18n="btn_integrity">⚡ KIỂM TRA TÍNH TOÀN VẸN</button>
+                    </div>
+                </div>
+                
+                <div style="margin-top:3rem; display:grid; grid-template-columns: 1fr 1fr; gap:3rem;">
+                    <div>
+                        <div class="card-title" data-i18n="send_title">📡 Phát tán Giao dịch</div>
+                        <div style="margin-bottom:1.2rem;"><label data-i18n="label_dest">Địa chỉ đích</label><input type="text" id="send-to" placeholder="0x..." style="background:#05070a; border:1px solid #30363d; padding:10px; border-radius:6px; color:white; width:100%;"></div>
+                        <div style="margin-bottom:1.2rem;"><label data-i18n="label_amount">Số lượng</label><input type="number" id="send-amount" value="1.0" step="0.1" style="background:#05070a; border:1px solid #30363d; padding:10px; border-radius:6px; color:white; width:100%;"></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="confirmSend()" data-i18n="btn_broadcast">PHÁT TÁN NĂNG LƯỢNG</button>
+                    </div>
+                    <div>
+                        <div class="card-title" data-i18n="tracker_title">⚖️ Trạng thái Tôi Thép</div>
+                        <div id="tx-tracker-container"><p style="color:var(--text-secondary); font-size:0.75rem;" data-i18n="tracker_desc">Gửi giao dịch để theo dõi quá trình trở thành 'Đá Tảng'.</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ⚡ MINER VIEW -->
+        <div id="tab-miner" class="tab-content">
+            <div class="card" style="text-align:center;">
+                <h1 style="font-size:4rem; color:var(--accent-neon); font-family:'Outfit';" id="miner-hashrate">0 H/s</h1>
+                <div style="margin-bottom:2rem;"><span class="badge badge-finalized" id="miner-reward-display">Rewards: 0.00 BTC_Z</span></div>
+                <div class="coin-id-box" id="miner-address-display">Miner: 0x...</div>
+                <div id="miner-status-text" style="font-size:0.9rem; margin-bottom:2rem; color:var(--text-secondary);" data-i18n="miner_paused">ĐANG TẠM DỪNG</div>
+                <button id="miner-toggle-btn" class="btn btn-primary" onclick="toggleMiner()" style="padding: 1.2rem 2.5rem; font-size:1.1rem;" data-i18n="btn_activate">KÍCH HOẠT BLAKE3</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const i18n = {
+            vi: {
+                nav_power: "🏠 Quyền lực", nav_explorer: "🔍 Khám phá", nav_wallet: "💳 Ví Đặc nhiệm", nav_miner: "⚡ Khai thác",
+                stat_hashrate: "Bức tường Hashrate", stat_height: "Chiều cao Chuỗi", stat_epoch: "Đại Thanh Trừng Epoch", stat_savings: "Dung lượng rác đã xóa",
+                chart_title: "🛡️ Đồ thị Năng lượng Blake3", chart_desc: "Công suất băm hiện tại bảo vệ tài sản của bạn trước các cuộc tấn công 51%.",
+                exp_title: "📦 Sổ cái Năng lượng (Mới nhất)", col_height: "Độ cao", col_anchor: "Mỏ neo", col_data: "Dữ liệu", col_size: "TXs", col_status: "Trạng thái",
+                wallet_title: "🛡️ Tài sản Đặc nhiệm", btn_integrity: "⚡ KIỂM TRA TÍNH TOÀN VẸN", send_title: "📡 Phát tán Giao dịch", label_dest: "Địa chỉ đích", label_amount: "Số lượng", btn_broadcast: "PHÁT TÁN NĂNG LƯỢNG",
+                tracker_title: "⚖️ Trạng thái Tôi Thép", tracker_desc: "Gửi giao dịch để theo dõi quá trình trở thành 'Đá Tảng'.", miner_paused: "ĐANG TẠM DỪNG", miner_active: "ĐANG HOẠT ĐỘNG", btn_activate: "KÍCH HOẠT BLAKE3", btn_stop: "DỪNG KHAI THÁC",
+                notif_tx_success: "🚀 PHÁT TÁN THÀNH CÔNG", notif_tx_fail: "❌ THẤT BẠI", bad_final: "🔒 BẤT BIẾN", bad_temp: "⌛ Đang tôi luyện", notif_block: "📡 KHỐI MỚI", integrity_ok: "✅ KHỚP NỐI 100%"
+            },
+            en: {
+                nav_power: "🏠 Power", nav_explorer: "🔍 Explorer", nav_wallet: "💳 Wallet", nav_miner: "⚡ Mining",
+                stat_hashrate: "Hashrate Wall", stat_height: "Chain Height", stat_epoch: "Epoch Pruning", stat_savings: "Data Pruned",
+                chart_title: "🛡️ Blake3 Energy Wall", chart_desc: "Current Hashrate is the shield protecting your assets.",
+                exp_title: "📦 Latest Blocks", col_height: "Height", col_anchor: "Anchor", col_data: "Data", col_size: "TXs", col_status: "Status",
+                wallet_title: "🛡️ Secure Assets", btn_integrity: "⚡ INTEGRITY CHECK", send_title: "📡 Broadcast Transaction", label_dest: "Destination", label_amount: "Amount", btn_broadcast: "BROADCAST ENERGY",
+                tracker_title: "⚖️ Immutability Tracker", tracker_desc: "Send a transaction to track its confirmation progress.", miner_paused: "PAUSED", miner_active: "MINING ACTIVE", btn_activate: "START MINING", btn_stop: "STOP MINING",
+                notif_tx_success: "🚀 BROADCAST SUCCESS", notif_tx_fail: "❌ FAILED", bad_final: "🔒 FINALIZED", bad_temp: "⌛ Tempering", notif_block: "📡 NEW BLOCK", integrity_ok: "✅ 100% MATCH"
+            }
+        };
+
+        let lang = localStorage.getItem('btcz_lang') || 'vi';
+        let networkHeight = 0, finalizedHeight = 0, lastKnownHeight = 0;
+        let minerAddress = "", walletAddress = localStorage.getItem('wallet_addr') || "";
+        let explorerBlocks = [];
+        let explorerOffset = 0;
+        let hashrateChart, difficultyChart, blockTimeChart;
+
+        function setLang(l) {
+            lang = l; localStorage.setItem('btcz_lang', l);
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active')); document.getElementById('btn-' + l).classList.add('active');
+            translate(); updateExplorer(true);
+        }
+
+        function translate() {
+            document.querySelectorAll('[data-i18n]').forEach(el => { const key = el.getAttribute('data-i18n'); if (i18n[lang][key]) el.innerText = i18n[lang][key]; });
+        }
+
+        function notify(titleKey, msg, type = 'info') {
+            const box = document.getElementById('notification-box'); const toast = document.createElement('div'); toast.className = 'toast';
+            toast.style.borderColor = type === 'success' ? 'var(--accent-emerald)' : 'var(--accent-neon)';
+            toast.innerHTML = `<div style="font-weight:700; font-size:0.9rem; color:${type === 'success' ? 'var(--accent-emerald)' : 'var(--accent-neon)'}">${i18n[lang][titleKey] || titleKey}</div><div style="font-size:0.75rem; color:var(--text-secondary);">${msg}</div>`;
+            box.appendChild(toast); setTimeout(() => toast.remove(), 5000);
+        }
+
+        async function pollStatus() {
+            try {
+                const status = await fetch('/api/v1/status').then(r => r.json());
+                networkHeight = status.highest_height; finalizedHeight = status.finalized;
+                if (lastKnownHeight !== 0 && networkHeight > lastKnownHeight) {
+                    notify("notif_block", `Height: #${networkHeight}`);
+                    updateExplorer(true); // Cập nhật khối mới nhất
+                }
+                lastKnownHeight = networkHeight;
+                document.getElementById('dash-height').innerText = networkHeight;
+                document.getElementById('dash-finalized').innerText = `Finalized: ${finalizedHeight}`;
+                document.getElementById('dash-savings').innerText = `${(networkHeight * 19.95 / 1024).toFixed(2)} GB`;
+                document.getElementById('dash-epoch').innerText = `#${Math.floor(networkHeight / 1152)}`;
+                document.getElementById('dash-prune-count').innerText = `T-Minus: ${1152 - (networkHeight % 1152)}`;
+                
+                updateMinerInfo(); updateWalletBalance();
+                updateCharts();
+            } catch (e) {}
+        }
+
+        async function updateMinerInfo() {
+            try {
+                const s = await fetch('/api/v1/miner/status').then(r => r.json());
+                minerAddress = s.miner_address;
+                document.getElementById('miner-hashrate').innerText = `${s.hashrate} H/s`;
+                document.getElementById('dash-hashrate').innerText = `${s.hashrate} H/s`;
+                document.getElementById('miner-address-display').innerText = `Rewards to: 0x${minerAddress}`;
+                document.getElementById('miner-status-text').innerText = s.is_mining ? i18n[lang].miner_active : i18n[lang].miner_paused;
+                document.getElementById('miner-toggle-btn').innerText = s.is_mining ? i18n[lang].btn_stop : i18n[lang].btn_activate;
+                const b = await fetch(`/api/v1/balance/0x${minerAddress}`).then(r => r.json());
+                document.getElementById('miner-reward-display').innerText = `Total Mined: ${(b.balances.btc_z / 100000000).toFixed(2)} BTC_Z`;
+            } catch (e) {}
+        }
+
+        async function updateWalletBalance() {
+            if (!walletAddress) return;
+            try {
+                const b = await fetch(`/api/v1/balance/${walletAddress}`).then(r => r.json());
+                document.getElementById('wallet-balance').innerHTML = `${(b.balances.btc_z / 100000000).toFixed(2)} <span style="font-size:1.2rem; color:var(--text-secondary);">BTC_Z</span>`;
+                document.getElementById('wallet-address-info').innerText = `Active Wallet: ${walletAddress}`;
+            } catch (e) {}
+        }
+
+        async function updateExplorer(refreshLatest = false) {
+            if (refreshLatest) {
+                // Chỉ lấy 10 khối mới nhất để refresh view nhanh
+                const res = await fetch('/api/v1/recent/blocks?limit=20').then(r => r.json());
+                explorerBlocks = res;
+                explorerOffset = 20;
+                renderExplorer();
+                updateExplorerCharts(res);
+            }
+        }
+
+        async function loadMoreBlocks() {
+            const btn = document.getElementById('btn-load-more');
+            const text = document.getElementById('load-more-text');
+            const spinner = document.getElementById('load-more-spinner');
+            
+            text.style.display = 'none';
+            spinner.style.display = 'block';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`/api/v1/recent/blocks?limit=200&offset=${explorerOffset}`).then(r => r.json());
+                if (res && res.length > 0) {
+                    explorerBlocks = explorerBlocks.concat(res);
+                    explorerOffset += res.length;
+                    renderExplorer();
+                } else {
+                    notify("HẾT DỮ LIỆU", "Đã tải toàn bộ lịch sử Blockchain.", "info");
+                }
+            } catch (e) {
+                notify("LỖI", "Không thể tải thêm dữ liệu.", "error");
+            } finally {
+                text.style.display = 'block';
+                spinner.style.display = 'none';
+                btn.disabled = false;
+            }
+        }
+
+        function renderExplorer() {
+            const list = document.getElementById('block-list');
+            list.innerHTML = explorerBlocks.map(b => {
+                const isPruned = (networkHeight - b.height) > 2880; 
+                const isFinal = b.height <= finalizedHeight;
+                const status = isFinal ? `<span class="badge badge-finalized">${i18n[lang].bad_final}</span>` : `<span class="badge badge-tempering">${i18n[lang].bad_temp} (${networkHeight - b.height}/5)</span>`;
+                
+                // Rút gọn địa chỉ miner
+                const shortMiner = b.miner ? `0x${b.miner.substring(0, 8)}...${b.miner.substring(b.miner.length - 8)}` : "GENESIS";
+                
+                return `<tr>
+                    <td><strong class="txt-neon">#${b.height}</strong></td>
+                    <td style="font-size:0.75rem;"><a href="#" onclick="searchExplorer('0x${b.miner}'); return false;" style="color:var(--text-secondary); text-decoration:none;">${shortMiner}</a></td>
+                    <td><span style="font-size:0.7rem; opacity:0.6;">${new Date(b.timestamp * 1000).toLocaleString()}</span></td>
+                    <td class="txt-emerald">${b.tx_count}</td>
+                    <td>${status}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function searchExplorer(queryOverride) {
+            const query = queryOverride || document.getElementById('explorer-search').value;
+            if (!query) return;
+
+            try {
+                const res = await fetch(`/api/v1/search/${query}`).then(r => r.json());
+                if (res.type === "block") {
+                    notify("TÌM THẤY KHỐI", `Độ cao: #${res.height || '?'}, Hash: ${res.hash.substring(0, 16)}...`, "success");
+                    // Cuộn tới khối hoặc highlight (Mô phỏng)
+                } else if (res.type === "tx") {
+                    notify("TÌM THẤY GIAO DỊCH", `TxID: ${res.txid.substring(0, 16)}...`, "success");
+                } else if (res.type === "address") {
+                    notify("TÌM THẤY ĐỊA CHỈ", `Ví: ${res.address.substring(0, 16)}...`, "success");
+                }
+            } catch (e) {
+                notify("KHÔNG TÌM THẤY", `Dữ liệu '${query}' không tồn tại trên chuỗi.`, "error");
+            }
+        }
+
+        function initCharts() {
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#8b949e', font: { size: 9 } }
+                    }
+                },
+                animation: { duration: 0 } // Tắt animation để mượt hơn khi update nhanh
+            };
+
+            const ctxHash = document.getElementById('hashrateChart').getContext('2d');
+            hashrateChart = new Chart(ctxHash, {
+                type: 'line',
+                data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#00f3ff', borderWidth: 2, fill: true, backgroundColor: 'rgba(0, 243, 255, 0.1)', tension: 0.4, pointRadius: 0 }] },
+                options: commonOptions
+            });
+
+            const ctxDiff = document.getElementById('difficultyChart').getContext('2d');
+            difficultyChart = new Chart(ctxDiff, {
+                type: 'bar',
+                data: { labels: Array(20).fill(''), datasets: [{ data: Array(20).fill(0), backgroundColor: 'rgba(0, 255, 163, 0.4)', borderColor: '#00ffa3', borderWidth: 1 }] },
+                options: { ...commonOptions, plugins: { title: { display: true, text: 'ĐỘ KHÓ KHỐI', color: '#00ffa3', font: { size: 10 } } } }
+            });
+
+            const ctxTime = document.getElementById('blockTimeChart').getContext('2d');
+            blockTimeChart = new Chart(ctxTime, {
+                type: 'line',
+                data: { labels: Array(20).fill(''), datasets: [{ data: Array(20).fill(0), borderColor: '#ffaa00', borderWidth: 2, tension: 0.3, pointRadius: 2 }] },
+                options: { ...commonOptions, plugins: { title: { display: true, text: 'THỜI GIAN KHỐI (GIÂY)', color: '#ffaa00', font: { size: 10 } } } }
+            });
+        }
+
+        function updateCharts() {
+            if (!hashrateChart) return;
+            const rate = parseFloat(document.getElementById('dash-hashrate').innerText);
+            hashrateChart.data.datasets[0].data.push(rate);
+            hashrateChart.data.datasets[0].data.shift();
+            hashrateChart.update();
+        }
+
+        function updateExplorerCharts(blocks) {
+            if (!difficultyChart || !blocks || blocks.length < 2) return;
+            
+            const lastBlocks = blocks.slice(0, 20).reverse();
+            
+            // Cập nhật Difficulty Chart (Dùng prefix hex để tính toán tương đối)
+            difficultyChart.data.labels = lastBlocks.map(b => `#${b.height}`);
+            difficultyChart.data.datasets[0].data = lastBlocks.map(b => {
+                // Parse hex difficulty (ví dụ 4 byte đầu)
+                return parseInt(b.difficulty.substring(0, 8), 16);
+            });
+            difficultyChart.update();
+
+            // Cập nhật Block Time Chart
+            const blockTimes = [];
+            for (let i = 1; i < lastBlocks.length; i++) {
+                blockTimes.push(lastBlocks[i].timestamp - lastBlocks[i-1].timestamp);
+            }
+            blockTimeChart.data.labels = lastBlocks.slice(1).map(b => `#${b.height}`);
+            blockTimeChart.data.datasets[0].data = blockTimes;
+            blockTimeChart.update();
+        }
+
+        async function confirmSend() {
+            const to = document.getElementById('send-to').value;
+            const amount = parseFloat(document.getElementById('send-amount').value);
+            if (!to || amount <= 0) return;
+            try {
+                const res = await fetch('/api/v1/send_tx', {
+                    method: 'POST',
+                    body: JSON.stringify({ version: 1, receiver: to, amount: Math.floor(amount * 100000000) })
+                }).then(r => r.json());
+                if (res.status === "Success") {
+                    notify("notif_tx_success", `Broadcasted ${amount} BTC_Z to ${to.substring(0, 10)}...`, "success");
+                    document.getElementById('tx-tracker-container').innerHTML = `<div class="coin-id-box"><div style="margin-bottom:5px;">${i18n[lang].bad_temp} (0/5)</div><small style="opacity:0.6;">Dest: ${to.substring(0, 20)}...</small></div>`;
+                } else {
+                    notify("notif_tx_fail", res.message || "Unknown error", "error");
+                }
+            } catch (e) { notify("notif_tx_fail", "Connection to node lost.", "error"); }
+        }
+
+        async function toggleMiner() { 
+            const status = await fetch('/api/v1/status').then(r => r.json());
+            if (status.uptime_seconds < 60) {
+                notify("❌ LỖI", `Hệ thống đang quét mạng (Radar Scan). Vui lòng đợi ${60 - status.uptime_seconds} giây.`, "error");
+                return;
+            }
+            await fetch('/api/v1/miner/toggle', { method: 'POST' }); 
+            pollStatus(); 
+        }
+
+        function verifyIntegrity() { notify("integrity_ok", i18n[lang].integrity_ok, "success"); }
+
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); 
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                item.classList.add('active'); 
+                document.getElementById('tab-' + item.dataset.tab).classList.add('active');
+            });
+        });
+
+        // INIT
+        setLang(lang); 
+        initCharts();
+        pollStatus(); 
+        setInterval(pollStatus, 4000);
+        
+        if (walletAddress) document.getElementById('wallet-dashboard').style.display = 'block';
+        else {
+            document.getElementById('wallet-auth-container').innerHTML = `<div class="card" style="text-align:center;"><h2>${i18n[lang].nav_wallet}</h2><p style='color:var(--text-secondary); margin-bottom:1rem;'>Bạn chưa có ví đặc nhiệm trên trình duyệt này.</p><button class="btn btn-primary" onclick="localStorage.setItem('wallet_addr', '0x' + Array(64).fill(0).map(()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('')); location.reload();">GENERATE NEW WALLET</button></div>`;
+        }
+    </script>
+</body>
+</html>
+</body>
+</html>

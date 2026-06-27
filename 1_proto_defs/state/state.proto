@@ -1,0 +1,26 @@
+/**
+ * @file state.proto
+ * @brief Định nghĩa cấu trúc Trạng thái (State) YonaCode V1.0 Tối Giản.
+ * @details Quản lý tài khoản theo mô hình Account-based kết hợp Coin ID để nén dữ liệu.
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo) - YonaCode V1.0
+ * @date 2026-03-24
+ */
+
+syntax = "proto3";
+
+package btc_genz.state;
+
+import "common/common.proto";
+
+option go_package = "btc_genz/proto";
+
+// Trạng thái Tài khoản (Account State) V1.0
+message AccountState {
+    btc_genz.common.Address address = 1;
+    uint64 total_btc_z = 2;   // Tổng số dư BTC_Z (VNT)
+    uint64 nonce = 3;         // Nonce giao dịch cuối cùng
+    
+    // Các trường cũ (M-Coin, GZG, CoinID, SCP) bị loại bỏ
+    reserved 4 to 10;
+}

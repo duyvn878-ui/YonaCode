@@ -1,0 +1,89 @@
+/**
+ * @file consensus.proto
+ * @brief Định nghĩa các tham số đồng thuận và cấu hình mạng lưới YonaCode.
+ * @details Chứa các hằng số về thời gian khối, phần thưởng, và các quy tắc khóa (Lock-up).
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo)
+ * @date 2026-03-18
+ */
+
+syntax = "proto3";
+
+package btc_genz.consensus;
+
+import "block/block.proto";
+
+option go_package = "btc_genz/proto";
+
+// Cấu hình tham số đồng thuận
+message ConsensusParams {
+    uint32 target_block_time = 1;
+    uint32 difficulty_adjustment_interval = 2;
+    uint32 reward_lockup_period = 3;
+    uint32 mempool_nano_reset_interval = 4;
+    uint32 max_block_size = 5;
+    reserved 6;
+}
+
+// [ENGINE API V2] Nhiệm vụ khai thác (Black Box)
+// Go gửi gói này sang Rust để bắt đầu băm mà không cần callback
+message MiningTask {
+    btc_genz.block.BlockHeader header = 1;
+    uint32 threads = 2;
+    uint32 intensity = 3; // 0-100
+    uint64 session_id = 4; // [V5.3] Nhận diện phiên từ Go
+}
+
+// [ENGINE API V2] Kết quả khai thác
+message MiningResult {
+    uint64 nonce = 1;
+    bytes block_hash = 2;
+    bool success = 3;
+    uint64 session_id = 4; // [V5.3] Gắn thẻ phiên để tránh "râu ông nọ cắm cằm bà kia"
+}
+
+message BlockExecutionRequest {
+    bytes block_body_raw = 1; 
+    bytes miner_address = 2; 
+    uint64 height = 3;
+    uint64 nonce = 4;
+    reserved 5;
+}
+
+// [SYNC-V4] Giao thức đồng bộ tập trung tại Rust Core
+message SyncChainRequest {
+    repeated bytes blocks_raw = 1; // Danh sách các khối liên tiếp nhận được từ mạng
+}
+
+message SyncInstruction {
+    enum Strategy {
+        CONTINUE = 0;      // Tiếp tục tải khối tiếp theo
+        BACKTRACK = 1;     // Lùi lại để tìm điểm chung (Healing)
+        STALL = 2;         // Tạm dừng (Chờ Peer hoặc trạng thái khác)
+        DEEP_RECOVERY = 3; // Lỗi nghiêm trọng, cần xóa đệm và làm mới
+    }
+    Strategy strategy = 1;
+    uint64 start_height = 2; // Cao độ bắt đầu tải (nếu lùi)
+    uint64 end_height = 3;   // Cao độ kết thúc tải
+}
+
+message SyncChainResponse {
+    enum Status {
+        ACCEPTED = 0;
+        REORG_SUCCESS = 1;
+        INVALID_CHAIN = 2;
+        ORPHAN = 3;
+        INTERNAL_ERROR = 4; // [VANGUARD-FIX] Thêm mã trạng thái cho Lỗi Cục Bộ (DB hỏng/bad sector)
+    }
+    Status status = 1;
+    uint64 new_height = 2;
+    uint64 fork_point = 3;
+    repeated bytes orphaned_tx_hashes = 4; // Các giao dịch cần trả lại Mempool
+    repeated bytes orphaned_txs_raw = 6;    // Dữ liệu thô để nạp lại Mempool
+    string error_msg = 5;
+    string missing_parent_hash = 7; // [VANGUARD-ORPHAN] Mã băm của khối cha bị thiếu để Go đi tìm
+    SyncInstruction instruction = 8; // [VANGUARD-COMMAND] Lệnh chiến thuật từ Rust Core
+}
+
+// [CLEANUP V1.0] PoWBatchVerifyRequest (116 slots) đã bị loại bỏ.
+// Thay vào đó sử dụng xác thực PoW đơn điểm trực tiếp qua UniFFI verify_pow.

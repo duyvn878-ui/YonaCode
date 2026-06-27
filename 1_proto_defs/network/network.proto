@@ -1,0 +1,154 @@
+/**
+ * @file network.proto
+ * @brief Định nghĩa các giao thức truyền tải mạng P2P và RPC.
+ * @details Chứa các bản tin dùng cho Gossipsub (phát sóng khối/tx) 
+ * và các yêu cầu RPC (GetBlock, Handshake). 
+ * Đảm bảo sự đồng bộ hóa tức thời giữa các Node trong mạng lưới.
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo)
+ * @date 2026-03-18
+ */
+
+syntax = "proto3";
+
+package btc_genz.network;
+
+import "block/block.proto";
+import "transaction/transaction.proto";
+import "common/common.proto";
+
+option go_package = "btc_genz/proto";
+
+// [V4.30] CÔNG NGHIỆP HÓA: Blockchain gRPC Service
+service BlockchainService {
+    // Truy vấn dữ liệu khối
+    rpc GetBlock(GetBlockRequest) returns (GetBlockResponse);
+
+    // [V5.0] Truy vấn hàng loạt Header (Batch Sync)
+    rpc GetHeaderBatch(GetHeaderBatchRequest) returns (GetHeaderBatchResponse);
+    
+    // Gửi giao dịch mới vào Mempool
+    rpc SubmitTransaction(btc_genz.transaction.Transaction) returns (btc_genz.common.Hash);
+
+    // [V11.0.3] Truy vấn trạng thái vận hành của Node (S#5 FIX)
+    rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+    // [Audit S3 FIX] Truy vấn số dư và Nonce thực tế của tài khoản
+    rpc GetAccount(GetAccountRequest) returns (AccountResponse);
+
+    // Tính toán mã Hash của Header khối (Dùng cho ký giao dịch)
+    rpc CalculateBlockHeaderHash(RawBytes) returns (btc_genz.common.Hash);
+
+    // [MINING] Điều khiển khai thác từ xa
+    rpc StartMining(StartMiningRequest) returns (MiningResponse);
+    rpc StopMining(StopMiningRequest) returns (MiningResponse);
+}
+
+// Dòng dữ liệu thô
+message RawBytes {
+    bytes data = 1;
+}
+
+// Yêu cầu lấy trạng thái tài khoản
+message GetAccountRequest {
+    bytes address = 1;
+}
+
+// Phản hồi trạng thái tài khoản (S3 Fix)
+message AccountResponse {
+    uint64 balance = 1;
+    uint64 nonce = 2;
+    bytes address = 3;
+}
+
+// Tin nhắn phát sóng Khối mới (Gossipsub)
+message NewBlockMsg {
+    btc_genz.block.Block block = 1;
+}
+
+// Tin nhắn phát sóng Giao dịch mới
+message NewTxMsg {
+    btc_genz.transaction.Transaction tx = 1;
+}
+
+// [V1.0 MINIMALIST] Tin nhắn phát sóng thông báo Khối mới (Inventory)
+message InventoryMsg {
+    uint64 height = 1;
+    string hash = 2;
+}
+
+// [ĐẶC TẢ 22/3] NewReinforcementMsg đã bị loại bỏ
+
+// Yêu cầu lấy dữ liệu khối theo chiều cao
+message GetBlockRequest {
+    uint64 height = 1;
+    bytes hash = 2; // [VANGUARD-ORPHAN] Yêu cầu theo mã băm để giải quyết mồ côi
+}
+
+// Phản hồi dữ liệu khối
+message GetBlockResponse {
+    btc_genz.block.Block block = 1;
+    bool found = 2;
+}
+
+// Tin nhắn bắt tay (Handshake)
+message Handshake {
+    string version = 1;
+    bytes genesis_hash = 2;
+    uint64 current_height = 3;
+    uint64 timestamp = 4;
+    uint64 finalized_height = 5; // [V38.2] Điểm chốt Snapshot gần nhất (Checkpoint)
+    uint64 oldest_height = 6;    // [V38.3] Khối cũ nhất còn tồn tại trên đĩa (Sau Purge)
+    uint32 nat_status = 7;       // [NAT-AUDIT] Trạng thái NAT: 0=Chưa xác định, 1=Public (mở tường lửa), 2=Private (đằng sau NAT)
+}
+
+
+
+// [V4.11] Tin nhắn Chứng chỉ Vệ binh (Voluntary Sentinel Certificate)
+message SentinelCertificateMsg {
+    bytes node_id = 1;         // 32 bytes
+    uint64 start_block = 2;
+    bytes challenge = 3;
+    uint64 t_iterations = 4;
+    bytes solution = 5;
+    bytes signature = 6;       // 64 bytes
+}
+// [V5.0] Yêu cầu lấy hàng loạt Header (Batch Sync)
+message GetHeaderBatchRequest {
+    uint64 start_height = 1;
+    uint32 count = 2;
+}
+
+message GetHeaderBatchResponse {
+    repeated bytes headers = 1; // Danh sách các Header đã nén (Serialized)
+}
+
+// [V11.0.3] Yêu cầu trạng thái Node (S#5 FIX)
+message GetStatusRequest {}
+
+// [V11.0.3] Phản hồi trạng thái Node (S#5 FIX)
+message GetStatusResponse {
+    uint64 current_height = 1;
+    uint64 finalized_height = 2;
+    uint64 hashrate = 3;
+    bool is_mining = 4;
+    string version = 5;
+    uint32 peer_count = 6;
+    uint32 difficulty = 7;
+    uint64 oldest_height = 8; // [V38.3] Ranh giới dữ liệu thực tế
+}
+
+// [MINING] Yêu cầu bắt đầu đào
+message StartMiningRequest {
+    string miner_address = 1;
+    uint32 threads = 2;
+}
+
+// [MINING] Yêu cầu dừng đào
+message StopMiningRequest {}
+
+// [MINING] Phản hồi kết quả điều khiển
+message MiningResponse {
+    bool success = 1;
+    string message = 2;
+}

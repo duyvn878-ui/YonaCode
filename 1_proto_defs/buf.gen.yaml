@@ -1,0 +1,18 @@
+version: v1
+managed:
+  enabled: false
+plugins:
+  - plugin: buf.build/protocolbuffers/go
+    out: ./proto_gen/go
+    opt:
+      - module=btc_genz/proto
+  - plugin: buf.build/grpc/go
+    out: ./proto_gen/go
+    opt:
+      - module=btc_genz/proto
+      - require_unimplemented_servers=false
+  - plugin: go-vtproto
+    out: ./proto_gen/go
+    opt:
+      - module=btc_genz/proto
+      - features=marshal+unmarshal+size

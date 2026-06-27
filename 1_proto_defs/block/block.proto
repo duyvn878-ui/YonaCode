@@ -1,0 +1,67 @@
+/**
+ * @file block.proto
+ * @brief Định nghĩa cấu trúc Khối (Block) trong YonaCode.
+ * @details Cấu trúc bao gồm:
+ *  - BlockHeader: Chứa ParentHash, StateRoot và PoW Nonce GPU-Centric.
+ *  - BlockBody: Chứa các giao dịch (có thể cắt tỉa sau 24h).
+ * Đây là đơn vị lưu trữ cơ bản của sổ cái phi tập trung.
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo)
+ * @date 2026-03-18
+ */
+
+syntax = "proto3";
+
+package btc_genz.block;
+
+import "common/common.proto";
+import "transaction/transaction.proto";
+
+option go_package = "btc_genz/proto";
+
+// Tiêu đề khối (Block Header) - Lưu trữ vĩnh viễn
+message BlockHeader {
+    uint64 version = 1;
+    uint64 height = 2;
+    btc_genz.common.Hash parent_hash = 3;
+    btc_genz.common.Hash state_root = 4;      // Gốc cây trạng thái (SMT)
+    btc_genz.common.Hash tx_root = 5;         // Gốc cây giao dịch (Merkle Tree)
+    uint64 timestamp = 6;
+    bytes difficulty = 7;                   // Độ khó mục tiêu (256-bit U256)
+    fixed64 nonce = 8;                         // Đáp án PoW (Single Winner)
+    btc_genz.common.Address miner_address = 9; // Địa chỉ thợ đào nhận thưởng
+    bytes absolute_weight = 10;              // [BATCH 18] Tổng trọng số tích lũy (u128 - Fork Resolution)
+    string manifesto = 12;                   // [V1.0.3-GENESIS] Tuyên ngôn GenZ (Ghi chú lịch sử)
+    reserved 11, 13, 14, 15, 16;                 // [CLEANUP V1.0] ZK-Proof, DAG, PoWProof, VRF
+}
+
+// Thân khối (Block Body) - Có thể bị cắt tỉa (Pruning) sau 24h
+message BlockBody {
+    repeated btc_genz.transaction.Transaction transactions = 1;
+    reserved 2, 3, 4; // [ĐẶC TẢ 22/3] Đã loại bỏ reinforcements, honorary_nonces, và zk_keystone_proof (Moved to Header)
+}
+
+// Cấu trúc Khối đầy đủ
+message Block {
+    BlockHeader header = 1;
+    BlockBody body = 2;
+}
+
+// [V1.0 FINAL] Cấu trúc Khối Rút gọn (Compact Block Propagation)
+// Tối ưu hóa lan truyền mạng bằng việc lắp ráp khối tại chỗ (Local Reconstruction).
+message CompactBlock {
+    BlockHeader header = 1;
+    btc_genz.transaction.Transaction coinbase_tx = 2; // Giao dịch thưởng luôn được gửi kèm
+    repeated uint64 short_ids = 3;                   // Danh sách ID rút gọn của các tx khác trong Mempool
+}
+
+// Yêu cầu phần giao dịch thiếu hụt khi lắp ráp khối Compact
+message GetBlockTxn {
+    bytes block_hash = 1;
+    repeated uint32 missing_indexes = 2;
+}
+
+// Phản hồi các giao dịch thiếu hụt cho Node nhận
+message BlockTxn {
+    repeated btc_genz.transaction.Transaction transactions = 1;
+}

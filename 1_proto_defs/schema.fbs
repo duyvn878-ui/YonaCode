@@ -1,0 +1,32 @@
+namespace btc_genz;
+
+enum TxType : uint32 {
+    NORMAL = 0,
+    ANONYMOUS = 1,
+    STAKING = 2,
+    GOVERNANCE = 3,
+    COINBASE = 5
+}
+
+table Transaction {
+    sender: [ubyte:32];
+    receiver: [ubyte:32];
+    amount: uint64;
+    fee: uint64;
+    nonce: uint64;
+    currency: uint32;
+    tx_type: TxType;
+    session_id: uint64;
+    payload: [ubyte];
+    signature: [ubyte:64];
+}
+
+table Block {
+    prev_hash: [ubyte:32];
+    transactions: [Transaction];
+    state_root: [ubyte:32];
+    timestamp: uint64;
+    difficulty: uint32;
+}
+
+root_type Block;

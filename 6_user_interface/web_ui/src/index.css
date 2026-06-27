@@ -1,0 +1,486 @@
+/**
+ * @file index.css
+ * @brief Hệ thống thiết kế BTC GenZ V2.0 — Finality UI Edition
+ * @tính_năng:
+ *   - Finality Lock animation: Hiệu ứng khóa xanh khi giao dịch đạt BẤT BIẾN
+ *   - Countdown Pulse: Nhịp đập cho số đếm ngược khối
+ *   - Shake Warning: Rung lắc cảnh báo giao dịch nano-dust spam
+ *   - 5-Step Progress: Visualization 5 bước xác nhận khối
+ *   - Spin Slow: Xoay chậm cho icon chờ xác nhận
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-accent-blue: #0088ff;
+  --color-accent-green: #00f294;
+  --color-accent-amber: #ff9f0a;
+  --color-accent-red: #ff3b30;
+  --color-accent-diamond: #b9f2ff;
+  --color-accent-gold: #ffcf40;
+  --color-matrix-black: #040506;
+  --color-bg-primary: #040506;
+  --color-bg-secondary: #0a0c0e;
+  --color-bg-tertiary: #101214;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #52525b;
+  --color-border-dim: rgba(255, 255, 255, 0.05);
+}
+
+:root {
+  --bg-home: #040506;
+  --bg-primary: #040506;
+  --bg-secondary: #0a0c0e;
+  --bg-tertiary: #101214;
+  
+  --accent-amber: #ff9f0a;
+  --accent-blue: #0088ff;
+  --accent-red: #ff3b30;
+  --accent-green: #00f294;
+  --accent-diamond: #b9f2ff;
+  --accent-gold: #ffcf40;
+  
+  --sidebar-width: 220px;
+  --header-height: 80px;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  
+  --border-dim: rgba(255, 255, 255, 0.05);
+  --radius-xl: 32px;
+  --transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-home);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.glass-card {
+  background: rgba(12, 14, 18, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  /* Giải phóng hoàn toàn V6.2 */
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border-dim);
+  padding: 40px 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000; /* Luôn nổi trên các dải hash nền */
+  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.main-wrapper {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  background: #040506; /* Màu đen chuẩn để làm nổi bật Neon Blue */
+  position: relative;
+  min-height: 100vh;
+}
+
+.glass-header {
+  height: var(--header-height);
+  background: rgba(4, 5, 6, 0.7);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  position: sticky;
+  top: 0;
+  z-index: 900;
+}
+
+/* Navigation Menu Items */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 32px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  transition: var(--transition);
+  cursor: pointer;
+  opacity: 0.8; /* Tăng độ sáng để tăng độ tương phản của menu không active */
+}
+
+.menu-item:hover, .menu-item.active {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.menu-item.active {
+  background: linear-gradient(90deg, rgba(0, 136, 255, 0.1) 0%, transparent 100%);
+  border-right: 4px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+/* Tactical Labels and Badges */
+.tactical-label {
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  color: var(--text-muted);
+}
+
+/* Vanguard Invariant Layout System (VILS) - V6.0 Flexible */
+.vanguard-flex-v {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vanguard-flex-h {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+
+.vanguard-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.vanguard-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 32px; /* Tăng khoảng cách 2 panel chính */
+}
+
+.vanguard-panel-header {
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+}
+
+.vanguard-gap-large { gap: 40px !important; }
+.vanguard-gap-medium { gap: 24px !important; }
+.vanguard-gap-small { gap: 12px !important; }
+.vanguard-gap-tiny { gap: 4px !important; }
+
+/* Custom Neon Status Pills (Appendix D) */
+.status-pill {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================================
+ * FINALITY UI ANIMATIONS (V2.0 - No-Day-Sky Rule of 5)
+ * ============================================================================ */
+
+/* Neon Pulse — Hiệu ứng phát sáng khi đạt trạng thái BẤT BIẾN */
+@keyframes pulse-neon {
+  0% { box-shadow: 0 0 5px var(--accent-green); }
+  50% { box-shadow: 0 0 20px var(--accent-green); }
+  100% { box-shadow: 0 0 5px var(--accent-green); }
+}
+
+.animate-neon {
+  animation: pulse-neon 2s infinite ease-in-out;
+}
+
+/* Finality Lock — Animation khóa xanh khi giao dịch đạt 5/5 xác nhận */
+@keyframes finality-lock {
+  0% { transform: scale(1); opacity: 0.8; }
+  30% { transform: scale(1.3); opacity: 1; }
+  50% { transform: scale(0.95); }
+  70% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes finality-glow {
+  0% { box-shadow: 0 0 0px rgba(0, 242, 148, 0); }
+  50% { box-shadow: 0 0 40px rgba(0, 242, 148, 0.4), 0 0 80px rgba(0, 242, 148, 0.15); }
+  100% { box-shadow: 0 0 20px rgba(0, 242, 148, 0.2); }
+}
+
+.animate-finality-lock {
+  animation: finality-lock 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-finality-glow {
+  animation: finality-glow 1.5s ease-out forwards;
+}
+
+/* Countdown Pulse — Nhịp đập cho số đếm ngược khối */
+@keyframes countdown-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.animate-countdown {
+  animation: countdown-pulse 1.5s infinite ease-in-out;
+}
+
+/* Confirmation Step Glow — Hiệu ứng sáng cho mỗi bước xác nhận */
+@keyframes step-activate {
+  0% { transform: scale(0); opacity: 0; background: transparent; }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.finality-step {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--text-muted);
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+}
+
+.finality-step.confirmed {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  background: rgba(0, 242, 148, 0.1);
+  box-shadow: 0 0 12px rgba(0, 242, 148, 0.3);
+}
+
+.finality-step.confirmed .step-inner {
+  animation: step-activate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.finality-step.pending {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  background: rgba(255, 159, 10, 0.05);
+}
+
+.finality-step.waiting {
+  border-color: var(--border-dim);
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+/* Connector Line giữa các Step */
+.finality-connector {
+  height: 2px;
+  flex: 1;
+  background: var(--border-dim);
+  transition: background 0.5s ease;
+}
+
+.finality-connector.active {
+  background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-green) 100%);
+  box-shadow: 0 0 8px rgba(0, 242, 148, 0.3);
+}
+
+.finality-connector.pending-active {
+  background: linear-gradient(90deg, var(--accent-amber) 0%, var(--accent-amber) 100%);
+  box-shadow: 0 0 6px rgba(255, 159, 10, 0.2);
+}
+
+/* Shake Warning — Rung lắc cảnh báo giao dịch nano-dust spam */
+@keyframes shake-warning {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake-warning 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Spin Slow — Xoay chậm cho icon chờ */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Breathe — Hiệu ứng thở nhẹ */
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Coin ID Badge Styling */
+.coin-id-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(0, 136, 255, 0.08);
+  border: 1px solid rgba(0, 136, 255, 0.15);
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent-blue);
+}
+
+/* Fee Formula Display */
+.fee-formula {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--accent-amber);
+}
+
+/* ============================================================================
+ * TACTICAL HOLOGRAM UI (V5.0 - Premium Commander Edition)
+ * ============================================================================ */
+
+/* 3D Rotate-Y — Quả địa cầu quay theo trục không gian Y */
+@keyframes rotate-y {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+
+.animate-rotate-y {
+  animation: rotate-y 6s linear infinite;
+  transform-style: preserve-3d;
+}
+
+/* Hologram Shimmer — Hiệu ứng quét tia laser */
+@keyframes hologram-shimmer {
+  0% { transform: translateX(-100%) skewX(-15deg); opacity: 0; }
+  50% { opacity: 0.5; }
+  100% { transform: translateX(200%) skewX(-15deg); opacity: 0; }
+}
+
+.hologram-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(0, 136, 255, 0.4), transparent);
+  animation: hologram-shimmer 3s infinite;
+  pointer-events: none;
+}
+
+/* Active Glow Layer */
+.active-glow-v5 {
+  box-shadow: 0 0 30px rgba(0, 136, 255, 0.5), 
+              inset 0 0 15px rgba(0, 136, 255, 0.2);
+  border-color: rgba(0, 136, 255, 0.8) !important;
+}
+
+/* Floating Globe Aura */
+.globe-aura {
+  filter: drop-shadow(0 0 8px rgba(0, 136, 255, 0.6));
+}
+
+/* Custom Scrollbar for Pro interface */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-dim);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Custom Scrollbar for Transaction List */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 136, 255, 0.2);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 136, 255, 0.4);
+}
+
+/* ============================================================================
+ * VILS (Vanguard Invariant Layout System) — KHÔI PHỤC V6.3
+ * ============================================================================ */
+
+.vanguard-flex-v {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.vanguard-flex-h {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
+.vanguard-gap-tiny { gap: 8px !important; }
+.vanguard-gap-small { gap: 16px !important; }
+.vanguard-gap-medium { gap: 24px !important; }
+.vanguard-gap-large { gap: 40px !important; }
+
+.vanguard-panel-header {
+  padding: 24px 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin: -32px -32px 32px -32px;
+  border-radius: 28px 28px 0 0;
+}
+
+.mono { font-family: 'Courier New', monospace; }
+
+/* Dashboard Sector Wrappers */
+.dashboard-sector {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  height: 100%;
+  min-height: 700px;
+}

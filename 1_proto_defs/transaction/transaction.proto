@@ -1,0 +1,45 @@
+/**
+ * @file transaction.proto
+ * @brief Định nghĩa cấu trúc giao dịch YonaCode V1.0 Tối Giản.
+ * @details Loại bỏ hoàn toàn các thực thể phức tạp (M-Coin, Betting, Anonymous).
+ * Tập trung vào hiệu năng và tính minh bạch tuyệt đối của BTC_Z.
+ * 
+ * @author Vô Nhật Thiên (Khởi tạo) - YonaCode V1.0
+ * @date 2026-03-24
+ */
+
+syntax = "proto3";
+
+package btc_genz.transaction;
+
+import "common/common.proto";
+
+option go_package = "btc_genz/proto";
+
+// Loại tiền tệ duy nhất trong hệ thống V1.0
+enum CurrencyType {
+    BTC_Z = 0;
+}
+
+// Giao dịch chuẩn cho V1.0
+message Transaction {
+    uint64 version = 1;
+    btc_genz.common.Address sender = 2;
+    btc_genz.common.Address receiver = 3;
+    uint64 amount = 4;        // Đơn vị: VNT (1 BTC_Z = 10^8 VNT)
+    uint64 fee = 5;           // Phí giao dịch cố định/lũy tiến
+    uint64 nonce = 6;         // Chống replay attack
+    reserved 7;               // [CLEANUP V1.0] CurrencyType (BTC_Z is default)
+    uint64 timestamp = 8;
+    bytes recent_block_hash = 9; // Chống Replay Attack sâu
+    btc_genz.common.Signature signature = 10;
+    uint64 chain_id = 11; // Định danh mạng (Mainnet: 25062025) - Chống Replay Attack
+
+    // Các trường cũ liên quan đến Cá cược và Ẩn danh bị loại bỏ
+    reserved 12 to 20;
+}
+
+// Danh sách giao dịch trong một khối 20MB
+message TransactionList {
+    repeated Transaction transactions = 1;
+}
