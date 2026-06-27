@@ -646,7 +646,13 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 					if len(currentPeers) < 3 {
 						log.Printf("[P2P-RECONNECT] 🚑 Phát hiện số peer quá thấp (%d/100). Bắt đầu kích hoạt cơ chế tự phục hồi kết nối...", len(currentPeers))
 					}
-					for _, p := range peers {
+					
+					// [TỐI ƯU KẾT NỐI] Gộp IP cứng VPS và danh sách peers CLI vào chung mảng cứu hộ
+					var allRescuePeers []string
+					allRescuePeers = append(allRescuePeers, peers...) // Các peer chỉ định qua CLI
+					allRescuePeers = append(allRescuePeers, node_p2p.BootstrapPeers...) // Các IP cứng VPS
+					
+					for _, p := range allRescuePeers {
 						if p == "" {
 							continue
 						}
