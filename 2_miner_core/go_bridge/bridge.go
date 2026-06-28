@@ -505,8 +505,24 @@ func (b *Bridge) ensureSclServer(port int) error {
 	log.Printf("[BRIDGE] 🚀 Khởi chạy SCL Server: %s %v", serverPath, args)
 
 	// [SECURITY-HARDENING] Ghi trực tiếp log của SCL Server ra console và file log
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = io.MultiWriter(os.Stderr, log.Writer())
+	if os.Getenv("SCL_LOG_TO_FILE") == "true" {
+		logDir := "node"
+		if b.dbPath != "" {
+			logDir = b.dbPath
+		}
+		os.MkdirAll(logDir, 0755)
+		logFile, err := os.OpenFile(filepath.Join(logDir, "scl_server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err == nil {
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
+		} else {
+			cmd.Stdout = io.Discard
+			cmd.Stderr = io.Discard
+		}
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = io.MultiWriter(os.Stderr, log.Writer())
+	}
 
 	// [VANGUARD-FIX] Kế thừa môi trường OS và bơm Token bảo mật trực tiếp cho Rust Core nhận
 	env := append(os.Environ(), "RUST_LOG=info")
