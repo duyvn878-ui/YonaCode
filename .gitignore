@@ -1,0 +1,98 @@
+# ====================================================================
+# BTC GenZ - FILE CẤU HÌNH GLOBAL GIT IGNORE CHUẨN BỊ CÔNG BỐ
+# ====================================================================
+
+# 1. Output Biên Dịch & Thư Viện Liên Kết (Build Artifacts)
+# --------------------------------------------------------------------
+/bin/
+/dist/
+/bbuild/
+/zip/
+**/target/
+**/target_new/
+**/node_modules/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.rlib
+*.pdb
+*.lib
+*.a
+*.o
+*.obj
+
+# 2. Cơ Sở Dữ Liệu & Khối Cổ (Blockchain Ledger Data)
+# --------------------------------------------------------------------
+# Tuyệt đối không đẩy cơ sở dữ liệu và dữ liệu ví lên Git
+**/data/
+**/data*/
+/node/data/
+/node/data*/
+**/test_db/
+**/test_data/
+**/scl/
+**/wallets/
+**/snapshots/
+
+# 3. Thông Tin Nhạy Cảm & Khóa Bảo Mật (Secrets & Private Keys)
+# --------------------------------------------------------------------
+# Ngăn chặn rò rỉ Private Keys, Mnemonic và Token cấu hình Cloudflare
+.env
+.env.*
+*.key
+*.pem
+*.seed
+*.priv
+*.pub
+mnemonic.txt
+private_key.txt
+miner_addr.json
+seeder_token.txt
+*token*
+*secret*
+*.wsb
+*.bat
+
+# 4. Logs & Lịch Sử Giao Dịch UI (Logs & UI Tracking)
+# --------------------------------------------------------------------
+*.log
+**/audit_logs/
+**/security_audit.log
+ui_tx_history.json
+node_stdout.log
+node_stderr.log
+miner_stdout.log
+miner_stderr.log
+
+# 5. File Tạm & Scripts Kiểm Thử Nội Bộ (Scratchpads & Temp Files)
+# --------------------------------------------------------------------
+/tmp/
+**/scratch/
+/zip/
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+status.json
+calc.py
+spam_tx.py
+a.py
+/brain/
+.gemini/
+.agents/
+
+# 6. Cấu Hình IDE & Editor Cá Nhân (IDE & Editor Settings)
+# --------------------------------------------------------------------
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*~
+.DS_Store
+Thumbs.db

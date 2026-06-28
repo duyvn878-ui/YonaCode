@@ -1,0 +1,78 @@
+# ====================================================================
+# BTC GenZ - FILE CẤU HÌNH GIT IGNORE CHO KHO RIÊNG TƯ (PRIVATE DEV/PATCH)
+# ====================================================================
+
+# 1. Output Biên Dịch & Thư Viện Liên Kết (Build Artifacts)
+# --------------------------------------------------------------------
+/bin/
+/dist/
+/bbuild/
+/zip/
+**/target/
+**/node_modules/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.rlib
+*.pdb
+*.lib
+*.a
+*.o
+*.obj
+
+# 2. Cơ Sở Dữ Liệu & Khối Cổ (Blockchain Ledger Data)
+# --------------------------------------------------------------------
+# Vẫn phải chặn database và ví thực tế để tránh lộ thông tin nội bộ
+**/data/
+**/data*/
+/node/data/
+/node/data*/
+**/test_db/
+**/test_data/
+**/scl/
+**/wallets/
+**/snapshots/
+
+# 3. Thông Tin Nhạy Cảm & Khóa Bảo Mật (Secrets & Private Keys)
+# --------------------------------------------------------------------
+# CHẶN TUYỆT ĐỐI Private Keys, Mnemonic và cấu hình nhạy cảm thực tế
+.env
+.env.*
+*.key
+*.pem
+*.seed
+*.priv
+*.pub
+mnemonic.txt
+private_key.txt
+seeder_token.txt
+*token*
+*secret*
+
+# 4. Logs & Lịch Sử Giao Dịch UI (Logs & UI Tracking)
+# --------------------------------------------------------------------
+# Chặn các file log hệ thống phát sinh khi chạy node local
+*.log
+**/audit_logs/
+**/security_audit.log
+ui_tx_history.json
+node_stdout.log
+node_stderr.log
+miner_stdout.log
+miner_stderr.log
+
+# 5. File Tạm & IDEs (Temp Files)
+# --------------------------------------------------------------------
+/tmp/
+/brain/
+.gemini/
+.agents/
+.DS_Store
+Thumbs.db
+
+# --------------------------------------------------------------------
+# CHÚ Ý: Các file kịch bản kiểm thử (a.py, spam_tx.py, calc.py, các file vscode)
+# ĐƯỢC PHÉP lưu trữ ở kho riêng tư này để phục vụ công tác vá lỗi và dev nội bộ.
+# --------------------------------------------------------------------
