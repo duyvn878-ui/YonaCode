@@ -14,6 +14,8 @@ import (
 	"sort"
 
 	"google.golang.org/protobuf/proto"
+
+	"btc_genz/6_user_interface/i18n"
 )
 
 const (
@@ -280,7 +282,7 @@ func (m *Mempool) PerformCapacityEviction() {
 		}
 	}
 
-	P2PLog("[MEMPOOL-EVICTION] 🚮 Đã cắt bỏ %d giao dịch 'ngọn' để chống sập RAM.", len(toRemove))
+	P2PLog("[MEMPOOL-EVICTION] %s", i18n.T("log_mempool_eviction", len(toRemove)))
 }
 
 // PendingTxInfo: Thông tin giao dịch pending cho UI Tx Tracker
@@ -1613,7 +1615,7 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 
 	// In ra 1 dòng tổng kết duy nhất nếu có giao dịch rác bị từ chối để giám sát trạng thái mà không gây tải I/O.
 	if spamRejected > 0 {
-		log.Printf("[MEMPOOL-BUS] 🛑 Rust Core đã chém %d giao dịch spam/lỗi.", spamRejected)
+		log.Printf("[MEMPOOL-BUS] %s", i18n.T("log_mempool_spam_rejected", spamRejected))
 	}
 
 	if m.OnTxBatchValidated != nil {

@@ -1,0 +1,236 @@
+# 📖 YONACODE CLI & REPL COMMAND GUIDE
+
+This document provides a comprehensive reference for all CLI (Command Line Interface) commands and the interactive REPL shell of the **YonaCode Go Client (v1.0)**, used to operate, manage nodes, and process secure transactions.
+
+---
+
+## 🌐 GLOBAL FLAGS
+
+These flags can be appended to **any** command to override default execution settings:
+
+| Flag | Default Value | Description |
+| :--- | :--- | :--- |
+| `--node-addr` | `localhost:18080` | gRPC server address of the target Node. |
+| `--json` | `false` | Formats output in JSON instead of raw text. |
+| `--lang` | `vnm` | Choose display language for UI text and logs (`vnm` or `eng`). |
+| `--db-path` | `node` | Physical file path of the Node's RocksDB database. |
+
+---
+
+## 🖥️ 1. NODE MANAGEMENT COMMANDS (`yonacode node`)
+
+Used to launch, monitor state, connect to peers, and perform offline recovery tasks.
+
+### 🚀 Start Node Server
+```bash
+./yonacode node start [flags]
+# Or: ./yonacode node run
+```
+* **Description:** Launch the Node Server. If port configurations are omitted, the Node automatically scans and binds to available TCP ports.
+* **Supported Flags:**
+  * `--mining`: Automatically start CPU mining loop when node starts.
+  * `--reward-address`: Wallet address to receive block rewards (Coinbase).
+  * `--port`: HTTP port for running the Dashboard / Web UI.
+  * `--p2p-port`: Listening port for horizontal peer-to-peer connections.
+  * `--scl-port`: gRPC connection port to the Rust Core (`scl_server`).
+  * `--peers`: Pre-defined list of bootstrap IP/Multiaddrs to connect.
+  * `--sync-mode`: Initial sync strategy: `full` (ledger download) or `snap` (snapshot chaser).
+  * `--max-tx-per-block`: Hard limit on transaction capacity per block.
+  * `--write-log`: Enable flushing debug logs to the local storage.
+
+### 📊 Query Node Status Dashboard
+```bash
+./yonacode node status
+```
+* **Description:** Display a concise terminal dashboard representing current metrics: Current Block Height, Active Peer Connections count, and local CPU Hashrate.
+
+### ℹ️ Version Info
+```bash
+./yonacode node info
+```
+* **Description:** Show software version parameters (Vanguard Edition) and linked cryptographic libraries.
+
+### 📡 Force Connect Peer
+```bash
+./yonacode node connect <address>
+```
+* **Description:** Mandatorily instruct the Node to establish a connection to a specific peer multiaddr.
+
+### 🔧 Offline Recovery & Maintenance (`repair`)
+> [!CAUTION]
+> The Node Server must be **stopped** before running any `repair` subcommands to prevent RocksDB file lock issues and corruption.
+
+* **Rollback Chain History:**
+  ```bash
+  ./yonacode node repair rollback --target <height>
+  ```
+  * **Description:** Manually force the database to rollback to the specified block height to resolve bad forks or sync loops.
+* **Database Cleanup:**
+  ```bash
+  ./yonacode node repair cleanup --start <height> --end <height>
+  ```
+  * **Description:** Clean up orphaned and garbage ledger records within the specified block height range.
+* **Ledger Purification:**
+  ```bash
+  ./yonacode node repair purify
+  ```
+  * **Description:** Completely purge the JMT State Root storage and rebuild it from the canonical genesis block upward.
+* **State Resynchronization:**
+  ```bash
+  ./yonacode node repair resync --data-root <path>
+  ```
+  * **Description:** Resolve State Root divergence by reloading state data from a trusted source directory.
+
+---
+
+## 👛 2. WALLET MANAGEMENT COMMANDS (`yonacode wallet`)
+
+Used to generate keys, restore wallets, query balances, and process secure transfers.
+
+### ➕ Create a New Wallet
+```bash
+./yonacode wallet create --name <wallet_name> [flags]
+```
+* **Description:** Generate a secure wallet, outputting its public address and a 12-word recovery mnemonic seed phrase.
+* **Supported Flags:**
+  * `--password`: Define a PIN/password to encrypt local wallet keystore files.
+  * `--passphrase`: Optional 13th seed word for advanced security derivation index.
+
+### 🔄 Restore an Existing Wallet
+```bash
+./yonacode wallet restore --seed "<12_words>" --name <wallet_name> [flags]
+```
+* **Description:** Recover a wallet using standard BIP-39 mnemonic seed phrase.
+* **Supported Flags:** `--password`, `--passphrase`.
+
+### 📂 List Wallets
+```bash
+./yonacode wallet list
+```
+* **Description:** Scans local wallet storage directories and prints out names of all configured accounts.
+
+### 💰 Query Wallet Balance
+```bash
+./yonacode wallet balance --address <address>
+```
+* **Description:** Interrogate network state to retrieve current spendable coin balance (GO) and account Nonce.
+
+### 💸 Send Funds (Transfer GO)
+```bash
+./yonacode wallet send [flags]
+```
+* **Description:** Draft, sign, and broadcast a transaction. If run without parameters, CLI drops into a step-by-step **Guided UI** helper.
+* **Supported Flags:**
+  * `--from`: Local wallet name.
+  * `--to`: Recipient wallet address.
+  * `--amount`: Amount of GO to transfer.
+  * `--password`: Password to unlock private keys.
+  * `--yes`: Automate confirmation, skips double-check prompts.
+
+### ❌ Delete Wallet
+```bash
+./yonacode wallet delete --address <address>
+```
+* **Description:** Unregister the wallet by removing the local keystore file from the device (logout).
+
+---
+
+## ⛏️ 3. MINING OPERATIONS (`yonacode mine`)
+
+Adjust Proof of Work parameters on the CPU threads.
+
+### ⛏️ Start Miner
+```bash
+./yonacode mine start --reward-address <address> [flags]
+```
+* **Description:** Trigger the miner loop on CPU to solve blocks and direct rewards to the configured recipient address.
+* **Supported Flags:**
+  * `--threads`: Define maximum CPU cores allocated to hashing (Default: 4).
+
+### 🛑 Stop Miner
+```bash
+./yonacode mine stop
+```
+* **Description:** Instantly terminate local CPU mining loops, freeing up machine hardware resources.
+
+### 📈 Get Mining Status
+```bash
+./yonacode mine status
+```
+* **Description:** Check miner state (`ACTIVE` / `PAUSED`) and inspect current real-time Hashrate (KH/s or MH/s).
+
+---
+
+## 🔍 4. LEDGER RAW DATA QUERIES (`yonacode query`)
+
+Read database structures directly from the RocksDB backend. Works offline.
+
+> [!TIP]
+> You may use the universal `--path <db_path>` flag within this category to inspect alternate database folders.
+
+* **Inspect Block details:**
+  ```bash
+  ./yonacode query block <height_or_hash>
+  ```
+  * **Description:** Read and decode full block schemas (proposer, State Root, list of txs).
+* **Get Transaction details:**
+  ```bash
+  ./yonacode query tx <txid>
+  ```
+  * **Description:** Query a specific transaction by its ID (TxID) to view finality state and input/output values.
+* **Offline Balance Query:**
+  ```bash
+  ./yonacode query balance <address>
+  ```
+  * **Description:** Fallback directly to reading local RocksDB state files to check balances if Node Server is offline.
+* **Economic Audit:**
+  ```bash
+  ./yonacode query supply
+  ```
+  * **Description:** Audit the tokenomics by comparing the actual supply on DB against theoretical algorithmic curve to detect any inflation anomalies.
+* **Inspect Mempool:**
+  ```bash
+  ./yonacode query mempool
+  ```
+  * **Description:** List unconfirmed transactions currently queued for block proposing.
+* **Scan Non-zero Balances:**
+  ```bash
+  ./yonacode query scan
+  ```
+  * **Description:** Walk the entire database trie and print out all address keys holding a balance > 0.
+* **Get Database Headers:**
+  ```bash
+  ./yonacode query root
+  ```
+  * **Description:** Display the current state Merkle root hash and highest finalized database block height.
+
+---
+
+## 🛠️ 5. UTILITY COMMANDS (`yonacode util`)
+
+Static checking tools and helper utilities.
+
+* **Compute Blake3 Hash:**
+  ```bash
+  ./yonacode util hash <text_string>
+  ```
+  * **Description:** Computes and prints the raw Blake3 hash checksum of any plain text.
+* **Address Format Validation:**
+  ```bash
+  ./yonacode util validateaddress <address>
+  ```
+  * **Description:** Checks if a hex-encoded string matches format rules of a valid YonaCode public key (32 bytes).
+
+---
+
+## 💻 6. INTERACTIVE REPL SHELL
+
+If you double-click the `yonacode.exe` executable directly (or run `./yonacode` from command line with no subcommands or arguments), the terminal transitions into a REPL loop with a prompt: `cli_yona_code >`
+
+Inside this session, the following quick commands are recognized:
+
+* `help`: Prints command manual directory.
+* `status` (or `info`): Check Node Dashboard state.
+* `wallets`: Print out list of local wallet names.
+* `send`: Triggers the Guided Send transaction interface.
+* `exit` (or `quit`): Safely release RocksDB file locks, stop Node, and quit process.
