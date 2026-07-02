@@ -19,6 +19,7 @@ import (
 	"btc_genz/2_miner_core/go_bridge"
 	node_p2p "btc_genz/5_node_p2p"
 	user_interface "btc_genz/6_user_interface"
+	"btc_genz/6_user_interface/i18n"
 	"btc_genz/6_user_interface/internal"
 	pb_block "btc_genz/proto"
 
@@ -322,7 +323,7 @@ var nodeStartCmd = &cobra.Command{
 // --- LỆNH TRẠNG THÁI (NODE STATUS) ---
 var nodeStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "📊 " + internal.T("dashboard_title"),
+	Short: "📊 " + i18n.T("dashboard_title"),
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

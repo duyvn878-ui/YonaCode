@@ -22,6 +22,7 @@ import (
 	pb_consensus "btc_genz/proto"
 
 	"btc_genz/6_user_interface/audit"
+	"btc_genz/6_user_interface/i18n"
 	"btc_genz/6_user_interface/internal"
 
 	"github.com/fatih/color"
@@ -273,7 +274,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 	os.MkdirAll(walletsPath, 0700)
 	os.MkdirAll(snapshotsPath, 0700)
 
-	log.Printf("[NODE-STORAGE] 📂 Hạ tầng đã được chuẩn hóa tại: %s", absDbPath)
+	log.Printf("[NODE-STORAGE] %s", i18n.T("log_node_storage", absDbPath))
 	log.Printf("                ├── scl/        (Database Rust)")
 	log.Printf("                ├── wallets/    (Lịch sử ví)")
 	log.Printf("                └── snapshots/  (Bản sao trạng thái)")
@@ -380,7 +381,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 
 	// [VANGUARD-ID] Công bố địa chỉ P2P đầy đủ để các node khác kết nối
 	p2pAddr := fmt.Sprintf("%s/p2p/%s", sourceMultiAddr.String(), h.ID().String())
-	log.Printf("[P2P] 📡 Địa chỉ lắng nghe của Node: %s", p2pAddr)
+	log.Printf("[P2P] %s", i18n.T("log_p2p_listening", p2pAddr))
 	log.Printf("[SYNC-NETWORK] HostID: %s | Peers In Network: %d", h.ID().String(), len(h.Network().Peers()))
 
 	// [V38.3 NAT-PROFESSIONAL] Khởi động trình quản lý NAT chuyên sâu
@@ -472,7 +473,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 		addrs := h.Addrs()
 		for _, addr := range addrs {
 			if manet.IsPublicAddr(addr) {
-				log.Printf("[NAT-AUDIT] ✅ Phát hiện địa chỉ công cộng hoạt động: %s", addr)
+				log.Printf("[NAT-AUDIT] %s", i18n.T("log_nat_audit_public_detected", addr))
 			}
 		}
 	}()
@@ -710,7 +711,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 	go c.rpcSrv.Start()
 
 	log.Printf("[VANGUARD] ✅ Node đã sẵn sàng tại RPC Port %d | P2P %d", port, p2pPort)
-	log.Printf("[P2P] 📡 Địa chỉ lắng nghe của Node: %s", c.netMgr.GetAddress())
+	log.Printf("[P2P] %s", i18n.T("log_p2p_listening", c.netMgr.GetAddress()))
 
 	go c.minerLoop(ctx)
 
@@ -793,7 +794,7 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 				continue
 			}
 
-			log.Printf("[MINER-START] 🚀 Thợ đào đã vượt qua các chốt chặn. Bắt đầu chuẩn bị băm khối #%d...", app.bridge.GetCurrentVersion()+1)
+			log.Printf("[MINER-START] %s", i18n.T("log_miner_preparing", app.bridge.GetCurrentVersion()+1))
 
 			// Chuyển sang giai đoạn 2 nếu lần đầu tiên đạt trạng thái Synced
 			if !app.initialSyncComplete {
@@ -930,7 +931,7 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 				continue
 			}
 
-			log.Printf("[MINER-L1] 🎉 CHÚC MỪNG! Đã tìm thấy Khối #%d! Nonce: %d", capturedHeight, result.Nonce)
+			log.Printf("[MINER-L1] %s", i18n.T("log_miner_block_found", capturedHeight, result.Nonce))
 
 			// [V5.4] CHỐT CHẶN CUỐI CÙNG: Tuyệt đối không gọi BuildVanguardBlockTemplate lại!
 			// Tại sao: Việc gọi lại có thể sinh ra TxRoot khác nếu logic Rust không deterministic.

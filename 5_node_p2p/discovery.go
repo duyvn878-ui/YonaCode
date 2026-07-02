@@ -36,6 +36,8 @@ import (
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	madns "github.com/multiformats/go-multiaddr-dns"
+
+	"btc_genz/6_user_interface/i18n"
 )
 
 const DiscoveryServiceTag = "btc-genz-v13-net"
@@ -68,7 +70,7 @@ func InitDHT(ctx context.Context, h host.Host) (*kaddht.IpfsDHT, error) {
 				cancel()
 				
 				if err == nil {
-					log.Printf("[P2P-BOOTSTRAP] ✅ Kết nối IP Hạt giống %s thành công ngay lập tức!", pi.ID.String()[:12])
+					log.Printf("[P2P-BOOTSTRAP] %s", i18n.T("log_p2p_bootstrap_success", pi.ID.String()[:12]))
 					return // Thành công thì thoát luôn
 				}
 				// Nếu xịt, đợi 2 giây rồi thử lại

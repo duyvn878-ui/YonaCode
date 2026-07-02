@@ -12,7 +12,7 @@ import (
 	"github.com/fatih/color"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"btc_genz/6_user_interface/internal"
+	"btc_genz/6_user_interface/i18n"
 	pb_block "btc_genz/proto"
 )
 
@@ -46,7 +46,7 @@ var rootCmd = &cobra.Command{
 		color.CyanString("   |_|\\___/|_| |_|\\__,_|_| \\_|      \\____\\___/ \\__,_|\\___|  \\____|\\___/ "),
 		color.CyanString("                                                                        ")),
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		internal.SetLang(lang)
+		i18n.SetLang(lang)
 
 		// [SECURITY-HARDENING] Đọc token từ file tạm .auth_token để đính kèm gRPC calls
 		var token string

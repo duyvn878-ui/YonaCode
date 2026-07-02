@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"btc_genz/6_user_interface/audit"
+	"btc_genz/6_user_interface/i18n"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
@@ -492,7 +493,7 @@ func (s *SyncEngine) syncLoop() {
 
 			// [STALL-RECOVERY] Cơ chế tự phục hồi và CẢNH BÁO nếu bị kẹt quá lâu
 			if maxH > currentH && time.Since(s.LastSyncActivity) > 20*time.Second {
-				log.Printf("[SYNC-STALLED] 🛑 PHÁT HIỆN KẸT ĐỒNG BỘ tại khối #%d quá 20 giây! (Mục tiêu mạng: #%d)", currentH, maxH)
+				log.Printf("[SYNC-STALLED] %s", i18n.T("log_sync_stalled", currentH))
 				s.LastSyncActivity = time.Now() // Reset timer để không spam recovery
 			}
 
@@ -526,7 +527,7 @@ func (s *SyncEngine) syncLoop() {
 					s.mu.Lock()
 					if s.state == Syncing || s.state == Stalled {
 						s.state = Synced
-						log.Printf("[SYNC] 🎉 Mạng lưới đã đồng bộ đỉnh #%d. Cỗ máy thời gian vào trạng thái nghỉ ngơi.", currentH)
+						log.Printf("[SYNC] %s", i18n.T("log_sync_success", currentH))
 					}
 					s.mu.Unlock()
 				}
@@ -543,7 +544,7 @@ func (s *SyncEngine) syncLoop() {
 					bestPeer := s.netManager.SelectBestPeer(peers)
 
 					if bestPeer != "" {
-						log.Printf("[SYNC-CATCHUP] 🚀 Phát hiện lệch xa mạng lưới (%d > %d + %d). Kích hoạt CatchUpSync để tải chùm Header!", targetH, currentH, CatchUpThreshold)
+						log.Printf("[SYNC-CATCHUP] %s", i18n.T("log_sync_catchup"))
 						s.CatchUpSync(bestPeer)
 						continue
 					}
@@ -701,7 +702,7 @@ func (s *SyncEngine) syncLoop() {
 							log.Printf("[SYNC-ORPHAN] 🧩 Lệch chuỗi sâu (%d > %d + %d). Kích hoạt CatchUpSync để tìm điểm giao nhau!", peerH, actualH, CatchUpThreshold)
 							s.CatchUpSync(targetPeer)
 						} else {
-							log.Printf("[SYNC-ORPHAN] 🕵️ Lệch chuỗi ngắn (%d - %d <= %d). Kích hoạt cân chỉnh chuỗi mồ côi để tìm điểm chung...", peerH, actualH, CatchUpThreshold)
+							log.Printf("[SYNC-ORPHAN] %s", i18n.T("log_sync_orphan"))
 							missingHashBytes := tempHeader.ParentHash.Value
 
 							// Đăng ký điều tra
@@ -1025,7 +1026,7 @@ func (s *SyncEngine) syncLoop() {
 					log.Printf("[SYNC-ORPHAN] 🧩 Lệch chuỗi sâu thực tế (%d > %d + %d) phát hiện tại ProcessChain. Kích hoạt CatchUpSync để tìm điểm giao nhau!", nextHeight, actualH, CatchUpThreshold)
 					s.CatchUpSync(targetPeer)
 				} else {
-					log.Printf("[SYNC-ORPHAN] 🕵️ Lệch chuỗi ngắn thực tế (%d - %d <= %d) phát hiện tại ProcessChain. Kích hoạt cân chỉnh chuỗi mồ côi...", nextHeight, actualH, CatchUpThreshold)
+					log.Printf("[SYNC-ORPHAN] %s", i18n.T("log_sync_orphan"))
 					var orphanHeaderRaw []byte
 					if len(blockData) > 0 && len(blockData[0]) > 0 {
 						if headerBytes, err := ExtractHeaderBytesFromBlockBytes(blockData[0]); err == nil {
@@ -1293,7 +1294,7 @@ func (s *SyncEngine) FastSyncBootstrap() {
 			}
 		}
 
-		log.Printf("[FAST-SYNC] ⚡ Chế độ [%s]: Bắt đầu nhảy tới mỏ neo #%d (Đỉnh mạng: #%d)", syncMode, bestAnchor, tipHeight)
+		log.Printf("[FAST-SYNC] %s", i18n.T("log_fast_sync_start", bestAnchor))
 
 		// [VANGUARD-DYNAMISM] Cập nhật ngay mục tiêu đồng bộ và trạng thái Syncing lên màn hình để Commander đỡ hóng
 		s.mu.Lock()
@@ -1833,7 +1834,7 @@ func (s *SyncEngine) HandleBlockArrival(block *pb_block.Block, from peer.ID) {
 	}
 
 	if !isValid {
-		log.Printf("[SECURITY-ALERT] 🛑 Chặn rác PoW từ %s. Height=#%d", s.shortID(from), block.Header.Height)
+		log.Printf("[SECURITY-ALERT] %s", i18n.T("log_security_alert_pow", s.shortID(from), block.Header.Height))
 		s.netManager.punishPeer(from, "Invalid PoW on Gossip Header")
 		return
 	}
@@ -2179,7 +2180,7 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 	if evalResp.Status == 0 { // Nhánh rẽ NẶNG HƠN (Hợp lệ)
 		// KIỂM TRA TƯỜNG LỬA BẤT BIẾN (Finality Protection)
 		if evalResp.ForkPoint < fH {
-			log.Printf("[FIREWALL-VIOLATION] 💀 TẤN CÔNG DEEP REORG TỪ %s! Tạm đình chỉ kết nối!", s.shortID(targetPeer))
+			log.Printf("[FIREWALL] %s", i18n.T("log_firewall_deep_reorg", s.shortID(targetPeer)))
 			s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Deep Reorg")
 			s.netManager.Host.Network().ClosePeer(targetPeer)
 			return
@@ -2345,7 +2346,7 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 
 			if pErr == nil && lastResp != nil && (lastResp.Status == 1 || lastResp.Status == 0) { // [VANGUARD-FIX] Chấp nhận cả REORG_SUCCESS (1) và ACCEPTED (0 - sidechain hợp lệ nhưng nhẹ hơn)
 				if lastResp.Status == 1 {
-					log.Printf("[SYNC-SUCCESS] ✅ Reorg nguyên tử thành công lên cao độ #%d!", lastResp.NewHeight)
+					log.Printf("[REORG-SUCCESS] %s", i18n.T("log_reorg_success", lastResp.NewHeight))
 					s.mu.Lock()
 					s.currentHeight = lastResp.NewHeight
 					s.mu.Unlock()

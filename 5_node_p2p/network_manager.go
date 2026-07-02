@@ -28,6 +28,7 @@ import (
 	"btc_genz/2_miner_core/go_bridge"
 	pb_block "btc_genz/proto"
 	"btc_genz/6_user_interface/audit"
+	"btc_genz/6_user_interface/i18n"
 
 	"os"
 	"path/filepath"
@@ -356,19 +357,23 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	const forgivenessWindow = 5 * time.Minute
 	now := time.Now()
 	if lastTime, exists := n.PeerPenaltyTimes[id]; exists {
-		elapsed := now.Sub(lastTime)
-		if elapsed > forgivenessWindow {
-			// Số cửa sổ 5 phút đã trôi qua kể từ lần phạt cuối
-			decaySteps := int(elapsed / forgivenessWindow)
-			oldPenalty := n.PeerPenalties[id]
-			if decaySteps > 0 && oldPenalty > 0 {
-				newPenalty := oldPenalty - decaySteps
-				if newPenalty < 0 {
-					newPenalty = 0
+		if now.Before(lastTime) {
+			log.Printf("[TIME-WARP] ⚠️ Cảnh báo: Thời gian system clock thụt lùi từ %v về %v, reset penalty để đảm bảo an toàn", lastTime, now)
+			n.PeerPenaltyTimes[id] = now
+		} else {
+			elapsed := now.Sub(lastTime)
+			if elapsed > forgivenessWindow {
+				// Số cửa sổ 5 phút đã trôi qua kể từ lần phạt cuối
+				decaySteps := int(elapsed / forgivenessWindow)
+				prev := n.PeerPenalties[id]
+				if decaySteps > 0 && prev > 0 {
+					newPenalty := prev - decaySteps
+					if newPenalty < 0 {
+						newPenalty = 0
+					}
+					n.PeerPenalties[id] = newPenalty
+					log.Printf("[PEER-SHIELD] %s", i18n.T("log_peer_forgiven", id.String()[:12], prev, newPenalty, prev-newPenalty, elapsed.Round(time.Second)))
 				}
-				n.PeerPenalties[id] = newPenalty
-				log.Printf("[PEER-SHIELD] 🕊️ Tha thứ Peer %s: %d → %d điểm phạt (-%d sau %v không vi phạm)",
-					id.String()[:12], oldPenalty, newPenalty, decaySteps, elapsed.Round(time.Second))
 			}
 		}
 	}
@@ -413,8 +418,7 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 		banType = "Trục xuất tối đa (24h)"
 	}
 
-	log.Printf("[PEER-SHIELD] 🚫 %s Peer %s trong %v (điểm phạt: %d). Lý do: %s",
-		banType, id.String()[:12], duration, count, reason)
+	log.Printf("[PEER-SHIELD] %s", i18n.T("log_peer_ban", banType, id.String()[:12], duration, count, reason))
 
 	// Truy tìm IP và áp dụng lệnh cấm
 	conns := n.Host.Network().ConnsToPeer(id)
@@ -653,6 +657,7 @@ func (n *NetworkManager) StartBlockInbox() {
 		if !n.Bridge.VerifyTimestampFirewall(block.Header.Timestamp, mtp, uint64(time.Now().Unix())) {
 			// Tại sao: Tấn công Time-Warp thay đổi thời gian để thao túng độ khó hoặc lịch sử khối, cần ghi vết log kiểm toán.
 			audit.AuditLog("TIME_WARP_ATTEMPT", id.String()[:12], fmt.Sprintf("Khối #%d vi phạm tường lửa thời gian MTP-11 (Gossip)", block.Header.Height))
+			log.Printf("[TIME_WARP] %s", i18n.T("log_time_warp_violation", block.Header.Height))
 			n.punishPeer(id, fmt.Sprintf("Vi phạm Tường lửa thời gian (MTP-11) tại khối #%d", block.Header.Height))
 			return pubsub.ValidationReject
 		}
@@ -1297,6 +1302,7 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 	if !n.Bridge.VerifyTimestampFirewall(block.Header.Timestamp, mtp, uint64(time.Now().Unix())) {
 		// Tại sao: Khối đầy đủ (Heavy Block) vi phạm tường lửa thời gian, ghi nhận sự cố kiểm toán.
 		audit.AuditLog("TIME_WARP_ATTEMPT", from.String()[:12], fmt.Sprintf("Khối đầy đủ #%d vi phạm tường lửa thời gian MTP-11 (Heavy)", block.Header.Height))
+		log.Printf("[TIME_WARP] %s", i18n.T("log_time_warp_violation", block.Header.Height))
 		return fmt.Errorf("firewall_violation: timestamp_spoofing")
 	}
 

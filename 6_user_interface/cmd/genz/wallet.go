@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/fatih/color"
 	"github.com/AlecAivazis/survey/v2"
+	"btc_genz/6_user_interface/i18n"
 	"btc_genz/6_user_interface/internal"
 	pb_block "btc_genz/proto"
 	node_p2p "btc_genz/5_node_p2p"
@@ -88,7 +89,7 @@ var walletSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Gửi GO tới địa chỉ khác (Send GO)",
 	Run: func(cmd *cobra.Command, args []string) {
-		color.Cyan("\n" + internal.T("wallet_send_title") + "\n")
+		color.Cyan("\n" + i18n.T("wallet_send_title") + "\n")
 
 		var from, to, pass string
 		var amount float64
@@ -179,7 +180,7 @@ var walletSendCmd = &cobra.Command{
 			return
 		}
  
-		fmt.Printf("\n%s\n", internal.T("wallet_send_confirm"))
+		fmt.Printf("\n%s\n", i18n.T("wallet_send_confirm"))
 		fmt.Printf("From   : %s (Address: %s)\n", from, hex.EncodeToString(senderAddr))
 		fmt.Printf("To     : %s\n", to)
 		fmt.Printf("Amount : %.8f GO\n", amount)
@@ -223,9 +224,9 @@ var walletSendCmd = &cobra.Command{
 		color.Yellow("📡 Broadcasting...")
 		_, err = client.SubmitTransaction(context.Background(), tx)
 		if err != nil {
-			color.Red(internal.T("wallet_send_fail"), err)
+			color.Red(i18n.T("wallet_send_fail"), err)
 		} else {
-			color.Green(internal.T("wallet_send_success"))
+			color.Green(i18n.T("wallet_send_success"))
 		}
 	},
 }

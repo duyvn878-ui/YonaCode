@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/fatih/color"
-	"btc_genz/6_user_interface/internal"
+	"btc_genz/6_user_interface/i18n"
 	pb_block "btc_genz/proto"
 )
 
@@ -19,7 +19,7 @@ var miningStartCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		addr, _ := cmd.Flags().GetString("reward-address")
 		threads, _ := cmd.Flags().GetInt("threads")
-		color.Green("⛏️ " + internal.T("mining_start"))
+		color.Green("⛏️ " + i18n.T("mining_start"))
 		fmt.Printf("   Address: %s | Threads: %d\n", addr, threads)
 
 		if client == nil {
@@ -43,7 +43,7 @@ var miningStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Dừng khai thác",
 	Run: func(cmd *cobra.Command, args []string) {
-		color.Yellow("🛑 " + internal.T("mining_stop"))
+		color.Yellow("🛑 " + i18n.T("mining_stop"))
 	},
 }
 
