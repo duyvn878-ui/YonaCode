@@ -156,6 +156,43 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
 
         <div className="flex items-center gap-6" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
           <div className="flex gap-3" style={{ display: 'flex', flexDirection: 'row', gap: '12px' }}>
+            {/* Language Switcher */}
+            <div className="flex bg-white/[0.02] border border-white/[0.05] rounded-2xl p-1 gap-1 h-11 items-center">
+              <button 
+                onClick={() => setLang('vi')}
+                className={`px-3 h-9 text-[9px] uppercase font-black text-center rounded-xl transition-all cursor-pointer ${lang === 'vi' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
+              >
+                VN
+              </button>
+              <button 
+                onClick={() => setLang('en')}
+                className={`px-3 h-9 text-[9px] uppercase font-black text-center rounded-xl transition-all cursor-pointer ${lang === 'en' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
+              >
+                EN
+              </button>
+            </div>
+
+            {/* AI Assistant links */}
+            <div className="flex bg-white/[0.02] border border-white/[0.05] rounded-2xl p-1 gap-1 h-11 items-center">
+              <span className="text-[7px] text-white/30 font-black px-2 uppercase tracking-widest">AI</span>
+              <a 
+                href="https://gemini.google.com/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="px-3 h-9 text-[9px] font-black uppercase flex items-center text-center text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-white/5 transition-all"
+              >
+                Gemini
+              </a>
+              <a 
+                href="https://chatgpt.com/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="px-3 h-9 text-[9px] font-black uppercase flex items-center text-center text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-white/5 transition-all"
+              >
+                ChatGPT
+              </a>
+            </div>
+
             <button className="w-11 h-11 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center text-text-secondary hover:text-white hover:bg-white/[0.08] transition-all hover:scale-110 active:scale-90 shadow-lg">
               <Bell size={20} />
             </button>
@@ -176,47 +213,7 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                     transition={{ duration: 0.2 }}
                     className="absolute top-[120%] right-0 z-[99] vanguard-glass bg-black/95 border border-white/10 backdrop-blur-md rounded-xl p-3 min-w-[200px] shadow-2xl flex flex-col gap-3"
                   >
-                    {/* Language Switcher inside Settings */}
-                    <div className="flex flex-col gap-1.5 pb-2.5 border-b border-white/5">
-                      <span className="text-[8px] text-white/40 font-black tracking-widest uppercase">LANGUAGE</span>
-                      <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5 w-full">
-                        <button 
-                          onClick={() => setLang('vi')}
-                          className={`flex-1 py-1 text-[9px] uppercase font-black text-center rounded transition-all ${lang === 'vi' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
-                        >
-                          VN
-                        </button>
-                        <button 
-                          onClick={() => setLang('en')}
-                          className={`flex-1 py-1 text-[9px] uppercase font-black text-center rounded transition-all ${lang === 'en' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
-                        >
-                          EN
-                        </button>
-                      </div>
-                    </div>
 
-                    {/* AI Assistance inside Settings */}
-                    <div className="flex flex-col gap-1.5 pb-2.5 border-b border-white/5">
-                      <span className="text-[8px] text-white/40 font-black tracking-widest uppercase">AI ASSISTANTS</span>
-                      <div className="grid grid-cols-2 gap-1.5 w-full">
-                        <a 
-                          href="https://gemini.google.com/" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="px-2 py-1 text-[9px] font-black uppercase text-center text-white/40 hover:text-white hover:bg-white/5 rounded border border-white/5 transition-all"
-                        >
-                          Gemini
-                        </a>
-                        <a 
-                          href="https://chatgpt.com/" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="px-2 py-1 text-[9px] font-black uppercase text-center text-white/40 hover:text-white hover:bg-white/5 rounded border border-white/5 transition-all"
-                        >
-                          ChatGPT
-                        </a>
-                      </div>
-                    </div>
 
                     <button 
                       onClick={() => setShowPurgeModal(true)}
