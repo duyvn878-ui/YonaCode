@@ -39,7 +39,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
   return (
     <div className="vanguard-flex-v vanguard-gap-medium h-full animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="grid grid-cols-12 gap-6 h-[420px]">
-        <div className="col-span-3 vanguard-glass p-8 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
+        <div className="col-span-4 vanguard-glass p-8 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
            <div className="absolute -right-8 -top-8 w-32 h-32 bg-accent-blue/5 rounded-full blur-3xl group-hover:bg-accent-blue/10 transition-all duration-1000" />
            
            <div>
@@ -56,7 +56,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                      
                      <div className="flex flex-col gap-3">
                         <div className="flex items-center gap-3">
-                           <span className={`text-2xl font-black italic tracking-tighter ${isMining ? 'text-accent-green' : 'text-accent-blue shadow-[0_0_15px_rgba(0,136,255,0.2)]'}`}>
+                           <span className={`text-xl font-black italic tracking-tighter whitespace-nowrap ${isMining ? 'text-accent-green' : 'text-accent-blue shadow-[0_0_15px_rgba(0,136,255,0.2)]'}`}>
                               {isMining ? t.miner_mode_active : ((status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') ? "SYNCING_DATA" : t.verify_only)}
                            </span>
                            {(isMining || status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
@@ -173,7 +173,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                  </div>
               </div>
            </div>
-        </div>        <div className="col-span-6 vanguard-glass p-10 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden group">
+        </div>        <div className="col-span-5 vanguard-glass p-10 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden group">
            <div className={`absolute inset-0 transition-opacity duration-1000 ${isMining ? 'opacity-20' : 'opacity-0'}`}>
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-accent-blue to-transparent animate-[shimmer_3s_infinite]" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,136,255,0.1),transparent_70%)]" />
