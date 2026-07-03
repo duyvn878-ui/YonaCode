@@ -38,19 +38,19 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
   return (
     <div className="vanguard-flex-v vanguard-gap-medium h-full animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="grid grid-cols-12 gap-6 h-[420px]">
-        <div className="col-span-4 vanguard-glass p-8 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
+      <div className="grid grid-cols-12 gap-6 h-[450px]">
+        <div className="col-span-4 vanguard-glass p-6 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
            <div className="absolute -right-8 -top-8 w-32 h-32 bg-accent-blue/5 rounded-full blur-3xl group-hover:bg-accent-blue/10 transition-all duration-1000" />
            
            <div>
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center gap-3 mb-4">
                  <div className="w-10 h-10 rounded-xl bg-accent-blue/10 flex items-center justify-center text-accent-blue shadow-[0_0_15px_rgba(0,136,255,0.2)]">
                     <Zap size={20} className={isMining ? 'animate-pulse' : ''} />
                  </div>
                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">{t.miner_status}</span>
               </div>
               
-              <div className="vanguard-stats-card p-8 bg-black/50 border border-white/5 rounded-2xl mb-6 relative overflow-hidden">
+              <div className="vanguard-stats-card p-5 bg-black/50 border border-white/5 rounded-2xl mb-4 relative overflow-hidden">
                   <div className="flex flex-col gap-3">
                      <span className="text-[9px] text-white/30 uppercase font-black tracking-[0.2em]">SYSTEM_MODE</span>
                      
@@ -147,7 +147,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
               </span>
            </button>
 
-           <div className="w-full flex flex-col gap-3 p-4 bg-black/60 border border-white/[0.05] rounded-2xl relative z-10 mt-[-10px]">
+           <div className="w-full flex flex-col gap-2.5 p-4 bg-black/60 border border-white/[0.05] rounded-2xl relative z-10 mt-0">
               <span className="text-[9px] font-black uppercase text-accent-blue/50 tracking-[0.2em] mb-1">{t.telemetry_title}</span>
               <div className="flex items-center justify-between">
                  <div className="flex items-center gap-2">
@@ -230,9 +230,9 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
            </motion.div>
         </div>
 
-        <div className="col-span-3 vanguard-glass p-8 flex flex-col justify-between border border-white/10 group relative overflow-hidden">
+        <div className="col-span-3 vanguard-glass p-6 flex flex-col justify-between border border-white/10 group relative overflow-hidden">
            <div>
-              <div className="flex items-center gap-3 mb-10">
+              <div className="flex items-center gap-3 mb-4">
                  <div className="w-12 h-12 rounded-2xl bg-accent-amber/10 flex items-center justify-center text-accent-amber shadow-[0_0_25px_rgba(247,173,63,0.2)] border border-accent-amber/20">
                     <Cpu size={24} />
                  </div>
@@ -241,8 +241,8 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                     <span className="text-[8px] text-accent-amber font-bold tracking-widest opacity-60 mt-1">HARDWARE_OPTIMIZER_ACTIVE</span>
                  </div>
               </div>
-              <div className="vanguard-stats-card p-8 bg-black/60 border border-white/[0.05] rounded-[32px] relative overflow-hidden shadow-2xl">
-                 <div className="flex justify-between items-end mb-6">
+              <div className="vanguard-stats-card p-5 bg-black/60 border border-white/[0.05] rounded-2xl relative overflow-hidden shadow-2xl">
+                 <div className="flex justify-between items-end mb-4">
                     <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase">CORE_STRESS_LVL</span>
                     <span className="text-4xl font-black text-accent-amber italic tracking-tighter drop-shadow-[0_0_20px_rgba(247,173,63,0.4)]">{intensity}%</span>
                  </div>
@@ -255,7 +255,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                        <div className="w-1 h-3 bg-accent-amber/40 rounded-full" />
                     </div>
                  </div>
-                 <div className="flex items-center gap-3 mt-8 p-3 bg-accent-amber/5 rounded-xl border border-accent-amber/10 text-[10px] text-accent-amber/80 italic font-bold">
+                 <div className="flex items-center gap-3 mt-4 p-3 bg-accent-amber/5 rounded-xl border border-accent-amber/10 text-[10px] text-accent-amber/80 italic font-bold">
                     <AlertTriangle size={14} />
                     <span className="uppercase tracking-widest leading-relaxed">{t.thermal_warning}</span>
                  </div>
