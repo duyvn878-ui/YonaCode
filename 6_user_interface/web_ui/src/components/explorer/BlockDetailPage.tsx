@@ -15,6 +15,7 @@ import { ArrowLeft, Copy, Check, Shield, Clock, Lock, Layers, Cpu, Fingerprint }
 import api from '../../api';
 import type { BlockDetail, Transaction } from '../../api';
 import { useLanguage } from '../../LanguageContext';
+import { formatBtcZ } from '../../utils';
 
 interface BlockDetailPageProps {
   height: number;
@@ -162,7 +163,7 @@ const BlockDetailPage: React.FC<BlockDetailPageProps> = ({ height, onBack, onTxC
                   className="text-[9px] mono text-white/60 truncate cursor-pointer hover:text-accent-blue"
                   onClick={(e) => { e.stopPropagation(); onAddressClick('0x' + tx.receiver); }}
                 >{truncHash(tx.receiver)}</span>
-                <span className="text-[9px] font-black text-white text-right">{tx.amount} GO</span>
+                <span className="text-[9px] font-black text-white text-right">{formatBtcZ(tx.amount)} GO</span>
                 <div className="flex justify-end">
                   <span className={`text-[8px] font-black px-2 py-0.5 rounded ${tx.status === 'FINALIZED' ? 'bg-accent-green/10 text-accent-green' : 'bg-accent-amber/10 text-accent-amber'}`}>
                     {tx.status === 'FINALIZED' ? <><Lock size={8} className="inline mr-1" />{t.immutable}</> : <><Clock size={8} className="inline mr-1" />{Math.max(0, tx.confirmations - 1)}/5</>}

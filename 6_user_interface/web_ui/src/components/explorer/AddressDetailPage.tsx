@@ -16,6 +16,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import api from '../../api';
 import type { Transaction } from '../../api';
 import { useLanguage } from '../../LanguageContext';
+import { formatBtcZ } from '../../utils';
 
 interface AddressDetailPageProps {
   address: string;
@@ -154,7 +155,7 @@ const AddressDetailPage: React.FC<AddressDetailPageProps> = ({ address, onBack, 
           <div className="vanguard-flex-v vanguard-gap-tiny">
             <span className="tactical-label text-[8px]">{t.total_balance}</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black italic text-white">{balance.toLocaleString()}</span>
+              <span className="text-4xl font-black italic text-white">{formatBtcZ(balance)}</span>
               <span className="text-lg font-black text-accent-blue italic">GO</span>
             </div>
           </div>
@@ -218,7 +219,7 @@ const AddressDetailPage: React.FC<AddressDetailPageProps> = ({ address, onBack, 
                   )}
                 </div>
                 <span className={`text-[9px] font-black text-right ${tx.direction === 'IN' ? 'text-accent-green' : 'text-white'}`}>
-                  {tx.direction === 'IN' ? '+' : '-'}{tx.amount} GO
+                  {tx.direction === 'IN' ? '+' : '-'}{formatBtcZ(tx.amount)} GO
                 </span>
                 <div className="flex justify-end">
                   <span className={`text-[8px] font-black px-2 py-0.5 rounded ${tx.status === 'FINALIZED' ? 'bg-accent-green/10 text-accent-green' : 'bg-accent-amber/10 text-accent-amber'}`}>

@@ -17,6 +17,7 @@ import type { NodeStatus, BlockHeader, Transaction } from '../../api';
 import BlockDetailPage from './BlockDetailPage';
 import AddressDetailPage from './AddressDetailPage';
 import { useLanguage } from '../../LanguageContext';
+import { formatBtcZ } from '../../utils';
 
 interface ExplorerViewProps {
   status: NodeStatus | null;
@@ -208,7 +209,7 @@ const ExplorerView: React.FC<ExplorerViewProps> = ({ status, blocks, transaction
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black mono text-white group-hover:text-accent-blue transition-colors truncate max-w-[120px]">{truncHash(tx.id)}</span>
-                      <span className="text-[8px] text-text-muted">{tx.amount} GO • {t.fee_suffix} {tx.fee} GO</span>
+                      <span className="text-[8px] text-text-muted">{formatBtcZ(tx.amount)} GO • {t.fee_suffix} {formatBtcZ(tx.fee)} GO</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
