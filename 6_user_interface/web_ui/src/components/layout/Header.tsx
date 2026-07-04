@@ -8,14 +8,16 @@ interface HeaderProps {
   title: string;
   height: number;
   syncState?: string;
-  syncProgress?: number; // [VANGUARD-UI] Thêm phần trăm đồng bộ
+  syncProgress?: number; // [VANGUARD-UI] Thêm phần trạng thái đồng bộ
   peerCount?: number;
   address?: string;
   isOffline?: boolean;
   targetHeight?: number; // [VANGUARD-UI] Thêm đỉnh mạng lưới
+  syncExecuting?: boolean; // [VANGUARD-UI] Thêm cờ thực thi của Rust
+  syncDownloading?: number; // [VANGUARD-UI] Thêm cờ tải khối của Go P2P
 }
 
-const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', syncProgress = 0, peerCount = 0, address = '', isOffline = false, targetHeight = 0 }) => {
+const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', syncProgress = 0, peerCount = 0, address = '', isOffline = false, targetHeight = 0, syncExecuting = false, syncDownloading = 0 }) => {
   const { t, lang, setLang } = useLanguage();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showPurgeModal, setShowPurgeModal] = useState(false);
@@ -105,7 +107,10 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                 <div className="flex flex-col">
                   <span className={`text-[11px] font-black italic tracking-tighter ${syncState === 'STREAMING' || syncState === 'SYNCED' ? 'text-accent-green' : 'text-accent-blue'}`}>
                     {syncState === 'SYNCING' 
-                       ? `${syncProgress.toFixed(1)}%` 
+                       ? (syncExecuting 
+                           ? `${syncProgress.toFixed(1)}%` 
+                           : (syncDownloading > 0 ? `DL: ${syncProgress.toFixed(1)}%` : "LOADING")
+                         ) 
                        : (syncState === 'BOOTSTRAPPING' 
                            ? (syncProgress > 0 ? `SNAP: ${syncProgress.toFixed(1)}%` : "BOOTSTRAPPING")
                            : syncState.toUpperCase())}
@@ -113,14 +118,27 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                 </div>
              </div>
              {/* Progress Bar Layer */}
-             {(syncState === 'SYNCING' || (syncState === 'BOOTSTRAPPING' && syncProgress > 0)) && (
-               <div className="absolute bottom-0 left-0 w-full h-[2px] bg-white/5">
-                 <div 
-                   className="h-full bg-accent-blue shadow-[0_0_10px_var(--accent-blue)] transition-all duration-1000 ease-out"
-                   style={{ width: `${syncProgress}%` }}
-                 />
-               </div>
-             )}
+             {(syncState === 'SYNCING' || (syncState === 'BOOTSTRAPPING' && syncProgress > 0)) && (() => {
+               const isDownloadingPhase = syncState === 'SYNCING' && !syncExecuting;
+               const hasDownloading = syncDownloading !== undefined && syncDownloading > 0;
+               return (
+                 <div className="absolute bottom-0 left-0 w-full h-[2px] bg-white/5 overflow-hidden">
+                   {(!isDownloadingPhase || hasDownloading) && (
+                     <div 
+                       className="h-full bg-accent-blue shadow-[0_0_10px_var(--accent-blue)] transition-all duration-1000 ease-out"
+                       style={{ width: `${syncProgress}%` }}
+                     />
+                   )}
+                   {isDownloadingPhase && (
+                     <motion.div 
+                       className="h-full w-1/3 bg-gradient-to-r from-transparent via-accent-blue to-transparent absolute top-0"
+                       animate={{ x: ["-100%", "300%"] }}
+                       transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                     />
+                   )}
+                 </div>
+               );
+             })()}
           </div>
 
           <div className="flex flex-col items-start gap-1 p-2">

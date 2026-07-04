@@ -252,6 +252,7 @@ type SyncEngineInterface interface {
 	HandleBlockArrival(block *pb_block.Block, from peer.ID)
 	GetSyncProgress() (uint64, uint64, string)
 	GetSnapshotProgress() (uint32, uint32)
+	GetDownloadingHeight() uint64
 	UpdateHeight(height uint64)
 	GetLastSyncActivity() time.Time // [VANGUARD-DYNAMISM] Truy xuất nhịp đập đồng bộ cuối cùng
 	StartSync(targetHeight uint64)

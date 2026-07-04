@@ -288,9 +288,15 @@ function App() {
               status?.sync
                 ? (status.sync.state === 'BOOTSTRAPPING' && status.sync.snapshot_chunks_total && status.sync.snapshot_chunks_total > 0
                     ? ((status.sync.snapshot_chunks_loaded || 0) / status.sync.snapshot_chunks_total) * 100
-                    : (status.sync.target > 0 ? (status.sync.current / status.sync.target) * 100 : 0))
+                    : (status.sync.executing === true
+                        ? (status.sync.target > 0 ? (status.sync.current / status.sync.target) * 100 : 0)
+                        : (status.sync.downloading && status.sync.downloading > 0
+                            ? (status.sync.target > 0 ? (status.sync.downloading / status.sync.target) * 100 : 0)
+                            : 0)))
                 : 0
             }
+            syncExecuting={status?.sync?.executing}
+            syncDownloading={status?.sync?.downloading || 0}
             peerCount={status?.peers?.count || 0}
             address={address}
             isOffline={isNodeOffline}
