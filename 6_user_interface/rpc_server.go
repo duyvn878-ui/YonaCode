@@ -216,6 +216,7 @@ type RPCServer struct {
 	minerHashrates   map[uint64]uint64
 	nextStreamId     uint64
 	minerStreamsMu   sync.RWMutex
+	internetAutoPaused bool
 }
 
 type countedMutex struct {
@@ -2407,6 +2408,31 @@ func (s *RPCServer) StartGreatPurge(currentHeight uint64) {
 	}
 }
 
+// checkGlobalInternet: Kiểm tra xem node có kết nối được với Internet toàn cầu hay không bằng cách gọi HTTP GET tới các dịch vụ DNS IP
+func (s *RPCServer) checkGlobalInternet() bool {
+	endpoints := []string{
+		"http://1.1.1.1",
+		"http://8.8.8.8",
+		"https://www.google.com",
+	}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+	}
+	for _, ep := range endpoints {
+		req, err := http.NewRequest("GET", ep, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Connection", "close")
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			return true
+		}
+	}
+	return false
+}
+
 func (s *RPCServer) Start() {
 	r := mux.NewRouter()
 
@@ -2417,7 +2443,36 @@ func (s *RPCServer) Start() {
 		s.openBrowser(url)
 	}()
 
-	// [VANGUARD-OPTIMIZED] BẮT ĐẦU LUỒNG QUÉT KHỐI TOÀN CỤC
+	// [VANGUARD-INTERNET-CHECK] Khởi chạy luồng nền định kỳ 10 giây kiểm tra kết nối internet toàn cầu thực tế
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		isInternetDown := false
+		for range ticker.C {
+			hasInternet := s.checkGlobalInternet()
+			if !hasInternet {
+				if !isInternetDown {
+					isInternetDown = true
+					log.Printf("[INTERNET-WARN] ⚠️ Phát hiện mất kết nối Internet toàn cầu thực tế (Lỗi nhà mạng!).")
+					if s.cliApp.GetNodeMode() == "full-mining" && !s.bridge.IsMiningPaused() {
+						log.Printf("[INTERNET-WARN] ⏸️ Tự động tạm dừng khai thác Blake3-PoW để tránh hao phí tài nguyên máy đào.")
+						s.bridge.SetMiningPause(true)
+						s.internetAutoPaused = true
+					}
+				}
+			} else {
+				if isInternetDown {
+					isInternetDown = false
+					log.Printf("[INTERNET-OK] 💚 Đã khôi phục kết nối Internet toàn cầu thực tế.")
+					if s.cliApp.GetNodeMode() == "full-mining" && s.internetAutoPaused {
+						log.Printf("[INTERNET-OK] ▶️ Tự động khôi phục khai thác Blake3-PoW.")
+						s.bridge.SetMiningPause(false)
+						s.internetAutoPaused = false
+					}
+				}
+			}
+		}
+	}()
 	// Tại sao: Thay vì để mỗi client SSE tự quét lịch sử từ 0 (gây Freeze),
 	// hệ thống giờ đây chỉ dùng duy nhất 1 luồng nền để cập nhật txTracker.
 	go func() {
@@ -2788,10 +2843,16 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"network":        "YonaCode Go Minimalist (V1.0)",
 		"consensus":      "Vanguard (Roll-to-Finality)",
 		"sync": func() map[string]interface{} {
+			downloading := uint64(0)
+			if s.netMgr.SyncEngine != nil {
+				downloading = s.netMgr.SyncEngine.GetDownloadingHeight()
+			}
 			m := map[string]interface{}{
-				"current": curr,
-				"target":  target,
-				"state":   state,
+				"current":     curr,
+				"target":      target,
+				"state":       state,
+				"executing":   s.bridge.IsSyncing(),
+				"downloading": downloading,
 			}
 			if s.netMgr.SyncEngine != nil {
 				loaded, total := s.netMgr.SyncEngine.GetSnapshotProgress()
@@ -5362,10 +5423,17 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		}
 	}
 
+	downloading := uint64(0)
+	if s.netMgr.SyncEngine != nil {
+		downloading = s.netMgr.SyncEngine.GetDownloadingHeight()
+	}
+
 	resp := map[string]interface{}{
 		"current_height":         height,
 		"target_height":          targetHeight,
 		"sync_state":             syncState,
+		"sync_executing":         s.bridge.IsSyncing(),
+		"sync_downloading":       downloading,
 		"snapshot_chunks_loaded": chunksLoaded,
 		"snapshot_chunks_total":  chunksTotal,
 		"finalized_height":       fH,

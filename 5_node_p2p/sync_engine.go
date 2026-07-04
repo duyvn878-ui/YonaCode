@@ -90,6 +90,7 @@ type SyncEngine struct {
 	deepRecoveryCount int       // [SYNC-HEAL] Số lần đã thực hiện hồi phục sâu (Deep Recovery)
 	snapshotChunksLoaded uint32    // [SNAP-SYNC-PROGRESS] Số lượng chunk snapshot đã tải
 	snapshotChunksTotal  uint32    // [SNAP-SYNC-PROGRESS] Tổng số lượng chunk snapshot cần tải
+	downloadingHeight    uint64    // [SYNC-STAGE-UX] Chiều cao khối đang tải trong Phase 1
 
 	// [LIGHTWEIGHT ORPHAN CACHE] Chỉ lưu trữ tiêu đề khối mồ côi gần
 	orphanHeaders   map[string]*pb_block.BlockHeader // Key: Hash Hex
@@ -1769,6 +1770,12 @@ func (s *SyncEngine) GetSnapshotProgress() (uint32, uint32) {
 	return s.snapshotChunksLoaded, s.snapshotChunksTotal
 }
 
+// GetDownloadingHeight: Trả về chiều cao khối đang tải ở Phase 1
+func (s *SyncEngine) GetDownloadingHeight() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.downloadingHeight
+}
 
 func (s *SyncEngine) HandleBlockArrival(block *pb_block.Block, from peer.ID) {
 	if block == nil || block.Header == nil {
@@ -2099,6 +2106,7 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 	defer func() {
 		s.mu.Lock()
 		s.currentHeight = s.netManager.Bridge.GetCurrentVersion()
+		s.downloadingHeight = 0
 		s.mu.Unlock()
 	}()
 
@@ -2233,6 +2241,9 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 
 		// Tải tuần tự hoặc tự động tái lập các khối thiếu (từ effectiveForkPoint + 1 đến Đỉnh của chùm Header)
 		for h := effectiveForkPoint + 1; h <= highestH; h++ {
+			s.mu.Lock()
+			s.downloadingHeight = h
+			s.mu.Unlock()
 			fH := s.netManager.Bridge.GetFinalizedHeight()
 			oldestH := s.netManager.Bridge.GetOldestHeight()
 

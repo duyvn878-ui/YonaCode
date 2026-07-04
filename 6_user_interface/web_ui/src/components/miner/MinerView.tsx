@@ -70,24 +70,39 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
                         {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (() => {
                           const isSnapshot = status.sync.state === 'BOOTSTRAPPING';
+                          const isExecuting = status.sync.executing === true;
+                          const hasDownloading = status.sync.downloading !== undefined && status.sync.downloading > 0;
                           const progress = isSnapshot && status.sync.snapshot_chunks_total && status.sync.snapshot_chunks_total > 0
                             ? (status.sync.snapshot_chunks_loaded || 0) / status.sync.snapshot_chunks_total * 100
-                            : (status.sync.target > 0 ? (status.sync.current / status.sync.target) * 100 : 0);
+                            : (isExecuting 
+                                ? (status.sync.target > 0 ? (status.sync.current / status.sync.target) * 100 : 0) 
+                                : (hasDownloading ? (status.sync.target > 0 ? (status.sync.downloading! / status.sync.target) * 100 : 0) : 0));
+                          const isDownloadingPhase = !isSnapshot && status.sync.state === 'SYNCING' && !isExecuting;
                           
                           return (
                             <div className="vanguard-flex-v vanguard-gap-tiny w-full mt-2">
                                <div className="flex justify-between items-center text-[9px] font-black">
                                   <span className="text-accent-blue uppercase tracking-widest">
-                                     {isSnapshot ? "Snapshot Progress" : "Sync Progress"}
+                                     {isSnapshot ? "Snapshot Progress" : (isDownloadingPhase ? "Phase 1: Downloading" : "Phase 2: Validating")}
                                   </span>
-                                  <span className="text-white/60">{progress.toFixed(2)}%</span>
+                                  <span className="text-white/60">
+                                    {isDownloadingPhase && !hasDownloading ? "LOADING..." : `${progress.toFixed(2)}%`}
+                                  </span>
                                </div>
-                               <div className="h-1.5 w-full bg-white/5 rounded-full border border-white/5 overflow-hidden">
+                               <div className="h-1.5 w-full bg-white/5 rounded-full border border-white/5 overflow-hidden relative">
                                   <motion.div 
                                     initial={{ width: 0 }}
                                     animate={{ width: `${progress}%` }}
+                                    transition={{ ease: "linear" }}
                                     className="h-full bg-accent-blue shadow-[0_0_10px_var(--accent-blue)]"
                                   />
+                                  {isDownloadingPhase && (
+                                    <motion.div 
+                                      className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent absolute"
+                                      animate={{ x: ["-100%", "300%"] }}
+                                      transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                                    />
+                                  )}
                                </div>
                                <div className="flex justify-between items-center text-[8px] text-white/30 font-bold uppercase tracking-tighter">
                                   {isSnapshot && status.sync.snapshot_chunks_total && status.sync.snapshot_chunks_total > 0 ? (
@@ -96,10 +111,21 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                                       <span>TOTAL: {status.sync.snapshot_chunks_total}</span>
                                     </>
                                   ) : (
-                                    <>
-                                      <span>HT: {status.sync.current}</span>
-                                      <span>TG: {status.sync.target}</span>
-                                    </>
+                                    isDownloadingPhase ? (
+                                      hasDownloading ? (
+                                        <>
+                                          <span>DL: {status.sync.downloading}</span>
+                                          <span>TG: {status.sync.target}</span>
+                                        </>
+                                      ) : (
+                                        <span>Downloading block indexes from network...</span>
+                                      )
+                                    ) : (
+                                      <>
+                                        <span>HT: {status.sync.current}</span>
+                                        <span>TG: {status.sync.target}</span>
+                                      </>
+                                    )
                                   )}
                                </div>
                             </div>

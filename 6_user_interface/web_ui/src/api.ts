@@ -26,6 +26,8 @@ export interface NodeStatus {
     state: string;
     snapshot_chunks_loaded?: number;
     snapshot_chunks_total?: number;
+    executing?: boolean;
+    downloading?: number;
   };
   peers: { count: number };
   bandwidth: { sent: number; recv: number };
@@ -153,7 +155,9 @@ const api = {
           target: data.sync.target,
           state: (data.sync.state || '').toUpperCase(),
           snapshot_chunks_loaded: data.sync.snapshot_chunks_loaded,
-          snapshot_chunks_total: data.sync.snapshot_chunks_total
+          snapshot_chunks_total: data.sync.snapshot_chunks_total,
+          executing: data.sync.executing,
+          downloading: data.sync.downloading
         } : { current: 0, target: 0, state: 'STALLED' },
         peers: data.peers,
         bandwidth: data.bandwidth,
@@ -202,6 +206,8 @@ const api = {
               state: (data.sync_state ? data.sync_state : (data.current_height < (data.target_height || 0) ? "SYNCING" : "STREAMING")).toUpperCase(),
               snapshot_chunks_loaded: data.snapshot_chunks_loaded,
               snapshot_chunks_total: data.snapshot_chunks_total,
+              executing: data.sync_executing,
+              downloading: data.sync_downloading,
             },
             peers: { count: data.peer_count || 0 },
             bandwidth: data.bandwidth || { sent: 0, recv: 0 },
