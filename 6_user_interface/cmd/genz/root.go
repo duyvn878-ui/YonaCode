@@ -150,69 +150,101 @@ func Execute() {
 
 	if len(os.Args) == 1 {
 		isDoubleClicked = true
-		cfg, err := readGlobalConfig()
-		if err == nil && cfg != nil && cfg.InstallDir != "" && cfg.DbPath != "" {
-			// Đã cài đặt, kiểm tra vị trí file chạy
-			execPath, err := os.Executable()
-			if err == nil {
-				currentDir := filepath.Dir(execPath)
-				targetDir := cfg.InstallDir
-				cleanCurr, err1 := filepath.EvalSymlinks(currentDir)
-				cleanTarget, err2 := filepath.EvalSymlinks(targetDir)
-				if err1 == nil && err2 == nil && cleanCurr != cleanTarget {
-					// Người dùng chạy file exe ở thư mục khác (Downloads) -> Tự động cập nhật
-					color.Cyan("\n🔄 Phát hiện bản cập nhật mới! Đang tự động cập nhật hệ thống...")
-					filesToCopy := []string{
-						"YonaCode", "YonaCode.exe",
-						"btc_genz_scl.dll", "libbtc_genz_scl.dylib", "scl_server",
-						"genz_miner", "genz_miner.exe",
-						"cli_yona_code", "cli_yona_code.exe",
-					}
 
-					copiedCount := 0
-					for _, fileName := range filesToCopy {
-						srcFile := filepath.Join(currentDir, fileName)
-						if _, err := os.Stat(srcFile); err == nil {
-							destFile := filepath.Join(targetDir, fileName)
-							if fileName == "YonaCode" || fileName == "YonaCode.exe" {
-								oldBackup := destFile + ".old"
-								os.Remove(oldBackup)
-								os.Rename(destFile, oldBackup)
-							}
-							errCopy := copyFile(srcFile, destFile)
-							if errCopy == nil {
-								copiedCount++
+		// [VANGUARD-PREPACKAGED-LEDGER] Tự động phát hiện dữ liệu sổ cái đi kèm (node/scl hoặc data/scl)
+		execPath, err := os.Executable()
+		if err == nil {
+			currentDir := filepath.Dir(execPath)
+			nodeSclPath := filepath.Join(currentDir, "node", "scl")
+			dataSclPath := filepath.Join(currentDir, "data", "scl")
+
+			var selectedDbPath string
+			if info, err := os.Stat(nodeSclPath); err == nil && info.IsDir() {
+				selectedDbPath = filepath.Join(currentDir, "node")
+			} else if info, err := os.Stat(dataSclPath); err == nil && info.IsDir() {
+				selectedDbPath = filepath.Join(currentDir, "data")
+			}
+
+			if selectedDbPath != "" {
+				color.Green("✅ Phát hiện dữ liệu sổ cái đóng gói sẵn tại: %s", selectedDbPath)
+				color.Green("🚀 Tự động khởi chạy Node YonaCode mà không cần cấu hình thủ công...")
+				cfg := &GlobalConfig{
+					InstallDir: currentDir,
+					DbPath:     selectedDbPath,
+				}
+				writeGlobalConfig(cfg)
+				os.Args = []string{os.Args[0], "node", "start", "--db-path", selectedDbPath}
+				goto skipWizard
+			}
+		}
+
+		{
+			cfg, err := readGlobalConfig()
+			if err == nil && cfg != nil && cfg.InstallDir != "" && cfg.DbPath != "" {
+				// Đã cài đặt, kiểm tra vị trí file chạy
+				execPath, err := os.Executable()
+				if err == nil {
+					currentDir := filepath.Dir(execPath)
+					targetDir := cfg.InstallDir
+					cleanCurr, err1 := filepath.EvalSymlinks(currentDir)
+					cleanTarget, err2 := filepath.EvalSymlinks(targetDir)
+					if err1 == nil && err2 == nil && cleanCurr != cleanTarget {
+						// Người dùng chạy file exe ở thư mục khác (Downloads) -> Tự động cập nhật
+						color.Cyan("\n🔄 Phát hiện bản cập nhật mới! Đang tự động cập nhật hệ thống...")
+						filesToCopy := []string{
+							"YonaCode", "YonaCode.exe",
+							"btc_genz_scl.dll", "libbtc_genz_scl.dylib", "scl_server",
+							"genz_miner", "genz_miner.exe",
+							"cli_yona_code", "cli_yona_code.exe",
+						}
+
+						copiedCount := 0
+						for _, fileName := range filesToCopy {
+							srcFile := filepath.Join(currentDir, fileName)
+							if _, err := os.Stat(srcFile); err == nil {
+								destFile := filepath.Join(targetDir, fileName)
+								if fileName == "YonaCode" || fileName == "YonaCode.exe" {
+									oldBackup := destFile + ".old"
+									os.Remove(oldBackup)
+									os.Rename(destFile, oldBackup)
+								}
+								errCopy := copyFile(srcFile, destFile)
+								if errCopy == nil {
+									copiedCount++
+								}
 							}
 						}
-					}
-					color.Green("✅ Đã cập nhật thành công %d tệp vào thư mục cài đặt gốc: %s", copiedCount, targetDir)
-					
-					// Chuyển hướng chạy exe ở thư mục gốc
-					binaryName := "YonaCode"
-					if runtime.GOOS == "windows" {
-						binaryName = "YonaCode.exe"
-					}
-					execBinary := filepath.Join(targetDir, binaryName)
-					cmd := exec.Command(execBinary)
-					cmd.Dir = targetDir
-					cmd.Stdout = os.Stdout
-					cmd.Stderr = os.Stderr
-					if errStart := cmd.Start(); errStart == nil {
-						color.Green("🚀 Đang chuyển hướng khởi chạy Node ở thư mục cài đặt gốc...")
-						os.Exit(0)
+						color.Green("✅ Đã cập nhật thành công %d tệp vào thư mục cài đặt gốc: %s", copiedCount, targetDir)
+						
+						// Chuyển hướng chạy exe ở thư mục gốc
+						binaryName := "YonaCode"
+						if runtime.GOOS == "windows" {
+							binaryName = "YonaCode.exe"
+						}
+						execBinary := filepath.Join(targetDir, binaryName)
+						cmd := exec.Command(execBinary)
+						cmd.Dir = targetDir
+						cmd.Stdout = os.Stdout
+						cmd.Stderr = os.Stderr
+						if errStart := cmd.Start(); errStart == nil {
+							color.Green("🚀 Đang chuyển hướng khởi chạy Node ở thư mục cài đặt gốc...")
+							os.Exit(0)
+						} else {
+							color.Red("❌ Lỗi khởi chạy tiến trình cập nhật: %v", errStart)
+						}
 					} else {
-						color.Red("❌ Lỗi khởi chạy tiến trình cập nhật: %v", errStart)
+						// Chạy trực tiếp node
+						color.Green("🚀 Tự động khởi chạy Node YonaCode với dữ liệu: %s", cfg.DbPath)
+						os.Args = []string{os.Args[0], "node", "start", "--db-path", cfg.DbPath}
 					}
-				} else {
-					// Chạy trực tiếp node
-					color.Green("🚀 Tự động khởi chạy Node YonaCode với dữ liệu: %s", cfg.DbPath)
-					os.Args = []string{os.Args[0], "node", "start", "--db-path", cfg.DbPath}
 				}
+			} else {
+				// Lần đầu chạy, hiển thị Installer Wizard
+				runInstallationWizard()
 			}
-		} else {
-			// Lần đầu chạy, hiển thị Installer Wizard
-			runInstallationWizard()
 		}
+
+	skipWizard:
 	}
 
 	// Bắt mọi Panic sập hệ thống (Crash ngầm)
@@ -466,10 +498,29 @@ func handleFreshInstallWizard() {
 
 	color.Green("✅ Đã khởi tạo cấu hình cài đặt mới tại: %s (Sao chép %d tệp)", installDir, copiedCount)
 
+	// [VANGUARD-OPTIMIZATION] Tự động sao chép dữ liệu sổ cái đóng gói sẵn (scl) nếu phát hiện
+	dbPathTarget := filepath.Join(installDir, "data")
+	var srcDataDir string
+	if info, err := os.Stat(filepath.Join(currentDir, "node")); err == nil && info.IsDir() {
+		srcDataDir = filepath.Join(currentDir, "node")
+	} else if info, err := os.Stat(filepath.Join(currentDir, "data")); err == nil && info.IsDir() {
+		srcDataDir = filepath.Join(currentDir, "data")
+	}
+
+	if srcDataDir != "" {
+		color.Yellow("\n📦 Phát hiện dữ liệu sổ cái đóng gói sẵn tại: %s", filepath.Base(srcDataDir))
+		color.Yellow("⏳ Đang tự động tích hợp dữ liệu (scl/ledger) sang thư mục cài đặt gốc...")
+		if errCopy := copyDir(srcDataDir, dbPathTarget); errCopy != nil {
+			color.Red("⚠️ Lỗi chuyển giao dữ liệu sổ cái: %v", errCopy)
+		} else {
+			color.Green("✅ Đã tích hợp dữ liệu sổ cái đóng gói sẵn thành công!")
+		}
+	}
+
 	// Lưu cấu hình toàn cục
 	cfg := &GlobalConfig{
 		InstallDir: installDir,
-		DbPath:     filepath.Join(installDir, "data"),
+		DbPath:     dbPathTarget,
 	}
 	if err := writeGlobalConfig(cfg); err != nil {
 		color.Red("⚠️ Không thể lưu cấu hình toàn cục: %v", err)
@@ -498,6 +549,34 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.Chmod(dst, 0755)
+}
+
+func copyDir(src string, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func waitForExit() {
