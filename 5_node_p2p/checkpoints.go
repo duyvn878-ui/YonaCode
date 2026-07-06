@@ -13,7 +13,13 @@ type Checkpoint struct {
 }
 
 // Cấu hình checkpoints tĩnh trên Go để tránh gọi gRPC xuống Rust.
-var checkpoints = map[uint64]Checkpoint{}
+var checkpoints = map[uint64]Checkpoint{
+	10000: {
+		Height:    10000,
+		Hash:      "cc13de01301374cf2ad7d587f9ce3409f0ed30a0d717e99227be536c815a0db8",
+		StateRoot: "64ab05ff170530f614d9d9ba15c5dd6378bd52ab7ba8086ebbdfadb1bba455f2",
+	},
+}
 
 
 // IsValidCheckpoint kiểm tra một khối có khớp với mỏ neo lịch sử hay không.
