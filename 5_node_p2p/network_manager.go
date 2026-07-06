@@ -145,6 +145,7 @@ type NetworkManager struct {
 	// Mỗi 5 phút không vi phạm, penalty tự giảm 1 điểm (decay). Chỉ ban khi vi phạm liên tục.
 	PeerPenalties    map[peer.ID]int
 	PeerPenaltyTimes map[peer.ID]time.Time // Thời điểm phạt cuối cùng để tính Forgiveness Decay
+	PeerUnbanTimes   map[peer.ID]time.Time // [HSSD-V2] Thời điểm hết cấm để tính decay chính xác (Chống cấm quẩn quanh)
 	PenaltyMu        sync.Mutex
 	BanMgr           *BanManager // [VANGUARD-DDoS-PROTECTION]
 
@@ -351,6 +352,11 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	if n.PeerPenaltyTimes == nil {
 		n.PeerPenaltyTimes = make(map[peer.ID]time.Time)
 	}
+	if n.PeerUnbanTimes == nil {
+		n.PeerUnbanTimes = make(map[peer.ID]time.Time)
+	}
+
+	unbanTime := n.PeerUnbanTimes[id]
 
 	// --- [LEAKY BUCKET DECAY] Tha thứ theo thời gian ---
 	// Tại sao: Ngăn chặn leo thang vĩnh viễn do các sự cố mạng thoáng qua.
@@ -362,10 +368,19 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 			log.Printf("[TIME-WARP] ⚠️ Cảnh báo: Thời gian system clock thụt lùi từ %v về %v, reset penalty để đảm bảo an toàn", lastTime, now)
 			n.PeerPenaltyTimes[id] = now
 		} else {
-			elapsed := now.Sub(lastTime)
-			if elapsed > forgivenessWindow {
-				// Số cửa sổ 5 phút đã trôi qua kể từ lần phạt cuối
-				decaySteps := int(elapsed / forgivenessWindow)
+			// [HSSD-V2] Thời gian thực sự cư xử tốt: Chỉ tính kể từ sau khi hết hạn cấm (unbanTime).
+			var timeTolerated time.Duration
+			if !unbanTime.IsZero() && unbanTime.After(lastTime) {
+				if now.After(unbanTime) {
+					timeTolerated = now.Sub(unbanTime)
+				}
+			} else {
+				timeTolerated = now.Sub(lastTime)
+			}
+
+			if timeTolerated > forgivenessWindow {
+				// Số cửa sổ 5 phút đã trôi qua kể từ khi được tự do
+				decaySteps := int(timeTolerated / forgivenessWindow)
 				prev := n.PeerPenalties[id]
 				if decaySteps > 0 && prev > 0 {
 					newPenalty := prev - decaySteps
@@ -373,7 +388,7 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 						newPenalty = 0
 					}
 					n.PeerPenalties[id] = newPenalty
-					log.Printf("[PEER-SHIELD] %s", i18n.T("log_peer_forgiven", id.String()[:12], prev, newPenalty, prev-newPenalty, elapsed.Round(time.Second)))
+					log.Printf("[PEER-SHIELD] %s", i18n.T("log_peer_forgiven", id.String()[:12], prev, newPenalty, prev-newPenalty, timeTolerated.Round(time.Second)))
 				}
 			}
 		}
@@ -383,7 +398,6 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	n.PeerPenalties[id]++
 	count := n.PeerPenalties[id]
 	n.PeerPenaltyTimes[id] = now
-	n.PenaltyMu.Unlock()
 
 	var duration time.Duration
 	var banType string
@@ -393,12 +407,12 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	// - Mức 4: Tạm giam 5 phút → Đủ để Peer cập nhật lại trạng thái.
 	// - Mức 5: Tạm giam 30 phút → Peer có vấn đề nghiêm trọng hơn.
 	// - Mức 6: Trục xuất 2 giờ → Nghi ngờ hành vi tấn công có chủ đích.
-	// - Mức 7+: Trục xuất 24 giờ → Xác định hành vi tấn công. Giảm từ 72h cũ
-	//           để tránh trường hợp Peer bị ban quá lâu do lỗi phần mềm (patch xong quay lại).
+	// - Mức 7+: Trục xuất 24 giờ → Xác định hành vi tấn công.
 	switch count {
 	case 1, 2, 3:
 		log.Printf("[PEER-SHIELD] ⚠️ Cảnh cáo Peer %s (Lần %d/%d). Lý do: %s",
 			id.String()[:12], count, 3, reason)
+		n.PenaltyMu.Unlock()
 		// Chỉ ngắt kết nối để dọn dẹp state, Discovery tự reconnect sau 5 giây
 		n.Host.Network().ClosePeer(id)
 		return // Thoát, chưa cấm IP/Peer ID
@@ -412,12 +426,14 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 		duration = 2 * time.Hour
 		banType = "Trục xuất (2h)"
 	default:
-		// [LEAKY-BUCKET-CAP] Giới hạn tối đa 24h thay vì 72h.
-		// Tại sao: 72h quá dài cho trường hợp Peer bị lỗi phần mềm → patch xong → quay lại.
-		// Với Leaky Bucket, nếu Peer đã im lặng 24h, penalty cũng đã decay hết về 0.
 		duration = 24 * time.Hour
 		banType = "Trục xuất tối đa (24h)"
 	}
+
+	if duration > 0 {
+		n.PeerUnbanTimes[id] = now.Add(duration)
+	}
+	n.PenaltyMu.Unlock()
 
 	log.Printf("[PEER-SHIELD] %s", i18n.T("log_peer_ban", banType, id.String()[:12], duration, count, reason))
 
@@ -633,7 +649,10 @@ func (n *NetworkManager) StartBlockInbox() {
 			if err == go_bridge.ErrCriticalFirewall {
 				// Tại sao: Việc phát sóng khối cũ trên Gossip là nỗ lực Reorg bất hợp pháp hoặc spam, log vào kiểm toán.
 				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", id.String()[:12], fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
-				return pubsub.ValidationIgnore // [VANGUARD-FIX] Tha bổng, chỉ từ chối im lặng, không trừng phạt IP
+
+				// [HSSD-L3-RESOURCE] Phạt lũy tiến đối với node cố tình spam khối cũ vi phạm tường lửa bất biến.
+				n.punishPeer(id, fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến", block.Header.Height))
+				return pubsub.ValidationReject
 			}
 			log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối #%d: %v. Bỏ qua không ban Peer.", block.Header.Height, err)
 			return pubsub.ValidationIgnore // [VANGUARD-FIX] Lỗi nội bộ gRPC -> KHÔNG BAN, CHỈ IGNORE!
@@ -916,6 +935,9 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Chặn đứng nỗ lực đồng bộ khối rút gọn cũ hơn mốc tường lửa.
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
+
+			// [HSSD-L3-RESOURCE] Phạt lũy tiến đối với node cố tình spam khối rút gọn cũ vi phạm tường lửa.
+			n.punishPeer(from, fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến", compact.Header.Height))
 			return
 		}
 		log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối rút gọn #%d: %v. Bỏ qua không ban Peer.", compact.Header.Height, err)
@@ -1323,6 +1345,9 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Khối đầy đủ cũ bị từ chối bởi tường lửa.
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
+
+			// [HSSD-L3-RESOURCE] Phạt lũy tiến đối với node gửi khối đầy đủ cũ vi phạm tường lửa.
+			n.punishPeer(from, fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến", block.Header.Height))
 			return err
 		}
 		return err
@@ -1502,7 +1527,14 @@ func (n *NetworkManager) HandleHandshake(s network.Stream) {
 	n.PeerMutex.Unlock()
 
 	if !isLocalEmpty && !isRemoteEmpty && !bytes.Equal(req.GenesisHash, localGenesisHash) {
-		log.Printf("[P2P-WARN] 🛡️ Từ chối Peer %s: Sai khác Genesis Hash (Mạng khác).", s.Conn().RemotePeer().String()[:12])
+		remotePeer := s.Conn().RemotePeer()
+		remoteAddr := s.Conn().RemoteMultiaddr()
+		// [HSSD-L4-SECURITY] Ghi log chi tiết địa chỉ IP và Peer ID bị từ chối bắt tay do không khớp khối Genesis.
+		// Lý do: Giúp quản trị viên điều tra hành vi chạy chuỗi riêng (private fork) nhưng vô tình kết nối tới mạng chính.
+		log.Printf("[P2P-WARN] 🛡️ Từ chối Peer %s (IP/Maddr: %s): Sai khác Genesis Hash (Mạng khác).", remotePeer.String()[:12], remoteAddr.String())
+
+		// [HSSD-L3-RESOURCE] Phạt peer gửi sai Genesis Hash liên tục để ngăn chặn spam log và tấn công DoS kết nối.
+		n.punishPeer(remotePeer, "Sai khác Genesis Hash (Mạng khác)")
 		return
 	}
 
@@ -1515,12 +1547,11 @@ func (n *NetworkManager) HandleHandshake(s network.Stream) {
 		currentH = finalizedH
 	}
 	oldestH := n.Bridge.GetOldestHeight()
-	checkpointH := (currentH / 1152) * 1152
 
 	resp := &pb_block.Handshake{
 		CurrentHeight:   currentH,
 		GenesisHash:     localGenesisHash,
-		FinalizedHeight: checkpointH,
+		FinalizedHeight: finalizedH, // [SYNC-FINALITY-PATCH] Sử dụng trực tiếp finalizedH từ Rust Core để phản hồi bắt tay, đồng nhất mốc bất biến thực tế (Rule of 5).
 		OldestHeight:    oldestH,
 		NatStatus:       n.NatStatus, // [NAT-AUDIT] Thông báo trạng thái NAT cho peer
 	}
@@ -1624,18 +1655,17 @@ func (n *NetworkManager) SendHandshake(p peer.ID) {
 		currentH = finalizedH
 	}
 	oldestH := n.Bridge.GetOldestHeight()
-	checkpointH := (currentH / 1152) * 1152
 	n.PeerMutex.RLock()
 	localGenesisHash := make([]byte, len(n.GenesisHash))
 	copy(localGenesisHash, n.GenesisHash)
 	n.PeerMutex.RUnlock()
 
-	// log.Printf("[P2P-HANDSHAKE-DEBUG] 📤 Gửi yêu cầu Handshake tới %s: Height=%d, Checkpoint=%d, Oldest=%d", p, currentH, checkpointH, oldestH)
+	// log.Printf("[P2P-HANDSHAKE-DEBUG] 📤 Gửi yêu cầu Handshake tới %s: Height=%d, FinalizedH=%d, Oldest=%d", p, currentH, finalizedH, oldestH)
 	req := &pb_block.Handshake{
 		Version:         "1.0.0",
 		GenesisHash:     localGenesisHash,
 		CurrentHeight:   currentH,
-		FinalizedHeight: checkpointH,
+		FinalizedHeight: finalizedH, // [SYNC-FINALITY-PATCH] Sử dụng trực tiếp finalizedH từ Rust Core để gửi yêu cầu bắt tay, đồng nhất mốc bất biến thực tế (Rule of 5).
 		OldestHeight:    oldestH,
 		Timestamp:       uint64(time.Now().Unix()),
 		NatStatus:       n.NatStatus, // [NAT-AUDIT] Thông báo trạng thái NAT cho peer
@@ -1652,6 +1682,13 @@ func (n *NetworkManager) SendHandshake(p peer.ID) {
 	if err := proto.Unmarshal(respData, &resp); err == nil {
 		// log.Printf("[P2P-HANDSHAKE-DEBUG] 📥 Nhận phản hồi từ %s: Height=%d, Finalized=%d", p.String()[:12], resp.CurrentHeight, resp.FinalizedHeight)
 		// Lý do: Genesis Hash bắt buộc phải được cấu hình tin cậy qua Local Ledger (RocksDB) của Bridge.
+
+		// [HSSD-L3-RESOURCE] Nếu peer phản hồi Genesis Hash sai lệch, phạt peer và ngắt kết nối lập tức.
+		if len(localGenesisHash) > 0 && len(resp.GenesisHash) > 0 && !bytes.Equal(resp.GenesisHash, localGenesisHash) {
+			log.Printf("[P2P-WARN] 🛡️ Peer kết nối đi %s phản hồi Genesis Hash không khớp. Tiến hành xử phạt.", p.String()[:12])
+			n.punishPeer(p, "Phản hồi Genesis Hash sai (Mạng khác)")
+			return
+		}
 
 		n.UpdatePeerHeight(p, resp.CurrentHeight, resp.FinalizedHeight, resp.OldestHeight)
 

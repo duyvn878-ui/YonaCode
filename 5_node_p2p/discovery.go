@@ -62,19 +62,31 @@ func InitDHT(ctx context.Context, h host.Host) (*kaddht.IpfsDHT, error) {
 			continue
 		}
 		
-		// [TỐI ƯU KẾT NỐI] Tạo goroutine bám đuổi IP cứng tối đa 5 lần
+		// [TỐI ƯU KẾT NỐI - PATCH] Tạo goroutine bám đuổi IP cứng tối đa 5 lần, kích hoạt DHT Bootstrap ngay khi thành công.
+		// Lý do: Việc trì hoãn nhẹ 500ms giúp Libp2p Host hoàn tất việc khởi động và bind socket trên hệ điều hành.
+		// Quan trọng nhất, ta kích hoạt kdht.Bootstrap(ctx) ngay khi kết nối thành công để cập nhật bảng định tuyến DHT,
+		// tránh việc bảng định tuyến trống rỗng do Bootstrap chạy quá sớm ở luồng chính khi chưa kết nối hoàn tất.
 		go func(pi peer.AddrInfo) {
+			time.Sleep(500 * time.Millisecond)
 			for i := 0; i < 5; i++ {
-				cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 				err := h.Connect(cctx, pi)
 				cancel()
 				
 				if err == nil {
 					log.Printf("[P2P-BOOTSTRAP] %s", i18n.T("log_p2p_bootstrap_success", pi.ID.String()[:12]))
+					// Trì hoãn nhẹ 100ms để đảm bảo DHT notifee của Libp2p đã kịp xử lý xong sự kiện kết nối
+					// và cập nhật peer này vào Routing Table trước khi tiến hành Bootstrap thực tế.
+					go func() {
+						time.Sleep(100 * time.Millisecond)
+						if errBoot := kdht.Bootstrap(ctx); errBoot != nil {
+							log.Printf("[P2P-DHT-WARN] ⚠️ Không thể kích hoạt DHT Bootstrap sau khi kết nối peer: %v", errBoot)
+						}
+					}()
 					return // Thành công thì thoát luôn
 				}
-				// Nếu xịt, đợi 2 giây rồi thử lại
-				time.Sleep(2 * time.Second)
+				// Nếu xịt, đợi 1.5 giây rồi thử lại
+				time.Sleep(1500 * time.Millisecond)
 			}
 			log.Printf("[P2P-BOOTSTRAP] ⚠️ Không thể kết nối IP Hạt giống %s sau 5 lần thử.", pi.ID.String()[:12])
 		}(*peerinfo)
@@ -868,11 +880,20 @@ func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP st
 	})
 	
 	if err == nil && len(txtRecords) > 0 {
-		// [VANGUARD-CLEANUP] Xóa toàn bộ bản ghi TXT cũ để tránh trùng lặp và rác DNS
+		// [SEEDER-CLEAN-PATCH] Chỉ dọn dẹp các bản ghi TXT cũ của chính node này (dựa trên peerID)
+		// để tránh xóa đè các bản ghi TXT của các node Seeder khác đang hoạt động trên cùng domain.
+		// Lý do: Nếu xóa sạch, các node Seeder chạy song song sẽ liên tục tranh chấp xóa địa chỉ của nhau,
+		// khiến các node mới khi tham gia chỉ phân giải được 1 node duy nhất và bị trễ 60s chờ PEX cập nhật.
+		var deletedCount int
 		for _, record := range txtRecords {
-			api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
+			if strings.Contains(record.Content, peerID) {
+				api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
+				deletedCount++
+			}
 		}
-		log.Printf("[SEEDER-CLEAN] 🧹 Đã dọn dẹp %d bản ghi cũ.", len(txtRecords))
+		if deletedCount > 0 {
+			log.Printf("[SEEDER-CLEAN] 🧹 Đã dọn dẹp %d bản ghi cũ của node %s.", deletedCount, peerID[:12])
+		}
 	}
 
 	// Tạo mới toàn bộ hệ thống bản ghi TXT định danh đa con đường
