@@ -214,16 +214,55 @@ func (d *DiscoveryService) Trigger() {
 	}
 }
 
+// isSelfAddress kiểm tra xem địa chỉ multiaddr có trỏ tới chính Node hiện tại hay không
+func (d *DiscoveryService) isSelfAddress(addr multiaddr.Multiaddr, myPublicIP, myPublicIPv6 string) bool {
+	protocols := addr.Protocols()
+	for _, proto := range protocols {
+		if proto.Code == multiaddr.P_IP4 {
+			ip, err := addr.ValueForProtocol(multiaddr.P_IP4)
+			if err == nil {
+				if ip == "127.0.0.1" || ip == myPublicIP {
+					return true
+				}
+				// Kiểm tra với các địa chỉ IP cục bộ mà Host đang lắng nghe
+				for _, hostAddr := range d.Host.Addrs() {
+					if hostIP, err := hostAddr.ValueForProtocol(multiaddr.P_IP4); err == nil && hostIP == ip {
+						return true
+					}
+				}
+			}
+		} else if proto.Code == multiaddr.P_IP6 {
+			ip, err := addr.ValueForProtocol(multiaddr.P_IP6)
+			if err == nil {
+				if ip == "::1" || ip == myPublicIPv6 {
+					return true
+				}
+				// Kiểm tra với các địa chỉ IPv6 cục bộ mà Host đang lắng nghe
+				for _, hostAddr := range d.Host.Addrs() {
+					if hostIP, err := hostAddr.ValueForProtocol(multiaddr.P_IP6); err == nil && hostIP == ip {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDiscovery *drouting.RoutingDiscovery) {
 	if d.BanMgr != nil && d.BanMgr.GetIsolationMode() == 3 {
 		log.Println("[DISCOVERY] 🔒 Chế độ Cách ly Tuyệt đối: Bỏ qua chu kỳ khám phá DHT/DNS.")
 		return
 	}
 
+	// Lấy sẵn IP công cộng (IPv4 & IPv6) một lần ở đầu chu kỳ để phục vụ kiểm tra tự kết nối
+	myPublicIP, _ := GetPublicIP()
+	myPublicIPv6, _ := GetPublicIPv6()
+
 	// 1. [V2.1 SATOSHI-AUTO] Tự động cập nhật ID và IP lên DNS riêng của Node
 	if d.CF_Token != "" && d.SeedDomain != "" {
-		publicIP, err := GetPublicIP()
-		if err == nil {
+		publicIP := myPublicIP
+		if publicIP != "" {
 			peerID := d.Host.ID().String()
 			p2pPort := 9000 // Cổng mặc định làm fallback
 
@@ -261,7 +300,8 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 
 		for _, addr := range sortedAddrs {
 			info, _ := peer.AddrInfoFromP2pAddr(addr)
-			if info != nil && info.ID != d.Host.ID() {
+			// Lọc bỏ kết nối tới chính địa chỉ của bản thân Node
+			if info != nil && info.ID != d.Host.ID() && !d.isSelfAddress(addr, myPublicIP, myPublicIPv6) {
 				log.Printf("[P2P-CONNECT] 🔗 [PRIORITY] Đang thử kết nối tới: %s", addr.String())
 				if err := d.Host.Connect(d.Ctx, *info); err != nil {
 					log.Printf("[P2P-CONNECT] ❌ [PRIORITY] Thất bại tới %s: %v", addr.String(), err)
@@ -280,7 +320,8 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 		if addrs, err := resolver.Resolve(d.Ctx, seedMaddr); err == nil {
 			for _, addr := range addrs {
 				info, _ := peer.AddrInfoFromP2pAddr(addr)
-				if info != nil && info.ID != d.Host.ID() {
+				// Lọc bỏ kết nối tới chính địa chỉ của bản thân Node
+				if info != nil && info.ID != d.Host.ID() && !d.isSelfAddress(addr, myPublicIP, myPublicIPv6) {
 					log.Printf("[P2P-CONNECT] 🌱 [SEED] Đang thử kết nối tới: %s", addr.String())
 					if err := d.Host.Connect(d.Ctx, *info); err != nil {
 						log.Printf("[P2P-CONNECT] ❌ [SEED] Thất bại tới %s: %v", addr.String(), err)
@@ -291,6 +332,7 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 			}
 		}
 	}
+
 
 	// [LOCAL-RECOVERY] Cứu hộ kết nối thông qua Peerstore lịch sử
 	// Tại sao thiết kế như vậy: Trong môi trường thử nghiệm localhost hoặc khi DNS/DHT không hoạt động,
@@ -308,12 +350,21 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 			}
 			if d.Host.Network().Connectedness(pID) != network.Connected {
 				addrs := d.Host.Peerstore().Addrs(pID)
-				if len(addrs) > 0 {
+				
+				// Lọc bỏ địa chỉ của bản thân Node
+				filteredAddrs := make([]multiaddr.Multiaddr, 0)
+				for _, a := range addrs {
+					if !d.isSelfAddress(a, myPublicIP, myPublicIPv6) {
+						filteredAddrs = append(filteredAddrs, a)
+					}
+				}
+
+				if len(filteredAddrs) > 0 {
 					info := peer.AddrInfo{
 						ID:    pID,
-						Addrs: addrs,
+						Addrs: filteredAddrs,
 					}
-					log.Printf("[DISCOVERY-RECOVERY] 🔗 Thử kết nối lại tới Peer cũ: %s (Số addrs: %d)", pID.String()[:12], len(addrs))
+					log.Printf("[DISCOVERY-RECOVERY] 🔗 Thử kết nối lại tới Peer cũ: %s (Số addrs: %d)", pID.String()[:12], len(filteredAddrs))
 					go func(p peer.AddrInfo) {
 						d.Host.Connect(d.Ctx, p)
 					}(info)
@@ -328,7 +379,7 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 		if addrs, err := resolver.Resolve(d.Ctx, customDNSAddr); err == nil {
 			for _, addr := range addrs {
 				info, _ := peer.AddrInfoFromP2pAddr(addr)
-				if info != nil && info.ID != d.Host.ID() {
+				if info != nil && info.ID != d.Host.ID() && !d.isSelfAddress(addr, myPublicIP, myPublicIPv6) {
 					d.Host.Connect(d.Ctx, *info)
 				}
 			}
@@ -341,8 +392,20 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 		if err == nil {
 			for p := range peerChan {
 				if p.ID == d.Host.ID() { continue }
-				if d.Host.Network().Connectedness(p.ID) != network.Connected {
-					d.Host.Connect(d.Ctx, p)
+				
+				// Lọc bỏ các địa chỉ trỏ về chính node hiện tại
+				filteredAddrs := make([]multiaddr.Multiaddr, 0)
+				for _, a := range p.Addrs {
+					if !d.isSelfAddress(a, myPublicIP, myPublicIPv6) {
+						filteredAddrs = append(filteredAddrs, a)
+					}
+				}
+
+				if len(filteredAddrs) > 0 {
+					p.Addrs = filteredAddrs
+					if d.Host.Network().Connectedness(p.ID) != network.Connected {
+						d.Host.Connect(d.Ctx, p)
+					}
 				}
 			}
 		}
