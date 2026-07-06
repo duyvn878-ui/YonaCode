@@ -811,15 +811,14 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 				time.Sleep(10 * time.Second)
 				continue
 			}
-			// [GENESIS-FIX] Nếu chưa có khối Genesis (#0) trong database,
-			// thợ đào sẽ đào khối #0 trước tiên (thay vì nhảy sang #1).
-			// Tại sao: Đảm bảo Genesis được đào THỦ CÔNG bởi người dùng,
-			// với đúng địa chỉ ví mà họ đã thiết lập.
+			// [GENESIS-FIX] Chặn tuyệt đối việc thợ đào tự ý đào khối Genesis (#0) khi DB trống.
+			// Khối Genesis phải được đồng bộ từ mạng chính hoặc nạp từ ledger cục bộ.
 			var nextHeight uint64
 			genHash := app.bridge.GetBlockHash(0)
 			if h == 0 && len(genHash) == 0 {
-				nextHeight = 0 // Chưa có Genesis → đào khối #0
-				log.Printf("[MINER-GENESIS] 🌟 Chưa có khối Genesis. Chuẩn bị đào khối #0 với ví: 0x%s", hex.EncodeToString(app.GetMinerAddress()[:8]))
+				log.Printf("[MINER-GENESIS-BLOCKED] 🛑 Chưa có khối Genesis trong DB. Chặn đào khối #0 để tránh tạo fork rác. Vui lòng chờ đồng bộ từ mạng chính.")
+				time.Sleep(5 * time.Second)
+				continue
 			} else {
 				nextHeight = h + 1
 			}

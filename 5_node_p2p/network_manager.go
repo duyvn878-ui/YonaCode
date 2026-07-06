@@ -143,10 +143,11 @@ type NetworkManager struct {
 	// [VANGUARD-LEAKY-BUCKET] Hệ thống trừng phạt Peer theo mô hình Leaky Bucket (Chống DDoS)
 	// Tại sao dùng Leaky Bucket: Tránh leo thang vĩnh viễn do lỗi mạng thoáng qua.
 	// Mỗi 5 phút không vi phạm, penalty tự giảm 1 điểm (decay). Chỉ ban khi vi phạm liên tục.
-	PeerPenalties    map[peer.ID]int
-	PeerPenaltyTimes map[peer.ID]time.Time // Thời điểm phạt cuối cùng để tính Forgiveness Decay
-	PeerUnbanTimes   map[peer.ID]time.Time // [HSSD-V2] Thời điểm hết cấm để tính decay chính xác (Chống cấm quẩn quanh)
-	PenaltyMu        sync.Mutex
+	PeerPenalties      map[peer.ID]int
+	PeerPenaltyTimes   map[peer.ID]time.Time // Thời điểm phạt cuối cùng để tính Forgiveness Decay
+	PeerUnbanTimes     map[peer.ID]time.Time // [HSSD-V2] Thời điểm hết cấm để tính decay chính xác (Chống cấm quẩn quanh)
+	PeerConnectedTimes map[peer.ID]time.Time // [HSSD-V3] Thời điểm thiết lập kết nối thành công để tính decay thực tế
+	PenaltyMu          sync.Mutex
 	BanMgr           *BanManager // [VANGUARD-DDoS-PROTECTION]
 
 	// Mock phục vụ Unit Test
@@ -277,6 +278,7 @@ func NewNetworkManager(ctx context.Context, h host.Host, ps *pubsub.PubSub, gene
 		SyncEngine:           nil,
 		BanMgr:               banMgr,
 		PeerPenaltyTimes:     make(map[peer.ID]time.Time),
+		PeerConnectedTimes:   make(map[peer.ID]time.Time),
 		TriggerHandshakeChan: make(chan struct{}, 1),
 		LastHeaderRequest:    make(map[peer.ID]time.Time),
 		LastPexRequest:       make(map[peer.ID]time.Time),
@@ -292,6 +294,14 @@ func NewNetworkManager(ctx context.Context, h host.Host, ps *pubsub.PubSub, gene
 	// [P2P-SHIELD] Lắng nghe sự kiện ngắt kết nối thực tế để dọn Ghost Peers khỏi RAM
 	if h != nil && h.Network() != nil {
 		h.Network().Notify(&network.NotifyBundle{
+			ConnectedF: func(net network.Network, conn network.Conn) {
+				p := conn.RemotePeer()
+				n.PenaltyMu.Lock()
+				if n.PeerConnectedTimes != nil {
+					n.PeerConnectedTimes[p] = time.Now()
+				}
+				n.PenaltyMu.Unlock()
+			},
 			DisconnectedF: func(net network.Network, conn network.Conn) {
 				p := conn.RemotePeer()
 				n.PeerMutex.Lock()
@@ -308,6 +318,12 @@ func NewNetworkManager(ctx context.Context, h host.Host, ps *pubsub.PubSub, gene
 				n.PexRequestMu.Lock()
 				delete(n.LastPexRequest, p)
 				n.PexRequestMu.Unlock()
+
+				n.PenaltyMu.Lock()
+				if n.PeerConnectedTimes != nil {
+					delete(n.PeerConnectedTimes, p)
+				}
+				n.PenaltyMu.Unlock()
 
 				log.Printf("[P2P-SHIELD] 🧹 Đã dọn sạch 100%% cấu trúc bộ nhớ của Ghost Peer: %s", p.String()[:12])
 			},
@@ -356,30 +372,21 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 		n.PeerUnbanTimes = make(map[peer.ID]time.Time)
 	}
 
-	unbanTime := n.PeerUnbanTimes[id]
 
 	// --- [LEAKY BUCKET DECAY] Tha thứ theo thời gian ---
-	// Tại sao: Ngăn chặn leo thang vĩnh viễn do các sự cố mạng thoáng qua.
-	// Cách hoạt động: Mỗi cửa sổ 5 phút không có vi phạm mới, giảm 1 điểm phạt.
+	// [HSSD-V3] Thời gian thực sự cư xử tốt: Chỉ tính kể từ khi Peer thực sự thiết lập kết nối thành công ổn định.
+	// Lý do: Tránh việc tính gộp thời gian đang bị cấm (khi peer không thể kết nối) hoặc thời gian ngắt kết nối
+	// làm thời gian "cư xử tốt", ngăn chặn lỗi cấm quẩn quanh (ban 5p -> hết ban -> kết nối lại -> vi phạm -> ban tiếp 5p).
 	const forgivenessWindow = 5 * time.Minute
 	now := time.Now()
-	if lastTime, exists := n.PeerPenaltyTimes[id]; exists {
-		if now.Before(lastTime) {
-			log.Printf("[TIME-WARP] ⚠️ Cảnh báo: Thời gian system clock thụt lùi từ %v về %v, reset penalty để đảm bảo an toàn", lastTime, now)
-			n.PeerPenaltyTimes[id] = now
+	if connTime, exists := n.PeerConnectedTimes[id]; exists {
+		if now.Before(connTime) {
+			log.Printf("[TIME-WARP] ⚠️ Cảnh báo: Thời gian system clock thụt lùi từ %v về %v, reset connected time để đảm bảo an toàn", connTime, now)
+			n.PeerConnectedTimes[id] = now
 		} else {
-			// [HSSD-V2] Thời gian thực sự cư xử tốt: Chỉ tính kể từ sau khi hết hạn cấm (unbanTime).
-			var timeTolerated time.Duration
-			if !unbanTime.IsZero() && unbanTime.After(lastTime) {
-				if now.After(unbanTime) {
-					timeTolerated = now.Sub(unbanTime)
-				}
-			} else {
-				timeTolerated = now.Sub(lastTime)
-			}
-
+			timeTolerated := now.Sub(connTime)
 			if timeTolerated > forgivenessWindow {
-				// Số cửa sổ 5 phút đã trôi qua kể từ khi được tự do
+				// Số cửa sổ 5 phút đã trôi qua kể từ khi kết nối
 				decaySteps := int(timeTolerated / forgivenessWindow)
 				prev := n.PeerPenalties[id]
 				if decaySteps > 0 && prev > 0 {

@@ -302,6 +302,10 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 			if pID == d.Host.ID() {
 				continue
 			}
+			// [VANGUARD-BUGFIX] Bỏ qua các peer đang bị ban để tránh spam log "Thử kết nối lại" vô tận
+			if d.BanMgr != nil && d.BanMgr.IsPeerBanned(pID) {
+				continue
+			}
 			if d.Host.Network().Connectedness(pID) != network.Connected {
 				addrs := d.Host.Peerstore().Addrs(pID)
 				if len(addrs) > 0 {

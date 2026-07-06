@@ -29,6 +29,6 @@ var BlacklistedMiners = map[string]bool{
 // Tại sao cần hỗ trợ IPv6: Nhằm đảm bảo các node hoạt động trên hạ tầng mạng IPv6-only (như VPS chỉ có IPv6)
 // vẫn có thể kết nối thành công tới DHT để khám phá mạng lưới mà không bị cô lập khi DNS Seed gặp sự cố.
 var BootstrapPeers = []string{
-	"/ip4/110.172.28.103/tcp/9000/p2p/12D3KooWQDKMMG7uKxaMvupwGoVZrDWoNj9KaSQRUe8xj7GaJuYm",
+	"/ip4/110.172.28.103/tcp/9000/p2p/12D3KooWFsuqq1tyfigvjhB47MbHM9kryGeRHuB683xBNWCmkTyf",
 }
 
