@@ -2613,6 +2613,16 @@ pub fn build_vanguard_block_template(
     timestamp: u64,
     difficulty_raw: Vec<u8>,
 ) -> Vec<u8> {
+    if height == 0 {
+        log::error!("[VANGUARD-BUILDER] 🚨 Chặn nỗ lực tự tạo template khai thác cho khối Genesis (khối #0)!");
+        let res = BlockTemplateResult {
+            block_raw: Vec::new(),
+            success: false,
+            error_msg: "Genesis block mining is forbidden. It must be synchronized or loaded from config.".to_string(),
+            failing_tx_index: -1,
+        };
+        return borsh::to_vec(&res).unwrap_or_default();
+    }
     log::info!("[VANGUARD-BUILDER] 🏗️ Đang xây dựng Template cho khối #{}...", height);
 
     // 1. Giải mã danh sách giao dịch từ phía Go (Mempool)

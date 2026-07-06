@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -29,6 +30,52 @@ var (
 	client     pb_block.BlockchainServiceClient
 	isDoubleClicked bool
 )
+
+type GlobalConfig struct {
+	InstallDir string `json:"install_dir"`
+	DbPath     string `json:"db_path"`
+}
+
+func getGlobalConfigPath() string {
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = os.Getenv("APPDATA")
+		if baseDir == "" {
+			baseDir = os.Getenv("USERPROFILE")
+		}
+	} else {
+		baseDir = os.Getenv("HOME")
+	}
+	if baseDir == "" {
+		baseDir = "."
+	}
+	return filepath.Join(baseDir, ".yonacode", "config.json")
+}
+
+func readGlobalConfig() (*GlobalConfig, error) {
+	cfgPath := getGlobalConfigPath()
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func writeGlobalConfig(cfg *GlobalConfig) error {
+	cfgPath := getGlobalConfigPath()
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cfgPath, data, 0644)
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "yonacode",
@@ -103,8 +150,69 @@ func Execute() {
 
 	if len(os.Args) == 1 {
 		isDoubleClicked = true
-		// [UX-AUTO-INSTALLER] Thay vì chạy thẳng node start, kích hoạt trình cài đặt/cập nhật tương tác
-		runInstallationWizard()
+		cfg, err := readGlobalConfig()
+		if err == nil && cfg != nil && cfg.InstallDir != "" && cfg.DbPath != "" {
+			// Đã cài đặt, kiểm tra vị trí file chạy
+			execPath, err := os.Executable()
+			if err == nil {
+				currentDir := filepath.Dir(execPath)
+				targetDir := cfg.InstallDir
+				cleanCurr, err1 := filepath.EvalSymlinks(currentDir)
+				cleanTarget, err2 := filepath.EvalSymlinks(targetDir)
+				if err1 == nil && err2 == nil && cleanCurr != cleanTarget {
+					// Người dùng chạy file exe ở thư mục khác (Downloads) -> Tự động cập nhật
+					color.Cyan("\n🔄 Phát hiện bản cập nhật mới! Đang tự động cập nhật hệ thống...")
+					filesToCopy := []string{
+						"YonaCode", "YonaCode.exe",
+						"btc_genz_scl.dll", "libbtc_genz_scl.dylib", "scl_server",
+						"genz_miner", "genz_miner.exe",
+						"cli_yona_code", "cli_yona_code.exe",
+					}
+
+					copiedCount := 0
+					for _, fileName := range filesToCopy {
+						srcFile := filepath.Join(currentDir, fileName)
+						if _, err := os.Stat(srcFile); err == nil {
+							destFile := filepath.Join(targetDir, fileName)
+							if fileName == "YonaCode" || fileName == "YonaCode.exe" {
+								oldBackup := destFile + ".old"
+								os.Remove(oldBackup)
+								os.Rename(destFile, oldBackup)
+							}
+							errCopy := copyFile(srcFile, destFile)
+							if errCopy == nil {
+								copiedCount++
+							}
+						}
+					}
+					color.Green("✅ Đã cập nhật thành công %d tệp vào thư mục cài đặt gốc: %s", copiedCount, targetDir)
+					
+					// Chuyển hướng chạy exe ở thư mục gốc
+					binaryName := "YonaCode"
+					if runtime.GOOS == "windows" {
+						binaryName = "YonaCode.exe"
+					}
+					execBinary := filepath.Join(targetDir, binaryName)
+					cmd := exec.Command(execBinary)
+					cmd.Dir = targetDir
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+					if errStart := cmd.Start(); errStart == nil {
+						color.Green("🚀 Đang chuyển hướng khởi chạy Node ở thư mục cài đặt gốc...")
+						os.Exit(0)
+					} else {
+						color.Red("❌ Lỗi khởi chạy tiến trình cập nhật: %v", errStart)
+					}
+				} else {
+					// Chạy trực tiếp node
+					color.Green("🚀 Tự động khởi chạy Node YonaCode với dữ liệu: %s", cfg.DbPath)
+					os.Args = []string{os.Args[0], "node", "start", "--db-path", cfg.DbPath}
+				}
+			}
+		} else {
+			// Lần đầu chạy, hiển thị Installer Wizard
+			runInstallationWizard()
+		}
 	}
 
 	// Bắt mọi Panic sập hệ thống (Crash ngầm)
@@ -357,7 +465,19 @@ func handleFreshInstallWizard() {
 	}
 
 	color.Green("✅ Đã khởi tạo cấu hình cài đặt mới tại: %s (Sao chép %d tệp)", installDir, copiedCount)
-	os.Args = []string{os.Args[0], "node", "start", "--db-path", installDir}
+
+	// Lưu cấu hình toàn cục
+	cfg := &GlobalConfig{
+		InstallDir: installDir,
+		DbPath:     filepath.Join(installDir, "data"),
+	}
+	if err := writeGlobalConfig(cfg); err != nil {
+		color.Red("⚠️ Không thể lưu cấu hình toàn cục: %v", err)
+	} else {
+		color.Green("💾 Đã lưu cấu hình cài đặt toàn cục thành công!")
+	}
+
+	os.Args = []string{os.Args[0], "node", "start", "--db-path", cfg.DbPath}
 }
 
 func copyFile(src, dst string) error {
