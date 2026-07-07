@@ -320,6 +320,15 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 				if res.IsValid {
 					// [VANGUARD-OPTIMIZATION] Sử dụng updateTxTrackerWithCachedData kết hợp số dư đã cache sẵn để tránh bão gRPC GetBalance đơn lẻ.
 					s.updateTxTrackerWithCachedData(res.TxHash, senderHex, receiverHex, res.Tx.Amount, res.Tx.Fee, res.Tx.Nonce, 0, time.Now().Unix(), "", res.SenderBalance, userAddrs)
+					// [BUS-STATUS-FIX] Xóa trạng thái tạm WAITING_FOR_BUS (99) khi giao dịch đã được Rust Core xác thực thành công.
+					// Tại sao: Nếu không xóa, ErrorMessage "Đang chờ xe buýt" sẽ tồn tại vĩnh viễn khiến Frontend
+					// hiển thị sai trạng thái "BỊ TỪ CHỐI" do logic isRejected dựa trên error_message.
+					s.txTrackerMu.Lock()
+					if tracked, exists := s.txTracker[res.TxHash]; exists && tracked.Status == 99 {
+						tracked.Status = 0
+						tracked.ErrorMessage = ""
+					}
+					s.txTrackerMu.Unlock()
 					txsBySender[senderHex] = append(txsBySender[senderHex], res)
 				} else {
 					invalidResults = append(invalidResults, res)
@@ -331,6 +340,13 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 				s.txTrackerMu.Lock()
 				for _, res := range invalidResults {
 					if tracked, exists := s.txTracker[res.TxHash]; exists {
+						// [RACE-CONDITION-FIX] Bảo vệ tuyệt đối: Không ghi đè trạng thái giao dịch
+						// đã được xác nhận trên blockchain (BlockHeight > 0 hoặc Status == 1).
+						// Tại sao: TX có thể quay lại qua P2P gossip sau khi đã được đào vào block,
+						// Rust re-validate sẽ thấy nonce cũ đã tiêu → báo "Nonce quá thấp" SAI.
+						if tracked.BlockHeight > 0 || tracked.Status == 1 {
+							continue
+						}
 						tracked.Status = res.StatusCode
 						tracked.ErrorMessage = res.ErrorMsg
 					}
