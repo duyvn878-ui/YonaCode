@@ -91,6 +91,7 @@ export const translations = {
     no_mining: "Đang đồng bộ và xác thực mạng lưới.",
     l0_validation: "Kiểm soát & Bảo vệ sổ cái.",
     sync_to_mine_hint: "Bạn có thể bật đào sau khi hoàn tất đồng bộ.",
+    sync_warning: "Hệ thống đang đồng bộ. Vui lòng chờ khoảng 5 đến 15 phút (hoặc lâu hơn tùy thuộc vào tình hình mạng). Tiến trình có thể nhảy về 0% hoặc luân chuyển giữa Phần 1 và 2 (điều này hoàn toàn bình thường và có thể nhảy nhiều % khác nhau). Bạn cứ yên tâm kiên nhẫn đợi một lúc, hệ thống sẽ tự động đồng bộ xong.",
 
     // --- Explorer & Layout ---
     sidebar_mining: "KHAI THÁC",
@@ -459,6 +460,7 @@ export const translations = {
     no_mining: "Synchronizing & Validating network.",
     l0_validation: "Verifying & Securing Ledger.",
     sync_to_mine_hint: "Mining is available after full synchronization.",
+    sync_warning: "The system is synchronizing. Please wait about 5 to 15 minutes (or longer depending on network conditions). Progress may jump back to 0% or switch between Phase 1 and Phase 2 (this is completely normal and can jump across different percentages). Rest assured, please wait patiently and the synchronization will complete automatically.",
 
     // --- Explorer & Layout ---
     sidebar_mining: "MINING",

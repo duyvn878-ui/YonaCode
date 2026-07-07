@@ -38,7 +38,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
   return (
     <div className="vanguard-flex-v vanguard-gap-medium h-full animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="grid grid-cols-12 gap-6 h-[450px]">
+      <div className="grid grid-cols-12 gap-6 h-[500px]">
         <div className="col-span-4 vanguard-glass p-6 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
            <div className="absolute -right-8 -top-8 w-32 h-32 bg-accent-blue/5 rounded-full blur-3xl group-hover:bg-accent-blue/10 transition-all duration-1000" />
            
@@ -139,10 +139,15 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                         )}
                         
                         {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
-                          <p className="text-[9px] font-bold text-accent-blue/80 mt-2 leading-relaxed animate-pulse">
-                             ⚡ {t.sync_to_mine_hint}
-                          </p>
-                        )}
+                           <div className="flex flex-col gap-2 mt-2 bg-accent-blue/5 border border-accent-blue/10 p-3 rounded-xl">
+                              <p className="text-[9px] font-bold text-accent-blue/90 leading-relaxed animate-pulse flex items-center gap-1.5">
+                                 ⚡ {t.sync_to_mine_hint}
+                              </p>
+                              <p className="text-[9px] font-semibold text-white/50 leading-relaxed">
+                                 ℹ️ {t.sync_warning}
+                              </p>
+                           </div>
+                         )}
                      </div>
                   </div>
               </div>

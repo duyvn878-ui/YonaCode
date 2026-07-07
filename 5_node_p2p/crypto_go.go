@@ -15,6 +15,7 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"lukechampine.com/blake3"
+	"google.golang.org/protobuf/proto"
 )
 
 // RustCryptoContext PHẢI trùng khớp hoàn toàn với GENZ_POW_CONTEXT trong Rust Core.
@@ -30,10 +31,8 @@ func GetSigningHashNative(tx *pb_block.Transaction) []byte {
 		return nil
 	}
 
-	// 1. Sao chép sâu đối tượng Transaction để tránh làm thay đổi/bẩn dữ liệu gốc đang được sử dụng ở luồng khác
-	var buf bytes.Buffer
-
 	// 1. Version (uint64)
+	var buf bytes.Buffer
 	var tmp8 [8]byte
 	binary.LittleEndian.PutUint64(tmp8[:], tx.Version)
 	buf.Write(tmp8[:])
@@ -76,41 +75,33 @@ func GetSigningHashNative(tx *pb_block.Transaction) []byte {
 	buf.Write(tmp8[:])
 
 	// 8. Recent Block Hash
-	if len(tx.RecentBlockHash) > 0 {
-		binary.LittleEndian.PutUint32(tmp4[:], uint32(len(tx.RecentBlockHash)))
-		buf.Write(tmp4[:])
-		buf.Write(tx.RecentBlockHash)
-	} else {
-		binary.LittleEndian.PutUint32(tmp4[:], 0)
-		buf.Write(tmp4[:])
-	}
+	binary.LittleEndian.PutUint32(tmp4[:], uint32(len(tx.RecentBlockHash)))
+	buf.Write(tmp4[:])
+	buf.Write(tx.RecentBlockHash)
 
 	// 9. Chain ID (uint64)
 	binary.LittleEndian.PutUint64(tmp8[:], tx.ChainId)
 	buf.Write(tmp8[:])
 
-	// 10. Băm Blake3 phái sinh với Context ứng dụng
+	// 10. Băm Blake3 Vanguard
 	hash := make([]byte, 32)
 	blake3.DeriveKey(hash, RustCryptoContext, buf.Bytes())
-
 	return hash
 }
 
-// VerifySignatureNative thực hiện xác thực chữ ký Ed25519 cho giao dịch cục bộ tại tầng Go.
-// Tại sao: Làm chốt chặn phòng thủ vòng ngoài (Pre-check Shield) để lọc sạch các khối rác hoặc khối tấn công
-// Signature Bomb DoS trước khi chuyển dữ liệu xuống cho Rust Core xử lý.
+// VerifySignatureNative xác thực chữ ký của giao dịch ở tầng Go dùng Ed25519 cục bộ.
 func VerifySignatureNative(tx *pb_block.Transaction) bool {
 	if tx == nil || tx.Sender == nil || tx.Signature == nil {
 		return false
 	}
 
-	// [SECURITY-VANGUARD] Chặn đứng các giao dịch từ các chuỗi khác hoặc chuỗi rác (Replay Attack Prevention)
-	if tx.ChainId != 25062025 {
+	senderPubkey := tx.Sender.Value
+	if len(senderPubkey) != ed25519.PublicKeySize {
 		return false
 	}
 
-	senderPubkey := tx.Sender.Value
-	if len(senderPubkey) != ed25519.PublicKeySize {
+	// [SECURITY-VANGUARD] Chặn đứng các giao dịch từ các chuỗi khác hoặc chuỗi rác (Replay Attack Prevention)
+	if tx.ChainId != 25062025 {
 		return false
 	}
 
@@ -127,11 +118,15 @@ func VerifySignatureNative(tx *pb_block.Transaction) bool {
 	return ed25519.Verify(senderPubkey, signingHash, sig)
 }
 
-// GetTxIDNative tính toán mã băm giao dịch (Stable TxID) từ dữ liệu bytes protobuf thô mà không cần gọi FFI/gRPC.
-// Tại sao: Tăng hiệu năng tính toán TxID ở ngoài luồng gRPC xuống dưới 1ms.
+// GetTxIDNative tính toán mã băm giao dịch (Stable TxID) bằng cách unmarshal bytes thô và gọi GetSigningHashNative.
+// Điều này đảm bảo TxID tính toán ở Go trùng khớp 100% với hàm calculate_tx_hash của Rust Core (SegWit-TxID).
 func GetTxIDNative(txBytes []byte) []byte {
-	hash := make([]byte, 32)
-	blake3.DeriveKey(hash, RustCryptoContext, txBytes)
-	return hash
+	var tx pb_block.Transaction
+	if err := proto.Unmarshal(txBytes, &tx); err != nil {
+		// Fallback nếu không unmarshal được
+		hash := make([]byte, 32)
+		blake3.DeriveKey(hash, RustCryptoContext, txBytes)
+		return hash
+	}
+	return GetSigningHashNative(&tx)
 }
-
