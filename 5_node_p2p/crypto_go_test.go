@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"testing"
 	"btc_genz/2_miner_core/go_bridge"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestSigningHashConsensusAlignment kiểm thử tính đồng nhất tuyệt đối của mã băm ký
@@ -65,6 +66,48 @@ func TestSigningHashConsensusAlignment(t *testing.T) {
 			t.Log("✅ Khớp Live gRPC Cross-Check thành công!")
 		}
 	}
+}
+
+// TestTxIDConsensusAlignment kiểm thử tính chính xác của GetTxIDNative.
+// Đảm bảo TxID của Go khớp hoàn hảo với SegWit-TxID tính bằng GoSigningHash (không phụ thuộc chữ ký).
+func TestTxIDConsensusAlignment(t *testing.T) {
+	tx := &pb_block.Transaction{
+		Version: 1,
+		Sender: &pb_block.Address{
+			Value: make([]byte, 32),
+		},
+		Receiver: &pb_block.Address{
+			Value: bytesRepeat(1, 32),
+		},
+		Amount:          123456789,
+		Fee:             500,
+		Nonce:           42,
+		Timestamp:       1600000000,
+		RecentBlockHash: bytesRepeat(2, 32),
+		ChainId:         25062025,
+		Signature: &pb_block.Signature{
+			Value: bytesRepeat(9, 64),
+		},
+	}
+
+	// 1. Marshal Transaction thành bytes thô (Protobuf)
+	txBytes, err := proto.Marshal(tx)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// 2. Tính TxID bằng GetTxIDNative (nhận bytes thô)
+	txIDBytes := GetTxIDNative(txBytes)
+	txIDHex := hex.EncodeToString(txIDBytes)
+
+	// 3. Tính expected TxID bằng GetSigningHashNative
+	expectedHashBytes := GetSigningHashNative(tx)
+	expectedHashHex := hex.EncodeToString(expectedHashBytes)
+
+	if txIDHex != expectedHashHex {
+		t.Fatalf("❌ LỖI ĐỒNG THUẬN TXID: GetTxIDNative lệch so với GetSigningHashNative!\nGetTxIDNative: %s\nExpected:      %s", txIDHex, expectedHashHex)
+	}
+	t.Logf("✅ TxID khớp hoàn hảo với SegWit-TxID: %s", txIDHex)
 }
 
 // Hàm bổ trợ sinh slice bytes lặp lại cho kiểm thử

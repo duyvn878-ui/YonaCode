@@ -31,18 +31,22 @@ const LanguageContext = createContext<LanguageContextProps>({
 });
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [lang, setLangState] = useState<LangType>('vi');
+  const [lang, setLangState] = useState<LangType>(() => {
+    const saved = localStorage.getItem('vanguard_lang');
+    return (saved === 'vi' || saved === 'en') ? saved : 'vi';
+  });
 
-  // Khi ngôn ngữ thay đổi → cập nhật <html lang="..."> cho SEO + screen readers
+  // Khi ngôn ngữ thay đổi → cập nhật <html lang="..."> cho SEO + screen readers + lưu vào localStorage
   const setLang = (newLang: LangType) => {
     setLangState(newLang);
     document.documentElement.lang = newLang;
+    localStorage.setItem('vanguard_lang', newLang);
   };
 
   // Đồng bộ lang attribute lần đầu khi mount
   useEffect(() => {
     document.documentElement.lang = lang;
-  }, []);
+  }, [lang]);
 
   const getLocale = (): string => {
     return lang === 'vi' ? 'vi-VN' : 'en-US';

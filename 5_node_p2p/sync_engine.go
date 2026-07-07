@@ -1414,7 +1414,7 @@ func (s *SyncEngine) FastSyncBootstrap() {
 		manifestData, err := s.netManager.DownloadSnapshotManifest(bestPeer, bestAnchor)
 		if err != nil {
 			log.Printf("[FAST-SYNC-V2] ❌ Không thể tải Manifest từ %s: %v. Thử Peer khác...", bestPeer.String()[:12], err)
-			if !strings.Contains(strings.ToLower(err.Error()), "deadline") && !strings.Contains(strings.ToLower(err.Error()), "timeout") {
+			if !isNetworkError(err) {
 				s.netManager.punishPeer(bestPeer, fmt.Sprintf("Lỗi tải Manifest (Không phải timeout): %v", err))
 			}
 			triedPeers[bestPeer] = true // Ghi nhớ lỗi để không hỏi lại peer này trong phiên sync hiện tại
@@ -2167,9 +2167,9 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 		if len(hBatch) == 0 && err == nil {
 			log.Printf("[SYNC-LOCATOR] ⚠️ Peer %s cung cấp Header Batch rỗng. Đánh 1 Strike.", s.shortID(targetPeer))
 			s.netManager.punishPeer(targetPeer, "Gửi Header Batch rỗng khi được yêu cầu")
-		} else if strings.Contains(strings.ToLower(err.Error()), "deadline") || strings.Contains(strings.ToLower(err.Error()), "timeout") {
+		} else if isNetworkError(err) {
 			// [BAO DUNG VỚI LỖI MẠNG] Không phạt IP, chỉ ngắt kết nối để thử Peer khác
-			log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s mạng chậm/timeout khi tải Header. Cắt TCP, không phạt IP.", s.shortID(targetPeer))
+			log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s mạng chậm/timeout/mất kết nối khi tải Header. Cắt TCP, không phạt IP.", s.shortID(targetPeer))
 			s.netManager.Host.Network().ClosePeer(targetPeer)
 		} else {
 			// Lỗi rác/giải mã -> Ác ý -> Phạt
@@ -2182,6 +2182,11 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 	// 2. Nhờ Rust đánh giá chuỗi Header này
 	evalResp, err := s.netManager.Bridge.EvaluateHeaderChain(hBatch)
 	if err != nil || evalResp == nil {
+		return
+	}
+
+	if evalResp.Status != 0 {
+		log.Printf("[SYNC-REJECT] ⚠️ Rust từ chối chuỗi Header từ %s: Mã lỗi %d - %s", s.shortID(targetPeer), evalResp.Status, evalResp.ErrorMsg)
 		return
 	}
 
@@ -2234,13 +2239,22 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 			effectiveForkPoint = actualH
 		}
 
-		log.Printf("[SYNC-REORG] 🔄 Nhánh rẽ hợp lệ tại #%d. Bắt đầu tải thân khối từ #%d đến #%d...", effectiveForkPoint, effectiveForkPoint+1, highestH)
+		// [ANTI-OOM-PATCH] Giới hạn số lượng thân khối (Block Body) tải vào RAM tối đa 100 khối mỗi chu kỳ.
+		// Lý do: Nếu tải toàn bộ 10,000 khối vào RAM cùng một lúc, với kích thước khối từ 5MB - 35MB,
+		// sẽ tiêu tốn hàng chục GB RAM dẫn đến sập (OOM) Node. Giới hạn 100 khối giúp RAM nhẹ nhàng.
+		limitH := highestH
+		if limitH > effectiveForkPoint+100 {
+			limitH = effectiveForkPoint + 100
+			log.Printf("[ANTI-OOM-PATCH] 🛡️ Giới hạn tải thân khối tối đa 100 khối từ #%d đến #%d (Cắt giảm từ mốc gốc #%d để bảo vệ RAM).", effectiveForkPoint+1, limitH, highestH)
+		}
+
+		log.Printf("[SYNC-REORG] 🔄 Nhánh rẽ hợp lệ tại #%d. Bắt đầu tải thân khối từ #%d đến #%d...", effectiveForkPoint, effectiveForkPoint+1, limitH)
 
 		// 3. [TÍNH NĂNG PHỤC HỒI] Gom Full Block đi thẳng tới trước để đưa cho Rust
-		debtChain := make([][]byte, 0, int(highestH-effectiveForkPoint))
+		debtChain := make([][]byte, 0, int(limitH-effectiveForkPoint))
 
-		// Tải tuần tự hoặc tự động tái lập các khối thiếu (từ effectiveForkPoint + 1 đến Đỉnh của chùm Header)
-		for h := effectiveForkPoint + 1; h <= highestH; h++ {
+		// Tải tuần tự hoặc tự động tái lập các khối thiếu (từ effectiveForkPoint + 1 đến Đỉnh giới hạn)
+		for h := effectiveForkPoint + 1; h <= limitH; h++ {
 			s.mu.Lock()
 			s.downloadingHeight = h
 			s.mu.Unlock()
@@ -2275,8 +2289,8 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 					hBytes := hdrMap[h]
 					blockRaw, err = s.getOrReconstructBlock(targetPeer, h, hBytes)
 					if err != nil {
-						if strings.Contains(strings.ToLower(err.Error()), "deadline") || strings.Contains(strings.ToLower(err.Error()), "timeout") {
-							log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s timeout khi tải thân khối #%d. Ngắt TCP, không phạt IP.", s.shortID(targetPeer), h)
+						if isNetworkError(err) {
+							log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s timeout/mất kết nối khi tải thân khối #%d. Ngắt TCP, không phạt IP.", s.shortID(targetPeer), h)
 							s.netManager.Host.Network().ClosePeer(targetPeer)
 						} else {
 							log.Printf("[SYNC-ERROR] ❌ Lấy thân khối #%d thất bại (Dữ liệu rác).", h)
@@ -2998,5 +3012,29 @@ func (s *SyncEngine) verifyBlockSignatures(block *pb_block.Block) bool {
 	wg.Wait()
 
 	return isValid.Load()
+}
+
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	networkKeywords := []string{
+		"deadline",
+		"timeout",
+		"reset",
+		"closed",
+		"wsarecv",
+		"eof",
+		"broken pipe",
+		"refused",
+		"unreachable",
+	}
+	for _, keyword := range networkKeywords {
+		if strings.Contains(errStr, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
