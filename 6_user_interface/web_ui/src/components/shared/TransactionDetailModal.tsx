@@ -73,7 +73,8 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
   const [copied, setCopied] = useState(false);
 
   const txConfirmations = Number(tx?.confirmations) || 0;
-  const isRejected = !!(tx?.error_message && !tx.error_message.includes("(Mempool)"));
+  // [BUS-STATUS-FIX] Loại trừ trạng thái WAITING_FOR_BUS khỏi logic "bị từ chối"
+  const isRejected = !!(tx?.error_message && !tx.error_message.includes("(Mempool)") && !tx.error_message.includes("WAITING_FOR_BUS"));
   const isFinalized = txConfirmations >= FINALITY_THRESHOLD && !isRejected;
   // Số khối ĐÈ LÊN đã có = confirmations - 1 (trừ đi khối chứa TX)
   const overlayBlocksDone = Math.max(0, txConfirmations - 1);
@@ -398,7 +399,8 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
 
             {/* Error Message Visualizer - [V12.8] Chỉ hiện khi là LỖI THẬT hoặc CẢNH BÁO REORG */}
             {tx.error_message && 
-             !tx.error_message.includes("(Mempool)") && (
+             !tx.error_message.includes("(Mempool)") &&
+             !tx.error_message.includes("WAITING_FOR_BUS") && (
               <div className="p-4 bg-accent-red/10 border border-accent-red/20 rounded-xl mb-4">
                 <div className="vanguard-flex-h vanguard-gap-tiny items-center mb-2">
                   <Shield size={14} className="text-accent-red" />
