@@ -656,7 +656,10 @@ func (n *NetworkManager) StartBlockInbox() {
 			if err == go_bridge.ErrCriticalFirewall {
 				// Tại sao: Việc phát sóng khối cũ trên Gossip là nỗ lực Reorg bất hợp pháp hoặc spam, log vào kiểm toán.
 				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", id.String()[:12], fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
-				// KHÔNG BAN PEER: Lan truyền khối cũ là bình thường khi đồng bộ hoặc trễ mạng (hoặc Honest Fork). Chỉ từ chối.
+
+				dbHash := n.Bridge.GetBlockHash(block.Header.Height)
+				reason := fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, headerHash[:8], dbHash[:8])
+				n.punishPeer(id, reason)
 				return pubsub.ValidationReject
 			}
 			log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối #%d: %v. Bỏ qua không ban Peer.", block.Header.Height, err)
@@ -940,7 +943,10 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Chặn đứng nỗ lực đồng bộ khối rút gọn cũ hơn mốc tường lửa.
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
-			// KHÔNG BAN PEER: Chỉ từ chối nhận khối cũ.
+
+			dbHash := n.Bridge.GetBlockHash(compact.Header.Height)
+			reason := fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", compact.Header.Height, headerHash[:8], dbHash[:8])
+			n.punishPeer(from, reason)
 			return
 		}
 		log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối rút gọn #%d: %v. Bỏ qua không ban Peer.", compact.Header.Height, err)
@@ -1348,7 +1354,10 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Khối đầy đủ cũ bị từ chối bởi tường lửa.
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
-			// KHÔNG BAN PEER: Chỉ trả về lỗi từ chối.
+
+			dbHash := n.Bridge.GetBlockHash(block.Header.Height)
+			reason := fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, headerHash[:8], dbHash[:8])
+			n.punishPeer(from, reason)
 			return err
 		}
 		return err

@@ -1,6 +1,6 @@
 //*
 // @file common.proto
-// @brief Định nghĩa các kiểu dữ liệu cơ sở cho toàn bộ hệ thống BTC GenZ.
+// @brief Định nghĩa các kiểu dữ liệu cơ sở cho toàn bộ hệ thống YonaCode.
 // @details Chứa các cấu hình về mã Hash (Blake3), Chữ ký số (Ed25519), Khóa công khai và Địa chỉ ví.
 // Đây là nền tảng cho việc xác thực và định danh trong mạng lưới.
 //
