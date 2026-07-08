@@ -2886,10 +2886,19 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"cpu_intensity":          s.GetCpuIntensity(),
 		"grace_period_remaining": s.getGracePeriodRemaining(),
 		"mining_warning":         miningWarning,
-		"bandwidth": map[string]interface{}{
-			"sent": atomic.LoadUint64(&s.netMgr.BytesSent),
-			"recv": atomic.LoadUint64(&s.netMgr.BytesRecv),
-		},
+		"bandwidth": func() map[string]interface{} {
+			sent := atomic.LoadUint64(&s.netMgr.BytesSent)
+			recv := atomic.LoadUint64(&s.netMgr.BytesRecv)
+			if s.netMgr.Bwc != nil {
+				stats := s.netMgr.Bwc.GetBandwidthTotals()
+				sent = uint64(stats.TotalOut)
+				recv = uint64(stats.TotalIn)
+			}
+			return map[string]interface{}{
+				"sent": sent,
+				"recv": recv,
+			}
+		}(),
 		"difficulty":       getDifficulty(s.bridge),
 		"avg_block_time":   s.calculateAvgBlockTime(),
 		"block_reward":     float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
@@ -4664,18 +4673,10 @@ func (s *RPCServer) handleMinerToggle(w http.ResponseWriter, r *http.Request) {
 
 	paused := s.bridge.IsMiningPaused()
 	if paused {
-		// [VANGUARD-STRICT] Khôi phục bảo mật: Bắt buộc phải Synced mới được đào
-		// (Chốt này sẽ tự mở nếu IsSynced trả về true sau 3 lần lỗi mạng)
+		// [WARNING-ONLY] Thay thế chặn cứng bằng ghi nhận log cảnh báo an ninh đồng bộ theo yêu cầu người dùng
 		peerCount := s.netMgr.GetPeerCount()
 		if peerCount > 0 && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":     "Error",
-				"message":    "Phát hiện có node khác trong mạng. Bạn cần đợi đồng bộ dữ liệu xong mới có thể bắt đầu đào.",
-				"error_code": "SYNC_REQUIRED",
-			})
-			return
+			log.Printf("[MINER-WARN] ⚠️ CẢNH BÁO AN NINH: Bật đào khi chưa hoàn thành đồng bộ mạng lưới! Có nguy cơ bị fork và ban.")
 		}
 
 		// [V2.0 SAFETY] Kiểm tra ví đào hợp lệ trước khi bật
@@ -4836,13 +4837,7 @@ func (s *RPCServer) handleNodeMode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Mode == "full-mining" && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":     "Error",
-			"message":    "Full-mining mode blocked during sync. (Vui lòng đợi đồng bộ mạng lưới hoặc hết Grace Period 60s)",
-			"error_code": "SYNC_REQUIRED",
-		})
-		return
+		log.Printf("[MINER-WARN] ⚠️ CẢNH BÁO AN NINH: Chuyển sang chế độ full-mining khi chưa đồng bộ mạng lưới!")
 	}
 
 	switch req.Mode {
@@ -5470,10 +5465,19 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		"avg_block_time":         s.calculateAvgBlockTime(),
 		"grace_period_remaining": s.getGracePeriodRemaining(),
 		"mining_warning":         miningWarning,
-		"bandwidth": map[string]interface{}{
-			"sent": atomic.LoadUint64(&s.netMgr.BytesSent),
-			"recv": atomic.LoadUint64(&s.netMgr.BytesRecv),
-		},
+		"bandwidth": func() map[string]interface{} {
+			sent := atomic.LoadUint64(&s.netMgr.BytesSent)
+			recv := atomic.LoadUint64(&s.netMgr.BytesRecv)
+			if s.netMgr.Bwc != nil {
+				stats := s.netMgr.Bwc.GetBandwidthTotals()
+				sent = uint64(stats.TotalOut)
+				recv = uint64(stats.TotalIn)
+			}
+			return map[string]interface{}{
+				"sent": sent,
+				"recv": recv,
+			}
+		}(),
 	}
 	jsonData, _ := json.Marshal(resp)
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)

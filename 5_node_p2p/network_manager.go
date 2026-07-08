@@ -39,6 +39,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"google.golang.org/protobuf/proto"
@@ -136,6 +137,7 @@ type NetworkManager struct {
 	// [V2.0 DASHBOARD] Lưu lượng băng thông (Atomic counters)
 	BytesSent uint64
 	BytesRecv uint64
+	Bwc       *metrics.BandwidthCounter
 
 	// [V1.1.4.2] Chế độ đồng bộ P2P: "snap" (Nhảy cóc - Mặc định) hoặc "full" (Cày cuốc)
 	SyncMode string

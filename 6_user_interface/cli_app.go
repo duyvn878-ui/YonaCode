@@ -34,6 +34,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
@@ -350,6 +351,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 		go_bridge.FatalExit("[P2P] Lỗi khởi tạo Connection Manager: %v", err)
 	}
 
+	bwc := metrics.NewBandwidthCounter()
 	h, err := libp2p.New(
 		libp2p.DefaultTransports,
 		libp2p.NATPortMap(),
@@ -374,6 +376,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 		libp2p.EnableNATService(),        // [NAT-AUDIT] Hỗ trợ peer khác xác định reachability
 		libp2p.ConnectionGater(c.banMgr), // [VANGUARD-DDoS-FIX] Chốt chặn IP Banned
 		libp2p.ConnectionManager(cm),     // Giới hạn kết nối (Low 100, High 150)
+		libp2p.BandwidthReporter(bwc),
 	)
 	if err != nil {
 		go_bridge.FatalExit("[P2P] Không thể khởi tạo Libp2p Host: %v.\nGợi ý: Cổng P2P %d có khả năng đang bị chiếm dụng bởi chương trình khác.", err, p2pPort)
@@ -536,6 +539,7 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 	}
 	c.mempool.StartEvictionWorker(ctx)
 	c.netMgr = node_p2p.NewNetworkManager(ctx, h, ps, nil, c.bridge, c.mempool, c.banMgr)
+	c.netMgr.Bwc = bwc
 	c.netMgr.DbPath = c.dbPath // [VANGUARD-FILE-SYNC] Truyền đường dẫn dữ liệu để định vị file snapshot
 	c.snapshotMgr = node_p2p.NewSnapshotManager(c.dbPath, c.bridge)
 
@@ -788,10 +792,8 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 			if !app.initialSyncComplete || syncState == "Bootstrapping" {
 				if time.Now().Second()%10 == 0 {
 					h, target, _ := app.syncEngine.GetSyncProgress()
-					log.Printf("[MINER-WAIT] 🛡️ Chờ đồng bộ khởi đầu hoặc đang tải Snapshot: #%d/%d (Trạng thái: %s, Failures: %d)", h, target, syncState, failures)
+					log.Printf("[MINER-WARN] ⚠️ Đang đào trong khi hệ thống chưa đồng bộ xong! #%d/%d (Trạng thái: %s)", h, target, syncState)
 				}
-				time.Sleep(1 * time.Second)
-				continue
 			}
 
 			log.Printf("[MINER-START] %s", i18n.T("log_miner_preparing", app.bridge.GetCurrentVersion()+1))
