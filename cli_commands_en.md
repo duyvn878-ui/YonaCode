@@ -234,3 +234,70 @@ Inside this session, the following quick commands are recognized:
 * `wallets`: Print out list of local wallet names.
 * `send`: Triggers the Guided Send transaction interface.
 * `exit` (or `quit`): Safely release RocksDB file locks, stop Node, and quit process.
+
+---
+
+## 🐧 7. DEPLOYING & RUNNING NODE ON LINUX (VPS)
+
+To deploy and execute the YonaCode Go node on a Linux server (e.g., Ubuntu/Debian VPS), ensure you copy all 4 compiled executable binaries (`YonaCode`, `scl_server`, `genz_miner`, `cli_yona_code`) into a single working directory (for instance, `/root/btc_node/`).
+
+### ⚙️ Step 1: Assign Executable Permissions (Crucial)
+By default, uploading binary files to Linux might strip their executable flags. You must enforce the execution permissions using the following command:
+```bash
+cd /root/btc_node
+chmod +x YonaCode scl_server genz_miner cli_yona_code
+```
+
+### 🚀 Step 2: Run the Node
+
+#### Method 1: Manual Run (For testing and real-time console logs)
+*Note: You must explicitly `cd` into the folder holding the binaries before execution. This ensures the Go Core can properly locate and spawn the sibling Rust Core process (`scl_server`).*
+```bash
+cd /root/btc_node
+./YonaCode node start --port 8080 --p2p-port 9000 --db-path ./data
+```
+To run the node with mining activated immediately:
+```bash
+./YonaCode node start --port 8080 --p2p-port 9000 --db-path ./data --mining --reward-address <your_reward_address_hex> --miner-pin <your_wallet_pin>
+```
+
+#### Method 2: Systemd Daemon Service (Recommended for 24/7 VPS uptime)
+For automated background execution, self-healing, and automatic startup during VPS reboot, configure a systemd daemon service:
+
+1. Create a service file:
+   ```bash
+   nano /etc/systemd/system/yonacode-node.service
+   ```
+2. Paste the following configuration block (ensure you supply your custom Cloudflare token and domain settings):
+   ```ini
+   [Unit]
+   Description=YonaCode Genz Seed Node Service
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=root
+   WorkingDirectory=/root/btc_node
+   ExecStart=/root/btc_node/YonaCode node start --port 8080 --p2p-port 9000 --db-path /root/btc_node/data
+   # Cloudflare environment credentials for automatic DDNS synchronization (if in Guardian Mode)
+   Environment="CF_TOKEN=3BnkeMrBaYD5bN0CO3sfsZvlb6um93NpP4yxz41v"
+   Environment="SEED_DOMAIN=seed.ghostcoi.com"
+   Restart=always
+   RestartSec=5
+   LimitNOFILE=65535
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+3. Press `Ctrl + O` -> `Enter` to save, and `Ctrl + X` to exit the text editor.
+4. Activate and start the daemon:
+   ```bash
+   systemctl daemon-reload
+   systemctl enable yonacode-node.service
+   systemctl start yonacode-node.service
+   ```
+5. Follow live stdout/stderr log streams:
+   ```bash
+   journalctl -u yonacode-node.service -f
+   ```
+

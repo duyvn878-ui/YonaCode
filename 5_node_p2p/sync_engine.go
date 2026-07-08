@@ -1078,8 +1078,7 @@ func (s *SyncEngine) syncLoop() {
 					log.Printf("[SYNC-REJECT-WARN] ⚠️ Nhận phản hồi từ chối từ %s nhưng không có thông báo lỗi cụ thể. Bỏ qua, KHÔNG PHẠT PEER.", s.shortID(targetPeer))
 				} else if strings.Contains(resp.ErrorMsg, "Không tìm thấy điểm rẽ nhánh") || strings.Contains(resp.ErrorMsg, "not found") || strings.Contains(resp.ErrorMsg, "Parent hash") {
 					// NHÓM 2: Lệch chuỗi sâu hoặc mồ côi
-					log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. Ngắt kết nối, KHÔNG PHẠT PEER.", s.shortID(targetPeer))
-					s.netManager.Host.Network().ClosePeer(targetPeer)
+					log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. KHÔNG PHẠT PEER, giữ kết nối để cơ chế phục hồi tự giải quyết.", s.shortID(targetPeer))
 				} else {
 					// NHÓM 1: Cố tình gian lận (PoW sai, Time-Warp, StateRoot sai...)
 					// Tại sao: Lỗi từ chối nghiêm trọng từ Rust Core biểu hiện hành vi gian lận dữ liệu, cần log kiểm toán.
@@ -2403,8 +2402,7 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 				if lastResp != nil && lastResp.Status == 4 {
 					log.Printf("[SYNC-ERROR] 🛑 DB nội bộ bị lỗi/hỏng khi xử lý chuỗi từ Peer %s: %s. KHÔNG BAN PEER!", s.shortID(targetPeer), errMsg)
 				} else if lastResp != nil && lastResp.Status == 2 && (strings.Contains(errMsg, "Không tìm thấy điểm rẽ nhánh") || strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "Parent hash")) {
-					log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. Ngắt kết nối, KHÔNG PHẠT PEER.", s.shortID(targetPeer))
-					s.netManager.Host.Network().ClosePeer(targetPeer)
+					log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. KHÔNG PHẠT PEER, giữ kết nối để cơ chế phục hồi tự giải quyết.", s.shortID(targetPeer))
 				} else if lastResp != nil && lastResp.Status == 2 && strings.Contains(errMsg, "LỆCH TX ROOT") {
 					log.Printf("[SECURITY] 🛑 Peer %s gửi chuỗi khối có LỆCH TX ROOT tại CatchUpSync. 100%% Miner gian lận hoặc gửi block hỏng. TRỪNG PHẠT NGAY LẬP TỨC!", s.shortID(targetPeer))
 					s.netManager.punishPeer(targetPeer, fmt.Sprintf("Gửi khối lệch Tx Root tại CatchUpSync: %s", errMsg))
@@ -2779,8 +2777,7 @@ func (s *SyncEngine) applyDebtHeaders(targetPeer peer.ID, hBatch [][]byte, forkP
 					peerRootErrorsMu.Unlock()
 				}
 			} else if resp != nil && resp.Status == 2 && (strings.Contains(errMsg, "Không tìm thấy điểm rẽ nhánh") || strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "Parent hash")) {
-				log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. Ngắt kết nối, KHÔNG PHẠT PEER.", targetPeer.String()[:12])
-				s.netManager.Host.Network().ClosePeer(targetPeer)
+				log.Printf("[SYNC-ORPHAN] 🧩 Node lệch chuỗi sâu hoặc thiếu cha so với Peer %s. KHÔNG PHẠT PEER, giữ kết nối để cơ chế phục hồi tự giải quyết.", targetPeer.String()[:12])
 			} else {
 				log.Printf("[SECURITY] 🛑 Peer %s gửi dữ liệu gian lận: %s. TRỪNG PHẠT!", targetPeer.String()[:12], errMsg)
 				s.netManager.punishPeer(targetPeer, fmt.Sprintf("Chuỗi khối đồng bộ chùm bị Rust Core từ chối: %s", errMsg))
