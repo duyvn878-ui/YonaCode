@@ -410,26 +410,26 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	var banType string
 
 	// Mức phạt lũy tiến (Progressive Banning) với ngưỡng hợp lý hơn:
-	// - Mức 1-3: Cảnh cáo + ngắt kết nối → Discovery tự reconnect sau 5 giây.
-	// - Mức 4: Tạm giam 5 phút → Đủ để Peer cập nhật lại trạng thái.
-	// - Mức 5: Tạm giam 30 phút → Peer có vấn đề nghiêm trọng hơn.
-	// - Mức 6: Trục xuất 2 giờ → Nghi ngờ hành vi tấn công có chủ đích.
-	// - Mức 7+: Trục xuất 24 giờ → Xác định hành vi tấn công.
+	// - Mức 1-6: Cảnh cáo + ngắt kết nối → Discovery tự reconnect sau 5 giây.
+	// - Mức 7: Tạm giam 5 phút → Đủ để Peer cập nhật lại trạng thái.
+	// - Mức 8: Tạm giam 30 phút → Peer có vấn đề nghiêm trọng hơn.
+	// - Mức 9: Trục xuất 2 giờ → Nghi ngờ hành vi tấn công có chủ đích.
+	// - Mức 10+: Trục xuất 24 giờ → Xác định hành vi tấn công.
 	switch count {
-	case 1, 2, 3:
+	case 1, 2, 3, 4, 5, 6:
 		log.Printf("[PEER-SHIELD] ⚠️ Cảnh cáo Peer %s (Lần %d/%d). Lý do: %s",
-			id.String()[:12], count, 3, reason)
+			id.String()[:12], count, 6, reason)
 		n.PenaltyMu.Unlock()
 		// Chỉ ngắt kết nối để dọn dẹp state, Discovery tự reconnect sau 5 giây
 		n.Host.Network().ClosePeer(id)
 		return // Thoát, chưa cấm IP/Peer ID
-	case 4:
+	case 7:
 		duration = 5 * time.Minute
 		banType = "Tạm giam (Sơ cấp)"
-	case 5:
+	case 8:
 		duration = 30 * time.Minute
 		banType = "Tạm giam (Trung cấp)"
-	case 6:
+	case 9:
 		duration = 2 * time.Hour
 		banType = "Trục xuất (2h)"
 	default:
