@@ -19,6 +19,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,8 +160,10 @@ func (d *DiscoveryService) DiscoveryLoop() {
 		log.Println("[DISCOVERY] 🛡️ Chế độ DNS-Only: Bỏ qua DHT Advertise.")
 	}
 
-	// [V1.3] Vòng lặp tự động cập nhật DDNS & Seeding
-	ticker := time.NewTicker(2 * time.Minute)
+	// [V2.3-RECOVERY-DDNS] Rút ngắn chu kỳ cập nhật DDNS & Seeding từ 2 phút xuống còn 75 giây.
+	// Lý do: Đảm bảo khi node có biến động IP (ví dụ do mất điện đột ngột và router cấp IP mới),
+	// hệ thống sẽ cập nhật IP mới và dọn dẹp các bản ghi cũ trên Cloudflare nhanh nhất có thể.
+	ticker := time.NewTicker(75 * time.Second)
 	defer ticker.Stop()
 
 	// Cập nhật lần đầu ngay khi khởi động
@@ -259,6 +263,26 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 	myPublicIP, _ := GetPublicIP()
 	myPublicIPv6, _ := GetPublicIPv6()
 
+	// [V2.3-IP-CHANGE-TRACK] Lưu vết IP công cộng cũ qua file cục bộ trong dbPath để phục vụ dọn dẹp DNS mồ côi
+	// Lý do: Nếu IP mạng thay đổi (như khi mất điện), node cần biết IP cũ của nó là gì để gửi lệnh xóa
+	// các bản ghi TXT/A/AAAA cũ tương ứng trên Cloudflare, giúp dọn dẹp triệt để rác DNS.
+	var lastPublicIP string
+	var lastPublicIPv6 string
+	var ipFilePath string
+	if d.dbPath != "" {
+		ipFilePath = filepath.Join(d.dbPath, "last_public_ip.txt")
+		data, err := os.ReadFile(ipFilePath)
+		if err == nil {
+			parts := strings.Split(strings.TrimSpace(string(data)), ",")
+			if len(parts) > 0 {
+				lastPublicIP = parts[0]
+			}
+			if len(parts) > 1 {
+				lastPublicIPv6 = parts[1]
+			}
+		}
+	}
+
 	// 1. [V2.1 SATOSHI-AUTO] Tự động cập nhật ID và IP lên DNS riêng của Node
 	if d.CF_Token != "" && d.SeedDomain != "" {
 		publicIP := myPublicIP
@@ -286,7 +310,12 @@ func (d *DiscoveryService) runDiscoveryCycle(resolver *madns.Resolver, routingDi
 			if targetDomain == "" { targetDomain = GUARDIAN_NODE_DOMAIN }
 			// [VANGUARD-MULTIADDR] Lấy toàn bộ địa chỉ lắng nghe để công bố
 			allAddrs := d.Host.Addrs()
-			UpdateDDNS(d.Ctx, d.CF_Token, targetDomain, publicIP, peerID, p2pPort, allAddrs)
+			UpdateDDNS(d.Ctx, d.CF_Token, targetDomain, publicIP, lastPublicIP, lastPublicIPv6, peerID, p2pPort, allAddrs)
+
+			// Ghi nhận IP mới vào file lưu vết sau khi đã thực hiện cập nhật và dọn dẹp thành công
+			if d.dbPath != "" && (myPublicIP != lastPublicIP || myPublicIPv6 != lastPublicIPv6) {
+				os.WriteFile(ipFilePath, []byte(myPublicIP+","+myPublicIPv6), 0644)
+			}
 		}
 	}
 
@@ -556,7 +585,7 @@ func isPublicIP(ipStr string) bool {
 	return true
 }
 
-// UpdateSeedDNS quản lý danh sách Multi-Record (A/AAAA) trên Cloudflare
+// UpdateSeedDNS quản lý danh sách Multi-Record (A/AAAA) trên Cloudflare, đồng thời tự động dọn dẹp các bản ghi TXT rác.
 func UpdateSeedDNS(ctx context.Context, apiToken string, domain string, healthyIPs []string) error {
 	parts := strings.Split(domain, ".")
 	if len(parts) < 2 {
@@ -589,7 +618,99 @@ func UpdateSeedDNS(ctx context.Context, apiToken string, domain string, healthyI
 	// 3. Cập nhật bản ghi AAAA (IPv6)
 	updateSpecificDNS(ctx, api, zoneID, domain, "AAAA", ipv6s)
 
+	// 4. [SEEDER-TXT-CLEAN] Tự động quét và dọn dẹp các bản ghi TXT (_dnsaddr) của các node đã offline.
+	// Lý do: Bản nâng cấp sửa đổi lỗ hổng nghiêm trọng ở phiên bản cũ khi chỉ dọn dẹp bản ghi A/AAAA mà bỏ qua bản ghi TXT,
+	// gây tích tụ hàng trăm IP chết làm các node mới khi tham gia liên tục kết nối lỗi.
+	CleanOrphanTXTRecords(ctx, api, zoneID, domain, healthyIPs)
+
 	return nil
+}
+
+// CleanOrphanTXTRecords quét và dọn dẹp các bản ghi TXT rác của các node không còn hoạt động.
+func CleanOrphanTXTRecords(ctx context.Context, api *cloudflare.API, zoneID string, domain string, healthyIPs []string) {
+	txtDomain := "_dnsaddr." + domain
+	records, _, err := api.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
+		Type: "TXT",
+		Name: txtDomain,
+	})
+	if err != nil {
+		log.Printf("[SEEDER-WARN] ⚠️ Không thể lấy danh sách bản ghi TXT để dọn dẹp: %v", err)
+		return
+	}
+
+	healthyMap := make(map[string]bool)
+	for _, ip := range healthyIPs {
+		healthyMap[ip] = true
+	}
+
+	var wg sync.WaitGroup
+	var deletedCount int32
+
+	for _, r := range records {
+		content := r.Content
+		// Định dạng bản ghi TXT của libp2p: dnsaddr=/ip4/1.2.3.4/... hoặc dnsaddr=/ip6/::1/...
+		if !strings.HasPrefix(content, "dnsaddr=") {
+			continue
+		}
+
+		// Trích xuất IP từ nội dung bản ghi TXT
+		ip := extractIPFromTXT(content)
+		if ip == "" {
+			continue
+		}
+
+		// Nếu IP này không có trong danh sách healthyIPs (không phản hồi hoặc đã offline)
+		if !healthyMap[ip] {
+			wg.Add(1)
+			go func(rec cloudflare.DNSRecord, ipVal string) {
+				defer wg.Done()
+				
+				// Phân tích lấy cổng P2P từ nội dung bản ghi
+				port := DEFAULT_P2P_PORT
+				parts := strings.Split(rec.Content, "/")
+				for idx, part := range parts {
+					if part == "tcp" || part == "udp" {
+						if idx+1 < len(parts) {
+							if pVal, err := strconv.Atoi(parts[idx+1]); err == nil {
+								port = pVal
+							}
+						}
+						break
+					}
+				}
+
+				// Thực hiện TCP Ping lần 2 để kiểm tra chắc chắn sức khỏe node trước khi xóa.
+				// Chú ý: Luôn truyền false cho isUDP vì UDP không có cơ chế ping trực tiếp,
+				// nếu cổng TCP của node đóng thì coi như cả node đã offline và cần dọn dẹp bản ghi TXT (cả TCP và UDP).
+				if !isPortOpen(ipVal, port, false) {
+					err := api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), rec.ID)
+					if err == nil {
+						atomic.AddInt32(&deletedCount, 1)
+						log.Printf("[SEEDER-CLEAN] 🧹 Đã gỡ bỏ bản ghi TXT rác (Node offline): %s", rec.Content)
+					}
+				}
+			}(r, ip)
+		}
+	}
+	wg.Wait()
+
+	if deletedCount > 0 {
+		log.Printf("[SEEDER-CLEAN] 🎯 Hoàn tất dọn dẹp %d bản ghi TXT rác của các node offline trên domain %s.", deletedCount, domain)
+	}
+}
+
+// extractIPFromTXT trích xuất địa chỉ IP từ nội dung bản ghi TXT của dnsaddr
+func extractIPFromTXT(content string) string {
+	// Định dạng: dnsaddr=/ip4/58.187.137.239/tcp/9000/p2p/12D3KooW...
+	parts := strings.Split(content, "/")
+	for i, part := range parts {
+		if part == "ip4" || part == "ip6" {
+			if i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+	return ""
 }
 
 // updateSpecificDNS là hàm trợ giúp để quản lý Multi-Record cho một loại (A hoặc AAAA)
@@ -814,8 +935,8 @@ func GetPublicIPv6() (string, error) {
 	}
 }
 
-// UpdateDDNS cập nhật IP và toàn bộ Multiaddrs của Node lên Cloudflare
-func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP string, peerID string, port int, allAddrs []multiaddr.Multiaddr) error {
+// UpdateDDNS cập nhật IP và toàn bộ Multiaddrs của Node lên Cloudflare, đồng thời dọn dẹp các bản ghi cũ.
+func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP string, lastPublicIP string, lastPublicIPv6 string, peerID string, port int, allAddrs []multiaddr.Multiaddr) error {
 	// Lớp 1: Cảnh vệ Vòng ngoài (Validate Input)
 	if apiToken == "" || domain == "" || publicIP == "" {
 		return fmt.Errorf("thiếu thông tin cấu hình DDNS: token=%s, domain=%s, ip=%s", 
@@ -840,7 +961,7 @@ func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP st
 		return fmt.Errorf("lỗi lấy Zone ID: %v", err)
 	}
 
-	// 2. Tìm DNS Record ID
+	// 2. Tìm DNS Record ID cho bản ghi A
 	records, _, err := api.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
 		Type: "A",
 		Name: domain,
@@ -848,31 +969,45 @@ func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP st
 	if err != nil {
 		return fmt.Errorf("lỗi lấy Record ID: %v", err)
 	}
-	if len(records) == 0 {
-		return fmt.Errorf("không tìm thấy DNS record cho %s", domain)
-	}
-	recordID := records[0].ID
 
-	// 3. Cập nhật bản ghi A
-	proxied := false
-	params := cloudflare.UpdateDNSRecordParams{
-		ID:      recordID,
-		Type:    "A",
-		Name:    domain,
-		Content: publicIP,
-		Proxied: &proxied,
-		TTL:     1, // Automatic
-	}
-	
-	_, err = api.UpdateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), params)
-	if err != nil {
-		log.Printf("[DDNS-WARN] ⚠️ Không thể cập nhật bản ghi A: %v", err)
+	// 3. Cập nhật bản ghi A và dọn dẹp các bản ghi A trùng lặp thừa
+	if len(records) > 0 {
+		recordID := records[0].ID
+		proxied := false
+		params := cloudflare.UpdateDNSRecordParams{
+			ID:      recordID,
+			Type:    "A",
+			Name:    domain,
+			Content: publicIP,
+			Proxied: &proxied,
+			TTL:     1, // Automatic
+		}
+		
+		_, err = api.UpdateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), params)
+		if err != nil {
+			log.Printf("[DDNS-WARN] ⚠️ Không thể cập nhật bản ghi A: %v", err)
+		} else {
+			log.Printf("[SUCCESS] Đã cập nhật thành công IP IPv4 %s cho %s", publicIP, domain)
+		}
+
+		// [CLEAN-DUPLICATE-A] Xóa bỏ các bản ghi A dư thừa để tránh tình trạng phân giải ra nhiều IP cũ
+		// Lý do: Đảm bảo chỉ có một bản ghi A duy nhất trỏ về IP công cộng hiện tại của node.
+		for i := 1; i < len(records); i++ {
+			api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), records[i].ID)
+		}
 	} else {
-		log.Printf("[SUCCESS] Đã cập nhật thành công IP IPv4 %s cho %s", publicIP, domain)
+		// Tạo mới nếu chưa tồn tại
+		proxied := false
+		_, err = api.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.CreateDNSRecordParams{
+			Type: "A", Name: domain, Content: publicIP, Proxied: &proxied, TTL: 60,
+		})
+		if err != nil {
+			log.Printf("[DDNS-WARN] ⚠️ Không thể tạo bản ghi A mới: %v", err)
+		}
 	}
 
 	// [VANGUARD-IPv6] Thử cập nhật bản ghi AAAA (IPv6) nếu có
-	if ipv6, err := GetPublicIPv6(); err == nil {
+	if ipv6, err := GetPublicIPv6(); err == nil && ipv6 != "" {
 		records6, _, _ := api.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
 			Type: "AAAA", Name: domain,
 		})
@@ -881,6 +1016,10 @@ func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP st
 			api.UpdateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.UpdateDNSRecordParams{
 				ID: records6[0].ID, Type: "AAAA", Name: domain, Content: ipv6, Proxied: &proxied6, TTL: 1,
 			})
+			// [CLEAN-DUPLICATE-AAAA] Xóa bỏ các bản ghi AAAA dư thừa khác
+			for i := 1; i < len(records6); i++ {
+				api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), records6[i].ID)
+			}
 		} else {
 			api.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.CreateDNSRecordParams{
 				Type: "AAAA", Name: domain, Content: ipv6, Proxied: &proxied6, TTL: 60,
@@ -947,19 +1086,40 @@ func UpdateDDNS(ctx context.Context, apiToken string, domain string, publicIP st
 	})
 	
 	if err == nil && len(txtRecords) > 0 {
-		// [SEEDER-CLEAN-PATCH] Chỉ dọn dẹp các bản ghi TXT cũ của chính node này (dựa trên peerID)
-		// để tránh xóa đè các bản ghi TXT của các node Seeder khác đang hoạt động trên cùng domain.
-		// Lý do: Nếu xóa sạch, các node Seeder chạy song song sẽ liên tục tranh chấp xóa địa chỉ của nhau,
-		// khiến các node mới khi tham gia chỉ phân giải được 1 node duy nhất và bị trễ 60s chờ PEX cập nhật.
+		// [SEEDER-CLEAN-PATCH] Nâng cấp cơ chế dọn dẹp bản ghi TXT cũ để chống rác DNS và lỗi mồ côi IP.
+		// Lý do: Khi mất điện hoặc thay đổi mạng dẫn đến đổi IP công cộng, các bản ghi cũ của chúng ta
+		// vẫn tồn tại trên DNS với IP cũ hoặc ID cũ làm các node khác cố kết nối nhầm.
+		// Chúng ta dọn dẹp các trường hợp:
+		// 1. Bản ghi chứa Peer ID hiện tại (các bản ghi cũ của chính phiên chạy này).
+		// 2. Bản ghi chứa IP công cộng hiện tại của chúng ta nhưng khác Peer ID (bản ghi rác trùng IP do restart sinh ID mới).
+		// 3. Bản ghi chứa IP cũ của chúng ta trước khi bị thay đổi (giải quyết triệt để lỗi đổi IP sau khi mất điện).
 		var deletedCount int
 		for _, record := range txtRecords {
+			shouldDelete := false
+			// 1. Chứa Peer ID hiện tại
 			if strings.Contains(record.Content, peerID) {
+				shouldDelete = true
+			}
+			// 2. Chứa IP hiện tại của chúng ta nhưng khác Peer ID
+			if publicIP != "" && strings.Contains(record.Content, "/ip4/"+publicIP+"/") && !strings.Contains(record.Content, peerID) {
+				shouldDelete = true
+			}
+			// 3. Chứa IP cũ trước khi đổi IP mạng
+			if lastPublicIP != "" && strings.Contains(record.Content, "/ip4/"+lastPublicIP+"/") {
+				shouldDelete = true
+			}
+			// 4. Chứa IPv6 cũ trước khi đổi IP mạng
+			if lastPublicIPv6 != "" && strings.Contains(record.Content, "/ip6/"+lastPublicIPv6+"/") {
+				shouldDelete = true
+			}
+
+			if shouldDelete {
 				api.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
 				deletedCount++
 			}
 		}
 		if deletedCount > 0 {
-			log.Printf("[SEEDER-CLEAN] 🧹 Đã dọn dẹp %d bản ghi cũ của node %s.", deletedCount, peerID[:12])
+			log.Printf("[SEEDER-CLEAN] 🧹 Đã dọn dẹp %d bản ghi TXT cũ/mồ côi (PeerID: %s, IP: %s, IP cũ: %s).", deletedCount, peerID[:12], publicIP, lastPublicIP)
 		}
 	}
 
