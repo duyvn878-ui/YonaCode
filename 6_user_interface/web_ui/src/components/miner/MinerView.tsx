@@ -146,6 +146,9 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                               <p className="text-[9px] font-semibold text-white/50 leading-relaxed">
                                  ℹ️ {t.sync_warning}
                               </p>
+                              <p className="text-[9.5px] font-black text-red-400 border-t border-white/5 pt-2 leading-relaxed">
+                                 {t.mining_sync_warning}
+                              </p>
                            </div>
                          )}
                      </div>

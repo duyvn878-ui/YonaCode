@@ -184,6 +184,14 @@ function App() {
       // [SECURITY-MINING FIX] Thợ đào không cần chữ ký, nên không cần PIN. 
       // Chỉ cần thiết lập địa chỉ ví nhận tiền thưởng.
       if (!currentlyMining) {
+        if (status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') {
+          const confirmText = t.lang === 'vi' 
+            ? `${t.mining_sync_warning}\n\nBạn vẫn muốn tiếp tục kích hoạt đào chứ?`
+            : `${t.mining_sync_warning}\n\nDo you still want to proceed with enabling mining?`;
+          const proceed = window.confirm(confirmText);
+          if (!proceed) return;
+        }
+
         if (!address || address === "0000000000000000000000000000000000000000000000000000000000000000") {
           addNotification("AN NINH: Vui lòng Tạo hoặc Khôi phục ví để nhận thưởng trước khi Bắt đầu đào!", "error");
           return;

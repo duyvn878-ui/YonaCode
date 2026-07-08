@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Pickaxe, Cpu, Zap, TrendingUp, Trash2 } from 'lucide-react';
+import { Shield, Pickaxe, Cpu, Zap, TrendingUp, Trash2, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import api, { type NodeStatus, type MinerStatus } from '../../api';
 
@@ -255,6 +255,20 @@ const NodeControlPanel: React.FC<NodeControlPanelProps> = ({ status, miner, onTo
            <Trash2 size={14} className="text-white/20 group-hover:text-accent-red" />
         </button>
       </div>
+
+      {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
+        <div className="p-4 bg-accent-red/5 border border-accent-red/20 rounded-xl flex items-start gap-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-accent-red animate-pulse" />
+          <div className="vanguard-flex-v vanguard-gap-tiny">
+            <span className="text-[9px] font-black uppercase tracking-wider text-accent-red">
+               {t.lang === 'vi' ? 'CẢNH BÁO ĐỒNG BỘ' : 'SYNC WARNING'}
+            </span>
+            <p className="text-[9.5px] font-semibold text-accent-red/90 leading-relaxed">
+               {t.mining_sync_warning}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* MODAL XÁC NHẬN XÓA DATA (01900) */}
       {showPurgeModal && (
