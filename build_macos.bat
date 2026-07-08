@@ -4,8 +4,8 @@ echo [BUILD] 1. Creating output folders for macOS...
 echo ===================================================
 if not exist bin\macos\arm64 mkdir bin\macos\arm64
 if not exist bin\macos\x64 mkdir bin\macos\x64
-del /Q bin\macos\arm64\* >nul 2>&1
-del /Q bin\macos\x64\* >nul 2>&1
+del /Q bin\macos\arm64\YonaCode bin\macos\arm64\cli_yona_code >nul 2>&1
+del /Q bin\macos\x64\YonaCode bin\macos\x64\cli_yona_code >nul 2>&1
 
 echo [BUILD] 2. Skipping Rust Kernel compilation for macOS ARM64 (using pre-built recovered binaries)...
 

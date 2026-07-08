@@ -1,6 +1,6 @@
 //*
 // @file block.proto
-// @brief Định nghĩa cấu trúc Khối (Block) trong BTC GenZ.
+// @brief Định nghĩa cấu trúc Khối (Block) trong YonaCode.
 // @details Cấu trúc bao gồm:
 //  - BlockHeader: Chứa ParentHash, StateRoot và PoW Nonce GPU-Centric.
 //  - BlockBody: Chứa các giao dịch (có thể cắt tỉa sau 24h).

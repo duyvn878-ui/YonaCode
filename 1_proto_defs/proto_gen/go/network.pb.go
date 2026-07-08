@@ -31,6 +31,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type WarningMsg_WarningType int32
+
+const (
+	WarningMsg_FIREWALL_VIOLATION WarningMsg_WarningType = 0
+	WarningMsg_INVALID_POW        WarningMsg_WarningType = 1
+	WarningMsg_TIME_WARP_ATTEMPT  WarningMsg_WarningType = 2
+)
+
+// Enum value maps for WarningMsg_WarningType.
+var (
+	WarningMsg_WarningType_name = map[int32]string{
+		0: "FIREWALL_VIOLATION",
+		1: "INVALID_POW",
+		2: "TIME_WARP_ATTEMPT",
+	}
+	WarningMsg_WarningType_value = map[string]int32{
+		"FIREWALL_VIOLATION": 0,
+		"INVALID_POW":        1,
+		"TIME_WARP_ATTEMPT":  2,
+	}
+)
+
+func (x WarningMsg_WarningType) Enum() *WarningMsg_WarningType {
+	p := new(WarningMsg_WarningType)
+	*p = x
+	return p
+}
+
+func (x WarningMsg_WarningType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WarningMsg_WarningType) Descriptor() protoreflect.EnumDescriptor {
+	return file_network_network_proto_enumTypes[0].Descriptor()
+}
+
+func (WarningMsg_WarningType) Type() protoreflect.EnumType {
+	return &file_network_network_proto_enumTypes[0]
+}
+
+func (x WarningMsg_WarningType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WarningMsg_WarningType.Descriptor instead.
+func (WarningMsg_WarningType) EnumDescriptor() ([]byte, []int) {
+	return file_network_network_proto_rawDescGZIP(), []int{17, 0}
+}
+
 // Dòng dữ liệu thô
 type RawBytes struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -987,6 +1036,75 @@ func (x *MiningResponse) GetMessage() string {
 	return ""
 }
 
+// [V1.5.0] Tin nhắn cảnh báo P2P khi vi phạm Tường lửa (Firewall Violation Feedback)
+type WarningMsg struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          WarningMsg_WarningType `protobuf:"varint,1,opt,name=type,proto3,enum=btc_genz.network.WarningMsg_WarningType" json:"type,omitempty"`
+	Height        uint64                 `protobuf:"varint,2,opt,name=height,proto3" json:"height,omitempty"`
+	RejectHash    []byte                 `protobuf:"bytes,3,opt,name=reject_hash,json=rejectHash,proto3" json:"reject_hash,omitempty"`
+	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WarningMsg) Reset() {
+	*x = WarningMsg{}
+	mi := &file_network_network_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WarningMsg) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WarningMsg) ProtoMessage() {}
+
+func (x *WarningMsg) ProtoReflect() protoreflect.Message {
+	mi := &file_network_network_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WarningMsg.ProtoReflect.Descriptor instead.
+func (*WarningMsg) Descriptor() ([]byte, []int) {
+	return file_network_network_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *WarningMsg) GetType() WarningMsg_WarningType {
+	if x != nil {
+		return x.Type
+	}
+	return WarningMsg_FIREWALL_VIOLATION
+}
+
+func (x *WarningMsg) GetHeight() uint64 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *WarningMsg) GetRejectHash() []byte {
+	if x != nil {
+		return x.RejectHash
+	}
+	return nil
+}
+
+func (x *WarningMsg) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_network_network_proto protoreflect.FileDescriptor
 
 const file_network_network_proto_rawDesc = "" +
@@ -1054,7 +1172,18 @@ const file_network_network_proto_rawDesc = "" +
 	"\x11StopMiningRequest\"D\n" +
 	"\x0eMiningResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xc1\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xec\x01\n" +
+	"\n" +
+	"WarningMsg\x12<\n" +
+	"\x04type\x18\x01 \x01(\x0e2(.btc_genz.network.WarningMsg.WarningTypeR\x04type\x12\x16\n" +
+	"\x06height\x18\x02 \x01(\x04R\x06height\x12\x1f\n" +
+	"\vreject_hash\x18\x03 \x01(\fR\n" +
+	"rejectHash\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"M\n" +
+	"\vWarningType\x12\x16\n" +
+	"\x12FIREWALL_VIOLATION\x10\x00\x12\x0f\n" +
+	"\vINVALID_POW\x10\x01\x12\x15\n" +
+	"\x11TIME_WARP_ATTEMPT\x10\x022\xc1\x05\n" +
 	"\x11BlockchainService\x12Q\n" +
 	"\bGetBlock\x12!.btc_genz.network.GetBlockRequest\x1a\".btc_genz.network.GetBlockResponse\x12c\n" +
 	"\x0eGetHeaderBatch\x12'.btc_genz.network.GetHeaderBatchRequest\x1a(.btc_genz.network.GetHeaderBatchResponse\x12M\n" +
@@ -1079,54 +1208,58 @@ func file_network_network_proto_rawDescGZIP() []byte {
 	return file_network_network_proto_rawDescData
 }
 
-var file_network_network_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_network_network_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_network_network_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_network_network_proto_goTypes = []any{
-	(*RawBytes)(nil),               // 0: btc_genz.network.RawBytes
-	(*GetAccountRequest)(nil),      // 1: btc_genz.network.GetAccountRequest
-	(*AccountResponse)(nil),        // 2: btc_genz.network.AccountResponse
-	(*NewBlockMsg)(nil),            // 3: btc_genz.network.NewBlockMsg
-	(*NewTxMsg)(nil),               // 4: btc_genz.network.NewTxMsg
-	(*InventoryMsg)(nil),           // 5: btc_genz.network.InventoryMsg
-	(*GetBlockRequest)(nil),        // 6: btc_genz.network.GetBlockRequest
-	(*GetBlockResponse)(nil),       // 7: btc_genz.network.GetBlockResponse
-	(*Handshake)(nil),              // 8: btc_genz.network.Handshake
-	(*SentinelCertificateMsg)(nil), // 9: btc_genz.network.SentinelCertificateMsg
-	(*GetHeaderBatchRequest)(nil),  // 10: btc_genz.network.GetHeaderBatchRequest
-	(*GetHeaderBatchResponse)(nil), // 11: btc_genz.network.GetHeaderBatchResponse
-	(*GetStatusRequest)(nil),       // 12: btc_genz.network.GetStatusRequest
-	(*GetStatusResponse)(nil),      // 13: btc_genz.network.GetStatusResponse
-	(*StartMiningRequest)(nil),     // 14: btc_genz.network.StartMiningRequest
-	(*StopMiningRequest)(nil),      // 15: btc_genz.network.StopMiningRequest
-	(*MiningResponse)(nil),         // 16: btc_genz.network.MiningResponse
-	(*Block)(nil),                  // 17: btc_genz.block.Block
-	(*Transaction)(nil),            // 18: btc_genz.transaction.Transaction
-	(*Hash)(nil),                   // 19: btc_genz.common.Hash
+	(WarningMsg_WarningType)(0),    // 0: btc_genz.network.WarningMsg.WarningType
+	(*RawBytes)(nil),               // 1: btc_genz.network.RawBytes
+	(*GetAccountRequest)(nil),      // 2: btc_genz.network.GetAccountRequest
+	(*AccountResponse)(nil),        // 3: btc_genz.network.AccountResponse
+	(*NewBlockMsg)(nil),            // 4: btc_genz.network.NewBlockMsg
+	(*NewTxMsg)(nil),               // 5: btc_genz.network.NewTxMsg
+	(*InventoryMsg)(nil),           // 6: btc_genz.network.InventoryMsg
+	(*GetBlockRequest)(nil),        // 7: btc_genz.network.GetBlockRequest
+	(*GetBlockResponse)(nil),       // 8: btc_genz.network.GetBlockResponse
+	(*Handshake)(nil),              // 9: btc_genz.network.Handshake
+	(*SentinelCertificateMsg)(nil), // 10: btc_genz.network.SentinelCertificateMsg
+	(*GetHeaderBatchRequest)(nil),  // 11: btc_genz.network.GetHeaderBatchRequest
+	(*GetHeaderBatchResponse)(nil), // 12: btc_genz.network.GetHeaderBatchResponse
+	(*GetStatusRequest)(nil),       // 13: btc_genz.network.GetStatusRequest
+	(*GetStatusResponse)(nil),      // 14: btc_genz.network.GetStatusResponse
+	(*StartMiningRequest)(nil),     // 15: btc_genz.network.StartMiningRequest
+	(*StopMiningRequest)(nil),      // 16: btc_genz.network.StopMiningRequest
+	(*MiningResponse)(nil),         // 17: btc_genz.network.MiningResponse
+	(*WarningMsg)(nil),             // 18: btc_genz.network.WarningMsg
+	(*Block)(nil),                  // 19: btc_genz.block.Block
+	(*Transaction)(nil),            // 20: btc_genz.transaction.Transaction
+	(*Hash)(nil),                   // 21: btc_genz.common.Hash
 }
 var file_network_network_proto_depIdxs = []int32{
-	17, // 0: btc_genz.network.NewBlockMsg.block:type_name -> btc_genz.block.Block
-	18, // 1: btc_genz.network.NewTxMsg.tx:type_name -> btc_genz.transaction.Transaction
-	17, // 2: btc_genz.network.GetBlockResponse.block:type_name -> btc_genz.block.Block
-	6,  // 3: btc_genz.network.BlockchainService.GetBlock:input_type -> btc_genz.network.GetBlockRequest
-	10, // 4: btc_genz.network.BlockchainService.GetHeaderBatch:input_type -> btc_genz.network.GetHeaderBatchRequest
-	18, // 5: btc_genz.network.BlockchainService.SubmitTransaction:input_type -> btc_genz.transaction.Transaction
-	12, // 6: btc_genz.network.BlockchainService.GetStatus:input_type -> btc_genz.network.GetStatusRequest
-	1,  // 7: btc_genz.network.BlockchainService.GetAccount:input_type -> btc_genz.network.GetAccountRequest
-	0,  // 8: btc_genz.network.BlockchainService.CalculateBlockHeaderHash:input_type -> btc_genz.network.RawBytes
-	14, // 9: btc_genz.network.BlockchainService.StartMining:input_type -> btc_genz.network.StartMiningRequest
-	15, // 10: btc_genz.network.BlockchainService.StopMining:input_type -> btc_genz.network.StopMiningRequest
-	7,  // 11: btc_genz.network.BlockchainService.GetBlock:output_type -> btc_genz.network.GetBlockResponse
-	11, // 12: btc_genz.network.BlockchainService.GetHeaderBatch:output_type -> btc_genz.network.GetHeaderBatchResponse
-	19, // 13: btc_genz.network.BlockchainService.SubmitTransaction:output_type -> btc_genz.common.Hash
-	13, // 14: btc_genz.network.BlockchainService.GetStatus:output_type -> btc_genz.network.GetStatusResponse
-	2,  // 15: btc_genz.network.BlockchainService.GetAccount:output_type -> btc_genz.network.AccountResponse
-	19, // 16: btc_genz.network.BlockchainService.CalculateBlockHeaderHash:output_type -> btc_genz.common.Hash
-	16, // 17: btc_genz.network.BlockchainService.StartMining:output_type -> btc_genz.network.MiningResponse
-	16, // 18: btc_genz.network.BlockchainService.StopMining:output_type -> btc_genz.network.MiningResponse
-	11, // [11:19] is the sub-list for method output_type
-	3,  // [3:11] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	19, // 0: btc_genz.network.NewBlockMsg.block:type_name -> btc_genz.block.Block
+	20, // 1: btc_genz.network.NewTxMsg.tx:type_name -> btc_genz.transaction.Transaction
+	19, // 2: btc_genz.network.GetBlockResponse.block:type_name -> btc_genz.block.Block
+	0,  // 3: btc_genz.network.WarningMsg.type:type_name -> btc_genz.network.WarningMsg.WarningType
+	7,  // 4: btc_genz.network.BlockchainService.GetBlock:input_type -> btc_genz.network.GetBlockRequest
+	11, // 5: btc_genz.network.BlockchainService.GetHeaderBatch:input_type -> btc_genz.network.GetHeaderBatchRequest
+	20, // 6: btc_genz.network.BlockchainService.SubmitTransaction:input_type -> btc_genz.transaction.Transaction
+	13, // 7: btc_genz.network.BlockchainService.GetStatus:input_type -> btc_genz.network.GetStatusRequest
+	2,  // 8: btc_genz.network.BlockchainService.GetAccount:input_type -> btc_genz.network.GetAccountRequest
+	1,  // 9: btc_genz.network.BlockchainService.CalculateBlockHeaderHash:input_type -> btc_genz.network.RawBytes
+	15, // 10: btc_genz.network.BlockchainService.StartMining:input_type -> btc_genz.network.StartMiningRequest
+	16, // 11: btc_genz.network.BlockchainService.StopMining:input_type -> btc_genz.network.StopMiningRequest
+	8,  // 12: btc_genz.network.BlockchainService.GetBlock:output_type -> btc_genz.network.GetBlockResponse
+	12, // 13: btc_genz.network.BlockchainService.GetHeaderBatch:output_type -> btc_genz.network.GetHeaderBatchResponse
+	21, // 14: btc_genz.network.BlockchainService.SubmitTransaction:output_type -> btc_genz.common.Hash
+	14, // 15: btc_genz.network.BlockchainService.GetStatus:output_type -> btc_genz.network.GetStatusResponse
+	3,  // 16: btc_genz.network.BlockchainService.GetAccount:output_type -> btc_genz.network.AccountResponse
+	21, // 17: btc_genz.network.BlockchainService.CalculateBlockHeaderHash:output_type -> btc_genz.common.Hash
+	17, // 18: btc_genz.network.BlockchainService.StartMining:output_type -> btc_genz.network.MiningResponse
+	17, // 19: btc_genz.network.BlockchainService.StopMining:output_type -> btc_genz.network.MiningResponse
+	12, // [12:20] is the sub-list for method output_type
+	4,  // [4:12] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_network_network_proto_init() }
@@ -1142,13 +1275,14 @@ func file_network_network_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_network_network_proto_rawDesc), len(file_network_network_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   17,
+			NumEnums:      1,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_network_network_proto_goTypes,
 		DependencyIndexes: file_network_network_proto_depIdxs,
+		EnumInfos:         file_network_network_proto_enumTypes,
 		MessageInfos:      file_network_network_proto_msgTypes,
 	}.Build()
 	File_network_network_proto = out.File

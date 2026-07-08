@@ -1,6 +1,6 @@
 //*
 // @file consensus.proto
-// @brief Định nghĩa các tham số đồng thuận và cấu hình mạng lưới BTC GenZ.
+// @brief Định nghĩa các tham số đồng thuận và cấu hình mạng lưới YonaCode.
 // @details Chứa các hằng số về thời gian khối, phần thưởng, và các quy tắc khóa (Lock-up).
 //
 // @author Vô Nhật Thiên (Khởi tạo)
