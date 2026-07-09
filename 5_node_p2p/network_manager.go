@@ -45,6 +45,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// safeSlice8: Cắt tối đa 8 byte đầu của slice một cách an toàn để tránh panic slice out of bounds.
+func safeSlice8(h []byte) []byte {
+	if len(h) == 0 {
+		return []byte{}
+	}
+	if len(h) < 8 {
+		return h
+	}
+	return h[:8]
+}
+
 const (
 	HandshakeProtocol = "/btc_gen_z/handshake/1.0.0"
 	SyncProtocol      = "/btc_gen_z/sync/1.0.0"
@@ -660,7 +671,7 @@ func (n *NetworkManager) StartBlockInbox() {
 				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", id.String()[:12], fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
 
 				dbHash := n.Bridge.GetBlockHash(block.Header.Height)
-				reason := fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, headerHash[:8], dbHash[:8])
+				reason := fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
 				n.punishPeer(id, reason)
 				return pubsub.ValidationReject
 			}
@@ -675,7 +686,7 @@ func (n *NetworkManager) StartBlockInbox() {
 		// 2. Sau khi vượt qua trạm PoW và checkpoint, mới kiểm tra mã băm cha (ParentHash)
 		parentHeaderBytes := n.Bridge.GetHeaderRaw(block.Header.ParentHash.Value)
 		if parentHeaderBytes == nil {
-			log.Printf("[P2P-ORPHAN] 🧩 Nhận khối mồ côi #%d (Cha: %x). Đã vượt qua PoW và checkpoint. Chấp nhận để kích hoạt đồng bộ lùi...", block.Header.Height, block.Header.ParentHash.Value[:8])
+			log.Printf("[P2P-ORPHAN] 🧩 Nhận khối mồ côi #%d (Cha: %x). Đã vượt qua PoW và checkpoint. Chấp nhận để kích hoạt đồng bộ lùi...", block.Header.Height, safeSlice8(block.Header.ParentHash.Value))
 			return pubsub.ValidationAccept
 		}
 
@@ -947,7 +958,7 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
 
 			dbHash := n.Bridge.GetBlockHash(compact.Header.Height)
-			reason := fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", compact.Header.Height, headerHash[:8], dbHash[:8])
+			reason := fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", compact.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
 			n.punishPeer(from, reason)
 			return
 		}
@@ -1358,7 +1369,7 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
 
 			dbHash := n.Bridge.GetBlockHash(block.Header.Height)
-			reason := fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, headerHash[:8], dbHash[:8])
+			reason := fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
 			n.punishPeer(from, reason)
 			return err
 		}
@@ -1787,13 +1798,13 @@ func (n *NetworkManager) HandleSyncRequest(s network.Stream) {
 					} else if block.Header.Height < oldestH {
 						// [PRUNED-BLOCK-EXCEPTION] Cho phép gửi các khối lịch sử đã bị Pruned dưới dạng Header-Only
 						audited = true
-						log.Printf("[SYNC-PULL] 📦 Cho phép gửi khối %x đã Pruned ở cao độ #%d (Header-Only).", req.Hash[:8], block.Header.Height)
+						log.Printf("[SYNC-PULL] 📦 Cho phép gửi khối %x đã Pruned ở cao độ #%d (Header-Only).", safeSlice8(req.Hash), block.Header.Height)
 					} else {
-						log.Printf("[SYNC-PULL] 🧹 Chặn gửi khối %x do thiếu dữ liệu thân khối.", req.Hash[:8])
+						log.Printf("[SYNC-PULL] 🧹 Chặn gửi khối %x do thiếu dữ liệu thân khối.", safeSlice8(req.Hash))
 					}
 				} else {
 					log.Printf("[SYNC-PULL] 🛡️ Từ chối gửi Khối %x do băm không trùng khớp (DB: %x, Tính lại: %x)",
-						req.Hash[:8], req.Hash[:8], calculatedHash[:8])
+						safeSlice8(req.Hash), safeSlice8(req.Hash), safeSlice8(calculatedHash))
 				}
 			} else {
 				// Kiểm toán khối canonical bình thường
@@ -2002,7 +2013,7 @@ func (n *NetworkManager) AuditBlockBeforeSend(height uint64, block *pb_block.Blo
 	// 3. So sánh
 	if !bytes.Equal(canonicalHash, calculatedHash) {
 		log.Printf("[SELF-AUDIT-CRITICAL] 🛑 CẢNH BÁO NGUY HIỂM: Dữ liệu cục bộ của Khối #%d bị hỏng! (DB: %x, Tính lại: %x)",
-			height, canonicalHash[:8], calculatedHash[:8])
+			height, safeSlice8(canonicalHash), safeSlice8(calculatedHash))
 		return false
 	}
 
