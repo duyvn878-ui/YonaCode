@@ -15,6 +15,10 @@ Author / Founder: **Vo Nhat Thien**
 > **Announcement regarding project status:**  
 > Actually, the features were 100% complete from the day they launched. I am only mentioning it today because I was afraid people would think the project is dead, but in reality, I have been diligently posting. It's just that this group updates information that I haven't finished yet, so I don't know what to do with it. That's why I'm posting this to prevent people from misunderstanding that the project is dead.
 
+> [!TIP]
+> **Pre-packaged Ledger Data:**  
+> The zip file already contains the `node` folder with the ledger data, so you can synchronize extremely quickly without having to download it via p2p.
+
 ---
 
 ## 🌟 Core Pillars & Philosophy
