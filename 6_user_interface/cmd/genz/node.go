@@ -253,6 +253,8 @@ var nodeStartCmd = &cobra.Command{
 		mining, _ := cmd.Flags().GetBool("mining")
 		syncMode, _ := cmd.Flags().GetString("sync-mode")
 		writeLog, _ := cmd.Flags().GetBool("write-log")
+		walletServer, _ := cmd.Flags().GetBool("wallet-server")
+		walletToken, _ := cmd.Flags().GetString("wallet-token")
 
 		// Cấu hình Logger Lumberjack động dựa trên cờ `--write-log`
 		if writeLog {
@@ -287,6 +289,7 @@ var nodeStartCmd = &cobra.Command{
 		}
 
 		app := user_interface.NewCLIApp(dbPath, rewardAddr, minerKey, sclPort)
+		app.EnableWalletServer(walletServer, walletToken)
 
 		// [VANGUARD-CONTROL] Thiết lập chế độ Node dựa trên cờ lệnh
 		if mining {
@@ -699,6 +702,8 @@ func init() {
 	nodeStartCmd.Flags().String("sync-mode", "full", "Chế độ đồng bộ: 'full' hoặc 'snap'")
 	nodeStartCmd.Flags().Bool("write-log", false, "Kích hoạt ghi log vật lý ra file đĩa cứng")
 	nodeStartCmd.Flags().Int("max-tx-per-block", 1000, "Giới hạn số giao dịch tối đa được phép đóng gói vào mỗi khối")
+	nodeStartCmd.Flags().Bool("wallet-server", false, "Kích hoạt cổng kết nối RPC cho ví Yona Wallet")
+	nodeStartCmd.Flags().String("wallet-token", "", "Token bảo mật xác thực kết nối ví")
 
 	// Đăng ký các lệnh con vào nodeCmd
 	nodeCmd.AddCommand(nodeStartCmd, nodeStatusCmd, nodeInfoCmd, nodeConnectCmd, nodeRepairCmd)

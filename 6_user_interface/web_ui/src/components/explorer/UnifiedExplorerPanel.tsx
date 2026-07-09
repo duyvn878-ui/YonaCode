@@ -27,7 +27,8 @@ const ExplorerStatBlock = ({
   icon: Icon, 
   colorClass, 
   bgClass, 
-  shimmer = false 
+  shimmer = false,
+  chartData
 }: { 
   title: string, 
   value: string | number, 
@@ -35,7 +36,8 @@ const ExplorerStatBlock = ({
   icon: any, 
   colorClass: string, 
   bgClass: string,
-  shimmer?: boolean
+  shimmer?: boolean,
+  chartData?: number[]
 }) => (
   <div className={`p-8 bg-white/[0.03] border border-white/10 rounded-[2.5rem] relative overflow-hidden group hover:border-${colorClass}/40 transition-all duration-500 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)]`}>
     <div className={`absolute top-0 right-0 w-32 h-32 ${bgClass} opacity-5 blur-[80px] -mr-16 -mt-16 transition-transform group-hover:scale-150 duration-1000`} />
@@ -52,6 +54,37 @@ const ExplorerStatBlock = ({
         <span className="text-4xl font-black italic tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] tabular-nums">
           {value}
         </span>
+
+        {chartData && chartData.length > 0 && (
+          <div className="w-full h-8 my-2 overflow-hidden rounded-md bg-white/[0.02] border border-white/5 p-1">
+            <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id={`grad-${title.replace(/\s+/g, '-')}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="rgba(0, 136, 255, 0.3)" />
+                  <stop offset="100%" stopColor="rgba(0, 136, 255, 0.0)" />
+                </linearGradient>
+              </defs>
+              {(() => {
+                const max = Math.max(...chartData, 1);
+                const min = Math.min(...chartData, 0);
+                const points = chartData.map((val, idx) => {
+                  const x = (idx / (chartData.length - 1)) * 100;
+                  const y = max === min ? 15 : 28 - ((val - min) / (max - min)) * 26;
+                  return { x, y };
+                });
+                const pathData = `M 0 30 ` + points.map(p => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') + ` L 100 30 Z`;
+                const lineData = points.map((p, idx) => (idx === 0 ? 'M' : 'L') + ` ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                return (
+                  <>
+                    <path d={pathData} fill={`url(#grad-${title.replace(/\s+/g, '-')})`} />
+                    <path d={lineData} fill="none" stroke="#3b82f6" strokeWidth="1.2" />
+                  </>
+                );
+              })()}
+            </svg>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
            <span className="text-[10px] font-bold text-white/30 uppercase tracking-[0.25em]">{label}</span>
            <div className={`h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent`} />
@@ -67,8 +100,10 @@ const ExplorerStatBlock = ({
 const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, miner, supply }) => {
   const { t } = useLanguage();
   
-  const hashrateNum = status?.hashrate || miner?.hashrate || 0;
+  const hashrateNum = status?.network_hashrate || 0;
   const formatH = (h: number) => {
+    if (h >= 1e12) return `${(h / 1e12).toFixed(2)} TH/s`;
+    if (h >= 1e9) return `${(h / 1e9).toFixed(2)} GH/s`;
     if (h >= 1e6) return `${(h / 1e6).toFixed(2)} MH/s`;
     if (h >= 1e3) return `${(h / 1e3).toFixed(2)} KH/s`;
     return `${h.toFixed(0)} H/s`;
@@ -92,7 +127,7 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
       </div>
 
       {/* 🏥 2. THE 2x2 HUD MATRIX (V6.0 Phoenix Edition) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 flex-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
          <ExplorerStatBlock 
             title={t.mining_intel || "HASH_RATE"}
             value={formatH(hashrateNum)}
@@ -101,6 +136,7 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
             colorClass="text-accent-blue"
             bgClass="bg-accent-blue"
             shimmer={hashrateNum > 0}
+            chartData={status?.network_hashrate_history}
          />
          
          <ExplorerStatBlock 
@@ -131,6 +167,73 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
             shimmer
          />
       </div>
+
+      {/* 📊 2.5 LỊCH SỬ BIẾN ĐỘNG TỐC ĐỘ BĂM TOÀN MẠNG (20 KHỐI GẦN NHẤT) */}
+      {status?.network_hashrate_history && status.network_hashrate_history.length > 0 && (
+        <div className="p-8 bg-white/[0.02] border border-white/5 rounded-[2rem] flex flex-col gap-4">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+             <span className="text-[10px] font-black text-accent-blue uppercase tracking-[0.3em] italic">
+               {t.network_hashrate_history_title}
+             </span>
+             <span className="text-[9px] font-bold text-white/30 uppercase tracking-[0.2em]">{status.network_hashrate_history.length} BLOCKS LOADED</span>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[140px] overflow-y-auto pr-2 no-scrollbar">
+            {status.network_hashrate_history.map((rate, index) => {
+              const blockHeight = (status.highest_height || 0) - (status.network_hashrate_history.length - 1 - index);
+              if (blockHeight < 0) return null;
+              return (
+                <div key={index} className="flex flex-col p-2.5 bg-white/[0.01] border border-white/[0.05] rounded-xl hover:bg-white/[0.04] transition-all border-l-2 border-l-accent-blue/40">
+                  <span className="text-[9px] text-white/30 font-bold font-mono">BLOCK #{blockHeight}</span>
+                  <span className="text-[11px] text-white font-black italic mt-1 font-mono">
+                    {formatH(rate)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 🏆 2.6 THỢ ĐÀO HÀNG ĐẦU (TOP MINERS) */}
+      {status?.top_miners && status.top_miners.length > 0 && (
+        <div className="p-8 bg-white/[0.02] border border-white/5 rounded-[2rem] flex flex-col gap-4">
+          <div className="flex flex-col gap-1 border-b border-white/[0.08] pb-3">
+            <div className="flex items-center justify-between">
+               <span className="text-[10px] font-black text-accent-green uppercase tracking-[0.3em] italic">
+                 {t.top_miners_title}
+               </span>
+               <span className="text-[9px] font-bold text-white/30 uppercase tracking-[0.2em]">{status.top_miners.length} ACTIVE MINERS</span>
+            </div>
+            {t.top_miners_description && (
+              <p className="text-[9px] text-white/40 leading-relaxed normal-case font-normal mt-1">
+                {t.top_miners_description}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2 max-h-[180px] overflow-y-auto pr-2 no-scrollbar">
+            <div className="grid grid-cols-12 gap-4 text-[9px] font-bold text-white/30 uppercase tracking-widest px-4 py-1">
+              <span className="col-span-6">{t.wallet_address_label}</span>
+              <span className="col-span-2 text-right">{t.blocks_mined_label}</span>
+              <span className="col-span-2 text-right">{t.percentage_label}</span>
+              <span className="col-span-2 text-right">{t.hashrate_label}</span>
+            </div>
+
+            {status.top_miners.map((m, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-4 items-center p-3 bg-white/[0.01] border border-white/[0.03] rounded-xl hover:bg-white/[0.03] transition-all">
+                <span className="col-span-6 font-mono text-[11px] text-white/70 truncate flex items-center gap-2">
+                  <span className="w-4 h-4 rounded bg-accent-green/10 text-accent-green text-[9px] flex items-center justify-center font-bold">{idx + 1}</span>
+                  {m.address.substring(0, 10)}...{m.address.substring(m.address.length - 8)}
+                </span>
+                <span className="col-span-2 text-right font-mono text-[11px] text-white font-bold">{m.blocks_mined} blocks</span>
+                <span className="col-span-2 text-right font-mono text-[11px] text-accent-green font-bold">{m.percentage.toFixed(1)}%</span>
+                <span className="col-span-2 text-right font-mono text-[11px] text-white/90">{formatH(m.hashrate_est)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ☢️ 3. LIVE DIAGNOSTIC BOX */}
       <div className="mt-auto p-8 bg-black/50 border border-white/10 rounded-[2rem] relative overflow-hidden">

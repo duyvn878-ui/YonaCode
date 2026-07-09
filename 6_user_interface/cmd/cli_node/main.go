@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"net/http"
+	"encoding/json"
 
 	"btc_genz/2_miner_core/go_bridge"
 	node_p2p "btc_genz/5_node_p2p"
@@ -194,6 +196,10 @@ func runInteractiveShell(client pb_block.BlockchainServiceClient, dbPath string)
 			printHelp()
 		case "status", "info":
 			showStatus(client)
+		case "nethash", "nethashrate":
+			showNetworkHashrate()
+		case "miners", "topminers":
+			showTopMiners()
 		case "wallets":
 			showWallets(client, walletManager)
 		case "send":
@@ -212,6 +218,8 @@ func runInteractiveShell(client pb_block.BlockchainServiceClient, dbPath string)
 func printHelp() {
 	color.Green("\n📖 AVAILABLE CLI COMMANDS:")
 	fmt.Printf("  %-15s : Display node status (Height, connected peers, hashrate, mempool)\n", "status")
+	fmt.Printf("  %-15s : Display network hashrate and 20-block hashrate history\n", "nethash")
+	fmt.Printf("  %-15s : Display ranking of top miner addresses in the last 100 blocks\n", "miners")
 	fmt.Printf("  %-15s : List all local wallets with actual balances\n", "wallets")
 	fmt.Printf("  %-15s : Transfer GO (Guided step-by-step input)\n", "send")
 	fmt.Printf("  %-15s : Display this help menu\n", "help")
@@ -426,5 +434,111 @@ func handleGuidedSend(client pb_block.BlockchainServiceClient, wm *internal.Wall
 		color.Green("✅ Transaction submitted successfully!")
 		color.Cyan("🔗 TxHash: 0x%s", hex.EncodeToString(submitResp.Value))
 	}
+	fmt.Println()
+}
+
+// RESTStatusResponse: Cấu trúc để giải mã thông tin trạng thái qua REST API
+type RESTStatusResponse struct {
+	NetworkHashrate        uint64 `json:"network_hashrate"`
+	NetworkHashrateHistory []uint64 `json:"network_hashrate_history"`
+	AvgBlockTime           float64 `json:"avg_block_time"`
+	Difficulty             string `json:"difficulty"`
+	TopMiners []struct {
+		Address     string  `json:"address"`
+		BlocksMined int     `json:"blocks_mined"`
+		Percentage  float64 `json:"percentage"`
+		HashrateEst uint64  `json:"hashrate_est"`
+	} `json:"top_miners"`
+}
+
+func formatHashrateGo(h uint64) string {
+	hf := float64(h)
+	if hf >= 1e12 {
+		return fmt.Sprintf("%.2f TH/s", hf/1e12)
+	}
+	if hf >= 1e9 {
+		return fmt.Sprintf("%.2f GH/s", hf/1e9)
+	}
+	if hf >= 1e6 {
+		return fmt.Sprintf("%.2f MH/s", hf/1e6)
+	}
+	if hf >= 1e3 {
+		return fmt.Sprintf("%.2f KH/s", hf/1e3)
+	}
+	return fmt.Sprintf("%.2f H/s", hf)
+}
+
+func showNetworkHashrate() {
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		color.Red("❌ Error: Could not connect to Node REST API: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var data RESTStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		color.Red("❌ Error: Could not parse response: %v", err)
+		return
+	}
+
+	color.Cyan("\n📊 NETWORK HASHRATE STATUS:")
+	fmt.Println("--------------------------------------------------------------------------------")
+	fmt.Printf("  Current Network Hashrate : %s\n", formatHashrateGo(data.NetworkHashrate))
+	fmt.Printf("  Average Block Time       : %.1f seconds (Target: 75s)\n", data.AvgBlockTime)
+	fmt.Printf("  Current Difficulty       : %s\n", data.Difficulty)
+	fmt.Println("--------------------------------------------------------------------------------")
+	
+	if len(data.NetworkHashrateHistory) > 0 {
+		color.Yellow("📈 Hashrate History (Last 20 Blocks, Left=Oldest, Right=Newest):")
+		maxVal := uint64(1)
+		for _, val := range data.NetworkHashrateHistory {
+			if val > maxVal {
+				maxVal = val
+			}
+		}
+		for i, val := range data.NetworkHashrateHistory {
+			pct := float64(val) / float64(maxVal)
+			barLength := int(pct * 25)
+			if barLength < 1 && pct > 0 {
+				barLength = 1
+			}
+			bar := strings.Repeat("■", barLength) + strings.Repeat(" ", 25-barLength)
+			color.Blue("  Block -%2d: [%s] %s", len(data.NetworkHashrateHistory)-1-i, bar, formatHashrateGo(val))
+		}
+	}
+	fmt.Println()
+}
+
+func showTopMiners() {
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		color.Red("❌ Error: Could not connect to Node REST API: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var data RESTStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		color.Red("❌ Error: Could not parse response: %v", err)
+		return
+	}
+
+	color.Green("\n🏆 TOP MINERS (LAST 100 BLOCKS):")
+	fmt.Println("--------------------------------------------------------------------------------")
+	fmt.Printf("  %-4s | %-42s | %-12s | %-8s | %-12s\n", "Rank", "Miner Wallet Address", "Blocks Mined", "Share %", "Est Hashrate")
+	fmt.Println("--------------------------------------------------------------------------------")
+	if len(data.TopMiners) == 0 {
+		color.Yellow("  No block rewards mined in the last 100 blocks yet.")
+	} else {
+		for idx, m := range data.TopMiners {
+			color.Green("   %-3d | %-42s | %-12d | %6.1f%%  | %-12s", idx+1, m.Address, m.BlocksMined, m.Percentage, formatHashrateGo(m.HashrateEst))
+		}
+	}
+	fmt.Println("--------------------------------------------------------------------------------")
 	fmt.Println()
 }
