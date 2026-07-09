@@ -21,16 +21,26 @@ Author / Founder: **Vo Nhat Thien**
 
 YonaCode resolves the fatal flaws of traditional consensus mechanisms through proprietary and revolutionary technologies:
 
-1. **Vo Nhat Thien Consensus (VNT Consensus)**: 
-   - Integrates the **"5-Block Finality Firewall"**. It permanently strips Hashrate of its retroactive power. Once a block sinks 5 layers deep, it is frozen permanently by code laws. No 51% attack can ever reverse it.
-2. **Ultralight Architecture**:
-   - **48H Great Purge**: Automatically deletes detailed Block Body data after 48 hours. Only Block Headers and State Roots are retained. Running a Full Node is now a basic right for everyone using a standard personal computer hard drive.
-3. **Pure Account Model & JMT**:
-   - Eliminates the fragmented UTXO model. Utilizes the **Jellyfish Merkle Tree (JMT)** for state storage. Combined with the Anti-Bloat Shield (charging a 1,000 VNT creation fee for new wallets) to prevent state bloat.
-4. **The Invisible Hand Theory**:
-   - In the event of a global submarine cable cut or widespread network split, the system refuses to use blind algorithms to wipe out users' assets on the weaker branch. The decision of which chain is the main chain belongs to the **Free Market** through pricing and social consensus.
-5. **Custom Blake3-PoW Algorithm**:
-   - Highly optimized for multi-threading and ultra-fast verification. Uses a *Context String* mechanism to invalidate old ASICs, triggering a fair hardware race for new miners.
+### 🛡️ 1. VNT Consensus: True Immutability Guided by the "Invisible Hand"
+At its core, VNT Consensus is not a new cryptographic algorithm, but a philosophical breakthrough: embedding an economic theory (The Invisible Hand) directly into the consensus rules of the Code. This enables a PoW system to achieve "true immutability" without relying on the massive, tyrannical energy consumption (Hashrate) typical of legacy systems.
+
+* **Market as the Arbiter, Not the Code**: Legacy systems utilize automated algorithms to wipe out the assets of a weaker fork during macroeconomic disruptions (such as undersea fiber-optic cable cuts that split the network). YonaCode does not allow machines to make such executive decisions. The determination of the "canonical chain" is left to the "Invisible Hand"—meaning the recognition and valuation by the Community, Miners, and Capital Inflow.
+* **Absolute Asset Preservation**: User assets remain intact across parallel forks; no one loses their funds unjustly due to a cold, emotionless line of code.
+* **5-Block Firewall & Ultra-Low Activation Rate**: To allow the Invisible Hand to operate safely, the system uses mathematics to hard-lock all transactions that are deeper than 5 blocks (~6 minutes). No matter how massive, malicious hashrate cannot rewrite finalized history.
+* **Proven by Empirical Data**: The probability of the network needing to rely on the Invisible Hand is extremely low. Over 10 years of operational history from high-speed PoW networks (like Dogecoin with a 60s block time) shows that natural forks caused by network latency only go 1 to 2 blocks deep. A natural fork exceeding 5 blocks is practically impossible (0%).
+
+Therefore, the 5-block rule acts as a redundant safety buffer. The Invisible Hand is essentially an "Emergency Evacuation Protocol," invoked only during Black Swan disasters (such as a global internet blackout). Machines handle short-term deviations, while major crises are left to the free market.
+
+👉 **Note**: To quickly review technical counterarguments or deep dives into the network split paradox and Game Theory, please refer to our Whitepaper or drop your questions right below in the comment section!
+
+### ⚡ 2. Ultralight Architecture (48H Great Purge)
+Automatically deletes detailed Block Body data after 48 hours. Only Block Headers and State Roots are retained. Running a Full Node is now a basic right for everyone using a standard personal computer hard drive.
+
+### 🧬 3. Pure Account Model & JMT
+Eliminates the fragmented UTXO model. Utilizes the **Jellyfish Merkle Tree (JMT)** for state storage. Combined with the Anti-Bloat Shield (charging a 1,000 VNT creation fee for new wallets) to prevent state bloat.
+
+### ⛏️ 4. Custom Blake3-PoW Algorithm
+Highly optimized for multi-threading and ultra-fast verification. Uses a *Context String* mechanism to invalidate old ASICs, triggering a fair hardware race for new miners.
 
 ---
 
