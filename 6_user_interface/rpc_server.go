@@ -34,6 +34,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"math/big"
 
 	"github.com/tyler-smith/go-bip39"
 
@@ -108,6 +109,14 @@ type TrackedTx struct {
 	ErrorMessage  string `json:"error_message"` // Thông điệp lỗi chi tiết (nếu có)
 	PrevBalance   uint64 `json:"prev_balance"`  // [V37.1] Số dư TRƯỚC khi thực hiện
 	PostBalance   uint64 `json:"post_balance"`  // [V37] Số dư SAU khi thực hiện (Snapshot)
+}
+
+// MinerStats: Thống kê hashrate ước tính cho từng địa chỉ ví thợ đào
+type MinerStats struct {
+	Address     string  `json:"address"`
+	BlocksMined int     `json:"blocks_mined"`
+	Percentage  float64 `json:"percentage"`
+	HashrateEst uint64  `json:"hashrate_est"`
 }
 
 // TxResponse: Cấu trúc trả về JSON chuẩn hóa và tối ưu hóa bộ nhớ cho API giao dịch
@@ -2528,7 +2537,7 @@ func (s *RPCServer) Start() {
 	r.HandleFunc("/api/v1/wallet/preview", s.localhostOnly(s.handleWalletPreview)).Methods("POST")
 	r.HandleFunc("/api/v1/wallet/list", s.localhostOnly(s.handleWalletList)).Methods("GET")
 	r.HandleFunc("/api/v1/wallet/delete", s.localhostOnly(s.handleWalletDelete)).Methods("POST")
-	r.HandleFunc("/api/v1/fees/calculate", s.handleFeeCalculate).Methods("GET")
+	r.HandleFunc("/api/v1/fees/calculate", s.walletGate(s.handleFeeCalculate)).Methods("GET")
 
 	// STATIC ASSETS (V2.1 - REACT DIST)
 	// [V2.2 TACTICAL FIX] Phục vụ file tĩnh linh hoạt (Hỗ trợ chạy từ bin/ hoặc root)
@@ -2552,9 +2561,10 @@ func (s *RPCServer) Start() {
 
 	// CORE RPC API
 	r.HandleFunc("/api/v1/send_tx", s.localhostOnly(s.handleSendTx)).Methods("POST")
+	r.HandleFunc("/api/v1/send_raw_tx", s.walletGate(s.handleSendRawTx)).Methods("POST")
 	r.HandleFunc("/api/v1/send_batch_tx", s.localhostOnly(s.handleSendBatchTx)).Methods("POST")
 	r.HandleFunc("/api/v1/block/{height}", s.handleGetBlock).Methods("GET")
-	r.HandleFunc("/api/v1/balance/{address}", s.handleGetBalance).Methods("GET")
+	r.HandleFunc("/api/v1/balance/{address}", s.walletGate(s.handleGetBalance)).Methods("GET")
 	r.HandleFunc("/api/v1/status", s.handleStatus).Methods("GET")
 	r.HandleFunc("/api/v1/search/{query}", s.handleSearch).Methods("GET")
 	r.HandleFunc("/api/v1/recent/blocks", s.handleRecentBlocks).Methods("GET")
@@ -2574,7 +2584,7 @@ func (s *RPCServer) Start() {
 		s.handleMinerToggle(w, r)
 	})).Methods("POST")
 	r.HandleFunc("/api/v1/miner/set-address", s.localhostOnly(s.handleSetMinerAddress)).Methods("POST")
-	r.HandleFunc("/api/v1/tx/{txid}", s.handleGetTxDetail).Methods("GET")
+	r.HandleFunc("/api/v1/tx/{txid}", s.walletGate(s.handleGetTxDetail)).Methods("GET")
 	r.HandleFunc("/api/v1/node/mode", s.localhostOnly(s.handleNodeMode)).Methods("POST", "GET")
 	r.HandleFunc("/api/v1/node/cpu", s.localhostOnly(s.handleCpuIntensity)).Methods("POST", "GET")
 
@@ -2904,6 +2914,9 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"block_reward":     float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
 		"total_supply":     float64(s.bridge.GetActualTotalSupply()) / 1e8,
 		"hashrate":         atomic.LoadUint64(&s.currentHashrate),
+		"network_hashrate": s.calculateNetworkHashrate(),
+		"network_hashrate_history": s.getNetworkHashrateHistory(),
+		"top_miners":       s.getTopMiners(),
 		"pending_tx_count": len(s.netMgr.Mempool.GetPendingTxList()),
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -2953,6 +2966,33 @@ func (s *RPCServer) calculateAvgBlockTime() float64 {
 
 	return 75.0
 }
+
+// calculateNetworkHashrate: Ước tính hashrate toàn mạng dựa trên Độ khó và Thời gian khối trung bình
+func (s *RPCServer) calculateNetworkHashrate() uint64 {
+	highestHeight := s.bridge.GetCurrentVersion()
+	hash := s.bridge.GetBlockHash(highestHeight)
+	difficulty := big.NewInt(1200000000) // Khởi đầu mặc định 1.2 tỷ VNT
+
+	if len(hash) > 0 {
+		headerRaw := s.bridge.GetHeaderRaw(hash)
+		if headerRaw != nil {
+			var header pb_block.BlockHeader
+			if err := proto.Unmarshal(headerRaw, &header); err == nil {
+				difficulty = go_bridge.BytesLEToBigInt(header.Difficulty)
+			}
+		}
+	}
+
+	avgBlockTime := s.calculateAvgBlockTime()
+	if avgBlockTime <= 0 {
+		avgBlockTime = 75.0
+	}
+
+	// Hashrate = Difficulty / AvgBlockTime
+	hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(avgBlockTime)))
+	return hashrate.Uint64()
+}
+
 
 func getDifficulty(bridge *go_bridge.Bridge) string {
 	// 1. Thử lấy Header của khối cao nhất hiện tại (sử dụng mã băm thực tế thay vì nil)
@@ -4947,6 +4987,105 @@ func (s *RPCServer) getHashrateHistory() []float64 {
 	return result
 }
 
+// getNetworkHashrateHistory: Trả về lịch sử hashrate toàn mạng của 20 khối gần nhất
+func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
+	highest := s.bridge.GetCurrentVersion()
+	count := uint64(20)
+	if highest < count {
+		count = highest
+	}
+	if count == 0 {
+		return []uint64{16000000} // Mặc định 16 MH/s
+	}
+
+	result := make([]uint64, count)
+	avgBlockTime := s.calculateAvgBlockTime()
+	if avgBlockTime <= 0 {
+		avgBlockTime = 75.0
+	}
+
+	// Lặp qua 20 khối gần nhất
+	for i := uint64(0); i < count; i++ {
+		h := highest - (count - 1 - i)
+		hash := s.bridge.GetBlockHash(h)
+		difficulty := big.NewInt(1200000000)
+		if len(hash) > 0 {
+			headerRaw := s.bridge.GetHeaderRaw(hash)
+			if headerRaw != nil {
+				var header pb_block.BlockHeader
+				if err := proto.Unmarshal(headerRaw, &header); err == nil {
+					difficulty = go_bridge.BytesLEToBigInt(header.Difficulty)
+				}
+			}
+		}
+
+		// Network Hashrate = Difficulty / AvgBlockTime (hoặc 75 nếu block time lỗi)
+		hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(avgBlockTime)))
+		result[i] = hashrate.Uint64()
+	}
+	return result
+}
+
+// getTopMiners: Tính toán danh sách các địa chỉ ví thợ đào có tốc độ đào cao nhất trong 100 khối gần nhất
+func (s *RPCServer) getTopMiners() []MinerStats {
+	highest := s.bridge.GetCurrentVersion()
+	window := uint64(100)
+	if highest < window {
+		window = highest
+	}
+	if window == 0 {
+		return []MinerStats{}
+	}
+
+	minerCounts := make(map[string]int)
+	totalBlocks := 0
+
+	for h := highest; h > highest - window; h-- {
+		blockRaw := s.bridge.GetBlock(h)
+		if blockRaw == nil {
+			continue
+		}
+		var block pb_block.Block
+		if err := proto.Unmarshal(blockRaw, &block); err == nil && block.Body != nil {
+			if len(block.Body.Transactions) > 0 {
+				coinbaseTx := block.Body.Transactions[0]
+				if s.isTxCoinbase(coinbaseTx) && coinbaseTx.Receiver != nil {
+					minerAddr := "0x" + strings.ToLower(hex.EncodeToString(coinbaseTx.Receiver.Value))
+					minerCounts[minerAddr]++
+					totalBlocks++
+				}
+			}
+		}
+	}
+
+	if totalBlocks == 0 {
+		return []MinerStats{}
+	}
+
+	networkHashrate := s.calculateNetworkHashrate()
+
+	var stats []MinerStats
+	for addr, count := range minerCounts {
+		percentage := (float64(count) / float64(totalBlocks)) * 100.0
+		hashrateEst := uint64((float64(count) / float64(totalBlocks)) * float64(networkHashrate))
+		stats = append(stats, MinerStats{
+			Address:     addr,
+			BlocksMined: count,
+			Percentage:  percentage,
+			HashrateEst: hashrateEst,
+		})
+	}
+
+	// Sắp xếp giảm dần theo số khối đào được (tức là hashrate ước tính)
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].BlocksMined > stats[j].BlocksMined
+	})
+
+	return stats
+}
+
+
+
 // ----------------------------------------------------------------------------
 // Nhóm hàm Web UI & Wallet (Integrated)
 // ----------------------------------------------------------------------------
@@ -5451,6 +5590,9 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		"timestamp":              time.Now().Unix(),
 		"hashrate":               calculatedRate,
 		"hashrate_history":       s.getHashrateHistory(),
+		"network_hashrate":       s.calculateNetworkHashrate(),
+		"network_hashrate_history": s.getNetworkHashrateHistory(),
+		"top_miners":             s.getTopMiners(),
 		"is_mining":              !s.bridge.IsMiningPaused(),
 		"peer_count":             s.netMgr.GetPeerCount(),
 		"pending_tx_count":       pendingCount,
@@ -5544,7 +5686,7 @@ func (s *RPCServer) corsMiddleware(next http.Handler) http.Handler {
 					valid = true
 				}
 			}
-			if valid {
+			if valid || s.cliApp.walletServerEnabled {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			} else {
 				log.Printf("[RPC-CORS] 🚨 CHẶN yêu cầu CORS không hợp lệ từ Origin: %s cho %s", origin, r.URL.Path)
@@ -5553,7 +5695,7 @@ func (s *RPCServer) corsMiddleware(next http.Handler) http.Handler {
 			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Accept, Origin, Cache-Control, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Accept, Origin, Cache-Control, X-Requested-With, X-Wallet-Token")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
@@ -6594,3 +6736,207 @@ func (s *RPCServer) handleSetIsolationMode(w http.ResponseWriter, r *http.Reques
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "isolation_mode": req.IsolationMode})
 }
+
+// walletGate: Middleware chặn và xác thực các kết nối từ ví Client-side
+func (s *RPCServer) walletGate(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Nếu là request từ Localhost, cho phép qua luôn (phục vụ Node Monitor cục bộ)
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		isLocal := (host == "127.0.0.1" || host == "::1" || host == "[::1]") && r.Header.Get("X-Forwarded-For") == ""
+		if isLocal {
+			next(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		
+		// 2. Nếu không phải localhost, kiểm tra xem cổng ví có được bật không
+		if !s.cliApp.walletServerEnabled {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":  "Forbidden",
+				"message": "Cổng kết nối ví (Wallet Server) chưa được kích hoạt trên Node này. Vui lòng chạy node với cờ --wallet-server.",
+			})
+			return
+		}
+
+		// 3. Kiểm tra Token xác thực nếu có cấu hình
+		if s.cliApp.walletToken != "" {
+			token := r.Header.Get("X-Wallet-Token")
+			if token == "" {
+				authHeader := r.Header.Get("Authorization")
+				if strings.HasPrefix(authHeader, "Bearer ") {
+					token = strings.TrimPrefix(authHeader, "Bearer ")
+				}
+			}
+
+			if token != s.cliApp.walletToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"status":  "Unauthorized",
+					"message": "Mã xác thực ví (Wallet Token) không chính xác hoặc chưa được cung cấp.",
+				})
+				return
+			}
+		}
+
+		next(w, r)
+	}
+}
+
+// handleSendRawTx: Nhận giao dịch signed offline từ ví client và phát sóng lên mempool
+func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	var req struct {
+		Version          uint64 `json:"version"`
+		Sender           string `json:"sender"`
+		Receiver         string `json:"receiver"`
+		Amount           uint64 `json:"amount"`
+		Fee              uint64 `json:"fee"`
+		Nonce            uint64 `json:"nonce"`
+		Timestamp        uint64 `json:"timestamp"`
+		RecentBlockHash  string `json:"recent_block_hash"`
+		ChainId          uint64 `json:"chain_id"`
+		Signature        string `json:"signature"`
+	}
+
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "JSON request body không hợp lệ: " + err.Error()})
+		return
+	}
+	defer r.Body.Close()
+
+	senderHex := strings.TrimPrefix(req.Sender, "0x")
+	receiverHex := strings.TrimPrefix(req.Receiver, "0x")
+	recentBlockHex := strings.TrimPrefix(req.RecentBlockHash, "0x")
+	sigHex := strings.TrimPrefix(req.Signature, "0x")
+
+	senderBytes, err := hex.DecodeString(senderHex)
+	if err != nil || len(senderBytes) != 32 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Địa chỉ người gửi không hợp lệ (Phải là 32 bytes hex)"})
+		return
+	}
+
+	receiverBytes, err := hex.DecodeString(receiverHex)
+	if err != nil || len(receiverBytes) != 32 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Địa chỉ người nhận không hợp lệ (Phải là 32 bytes hex)"})
+		return
+	}
+
+	recentBlockBytes, err := hex.DecodeString(recentBlockHex)
+	if err != nil || len(recentBlockBytes) != 32 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Mã băm recent_block_hash không hợp lệ (Phải là 32 bytes hex)"})
+		return
+	}
+
+	sigBytes, err := hex.DecodeString(sigHex)
+	if err != nil || len(sigBytes) != 64 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Chữ ký signature không hợp lệ (Phải là 64 bytes hex)"})
+		return
+	}
+
+	// [RATE LIMIT CHECK] Chống Spam giao dịch
+	if !s.allowTransactions(senderHex, 1) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Rate limit exceeded. Quá nhiều giao dịch từ địa chỉ này."})
+		return
+	}
+
+	// [VALIDATE FEE] Mức phí 3 tầng cố định: 250, 500, hoặc 1000 VNT
+	if !s.bridge.IsValidFee(req.Fee) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Mức phí không hợp lệ. Phải là 250, 500 hoặc 1000 VNT."})
+		return
+	}
+
+	// [NANO-DUST GUARD] Nếu số tiền chuyển < 10 VNT, yêu cầu phí tối thiểu 500 VNT (Priority)
+	if req.Amount < 10 && req.Fee < 500 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Giao dịch quá nhỏ (< 10 VNT) yêu cầu phí tối thiểu PRIORITY (500 VNT)."})
+		return
+	}
+
+	// [BALANCE CHECK] Kiểm tra số dư spendable
+	spendable := s.bridge.GetSpendableBalance(senderBytes)
+	mempoolPending := s.netMgr.Mempool.GetPendingSpend(senderHex)
+	totalNeeded := req.Amount + req.Fee
+
+	if spendable < (mempoolPending + totalNeeded) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "Error",
+			"message": fmt.Sprintf("Số dư khả dụng không đủ. Cần thêm: %.8f BTC_Z", float64(mempoolPending+totalNeeded-spendable)/1e8),
+		})
+		return
+	}
+
+	// [NONCE CHECK] Kiểm tra Nonce hợp lệ
+	currentNonce := s.bridge.GetNonce(nil, senderBytes)
+	nextExpectedNonce := s.netMgr.Mempool.GetNextNonce(senderHex, currentNonce)
+	if req.Nonce < nextExpectedNonce {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "Error",
+			"message": fmt.Sprintf("Nonce quá thấp. Nonce mong đợi tiếp theo: %d, Nhận được: %d", nextExpectedNonce, req.Nonce),
+		})
+		return
+	}
+
+	// [RECONSTRUCT PB TRANSACTION]
+	tx := &pb_block.Transaction{
+		Version: req.Version,
+		Sender: &pb_block.Address{
+			Value: senderBytes,
+		},
+		Receiver: &pb_block.Address{
+			Value: receiverBytes,
+		},
+		Amount: req.Amount,
+		Fee:    req.Fee,
+		Nonce:  req.Nonce,
+		Timestamp: req.Timestamp,
+		RecentBlockHash: recentBlockBytes,
+		Signature: &pb_block.Signature{
+			Value: sigBytes,
+		},
+		ChainId: req.ChainId,
+	}
+
+	// [VERIFY SIGNATURE NATIVE GO]
+	if !node_p2p.VerifySignatureNative(tx) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "Error", "message": "Chữ ký giao dịch không hợp lệ!"})
+		return
+	}
+
+	// [SERIALIZE AND PUSH TO MEMPOOL]
+	txBytes, _ := proto.MarshalOptions{Deterministic: true}.Marshal(tx)
+	h_full := node_p2p.GetTxIDNative(txBytes)
+	txHashStr := hex.EncodeToString(h_full)
+
+	// Đăng ký vào Tx Tracker với status 99 (Pending)
+	s.updateTxTracker(txHashStr, senderHex, receiverHex, req.Amount, req.Fee, req.Nonce, 0, time.Now().Unix(), "")
+	s.txTrackerMu.Lock()
+	if tracked, exists := s.txTracker[txHashStr]; exists {
+		tracked.Status = 99
+		tracked.ErrorMessage = s.getTxStatusMessage(99)
+	}
+	s.txTrackerMu.Unlock()
+	s.triggerSave()
+
+	// Gửi vào hàng đợi mempool
+	s.netMgr.Mempool.PushToTxBus(txBytes, true)
+
+	log.Printf("[RPC-SEND-RAW] ✅ Nhận thành công giao dịch signed offline %s từ ví client.", safeShortID(txHashStr))
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "Success",
+		"txid":   txHashStr,
+	})
+}
+

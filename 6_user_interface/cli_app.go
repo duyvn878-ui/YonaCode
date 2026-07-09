@@ -82,6 +82,19 @@ type CLIApp struct {
 
 	// [MINER-STREAM] Kênh nhận kết quả khai thác từ các thợ đào độc lập
 	miningResultChan chan *pb_block.MinerMessage
+
+	walletServerEnabled bool
+	walletToken         string
+}
+
+func (c *CLIApp) EnableWalletServer(enabled bool, token string) {
+	c.walletServerEnabled = enabled
+	c.walletToken = token
+	if enabled {
+		log.Printf("[WALLET-SERVER] 🔓 Đã kích hoạt cổng ví. Token bảo mật: %s", token)
+	} else {
+		log.Printf("[WALLET-SERVER] 🔒 Cổng ví bị vô hiệu hóa.")
+	}
 }
 
 func (c *CLIApp) SetNodeMode(mode string) {

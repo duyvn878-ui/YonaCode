@@ -15,6 +15,13 @@ export interface StaticPeer {
   name: string;
 }
 
+export interface MinerStats {
+  address: string;
+  blocks_mined: number;
+  percentage: number;
+  hashrate_est: number;
+}
+
 export interface NodeStatus {
   highest_height: number;
   finalized: number;
@@ -33,6 +40,8 @@ export interface NodeStatus {
   bandwidth: { sent: number; recv: number };
   pending_tx_count: number;
   hashrate: number;
+  network_hashrate: number; // Tốc độ băm toàn mạng
+  network_hashrate_history: number[]; // Lịch sử tốc độ băm toàn mạng của 20 khối gần nhất
   hashrate_history: number[];
   is_mining: boolean;
   node_mode: string;
@@ -42,6 +51,7 @@ export interface NodeStatus {
   block_reward: number;
   grace_period_remaining?: number;
   mining_warning?: string; // [VANGUARD-SECURITY] Cảnh báo thợ đào chưa đăng nhập
+  top_miners: MinerStats[];
 }
 
 export interface MinerStatus {
@@ -163,6 +173,8 @@ const api = {
         bandwidth: data.bandwidth,
         pending_tx_count: data.pending_tx_count || 0,
         hashrate: data.hashrate || 0,
+        network_hashrate: data.network_hashrate || 0,
+        network_hashrate_history: data.network_hashrate_history || [],
         hashrate_history: data.hashrate_history || [],
         is_mining: data.is_mining || false,
         node_mode: data.node_mode || 'verify-only',
@@ -172,6 +184,7 @@ const api = {
         block_reward: data.block_reward || 0.05,
         grace_period_remaining: data.grace_period_remaining || 0,
         mining_warning: data.mining_warning || "",
+        top_miners: data.top_miners || [],
       };
     } catch (e) {
       console.error("REST Status Error:", e);
@@ -213,6 +226,8 @@ const api = {
             bandwidth: data.bandwidth || { sent: 0, recv: 0 },
             pending_tx_count: data.pending_tx_count || 0,
             hashrate: data.hashrate || 0,
+            network_hashrate: data.network_hashrate || 0,
+            network_hashrate_history: data.network_hashrate_history || [],
             hashrate_history: data.hashrate_history || [],
             is_mining: data.is_mining || false,
             node_mode: data.node_mode || 'verify-only',
@@ -222,6 +237,7 @@ const api = {
             block_reward: data.block_reward || 0.05,
             grace_period_remaining: data.grace_period_remaining || 0,
             mining_warning: data.mining_warning || "",
+            top_miners: data.top_miners || [],
           });
 
           // 2. [V2] Phát sóng sự kiện Finality mới
