@@ -4281,6 +4281,12 @@ func (s *RPCServer) handleGetTxDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := s.getTxStatusText(statCode, confs, finalized)
+	errDetail := ""
+	if statCode != 1 && statCode != 0 {
+		errDetail = s.getTxStatusMessage(statCode)
+	} else if statCode != 1 && tx.ErrorMessage != "" {
+		errDetail = tx.ErrorMessage
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(TxResponse{
@@ -4294,6 +4300,7 @@ func (s *RPCServer) handleGetTxDetail(w http.ResponseWriter, r *http.Request) {
 		Confirmations: confs,
 		Status:        status,
 		StatusCode:    statCode,
+		ErrorMessage:  errDetail,
 		Nonce:         tx.Nonce,
 		Direction:     s.getTxDirection(tx),
 		PrevBalance:   iif64(s_prev > 0 || s_post > 0, s_prev, tx.PrevBalance),
@@ -4536,7 +4543,7 @@ func (s *RPCServer) handleAddressHistory(w http.ResponseWriter, r *http.Request)
 		errDetail := ""
 		if statCode != 1 && statCode != 0 {
 			errDetail = s.getTxStatusMessage(statCode)
-		} else if tx.ErrorMessage != "" {
+		} else if statCode != 1 && tx.ErrorMessage != "" {
 			errDetail = tx.ErrorMessage
 		}
 
