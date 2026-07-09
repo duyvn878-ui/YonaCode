@@ -2252,17 +2252,23 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 		// 3. [TÍNH NĂNG PHỤC HỒI] Gom Full Block đi thẳng tới trước để đưa cho Rust
 		debtChain := make([][]byte, 0, int(limitH-effectiveForkPoint))
 
-		// Tải tuần tự hoặc tự động tái lập các khối thiếu (từ effectiveForkPoint + 1 đến Đỉnh giới hạn)
+		type downloadResult struct {
+			height uint64
+			data   []byte
+			err    error
+		}
+
+		batchSize := int(limitH - effectiveForkPoint)
+		resChan := make(chan downloadResult, batchSize)
+		sem := make(chan struct{}, 8) // Giới hạn tối đa 8 luồng tải song song để tối ưu hóa thời gian chờ phản hồi mạng
+
 		for h := effectiveForkPoint + 1; h <= limitH; h++ {
-			s.mu.Lock()
-			s.downloadingHeight = h
-			s.mu.Unlock()
 			fH := s.netManager.Bridge.GetFinalizedHeight()
 			oldestH := s.netManager.Bridge.GetOldestHeight()
 
-			var blockRaw []byte
+			// Tạo Header-Only nếu nằm dưới mốc Snapshot/Purge
 			if h < fH || h < oldestH {
-				log.Printf("[SYNC-LIGHTWEIGHT-CATCHUP] 🕊️ Khối lịch sử #%d dưới mốc Snapshot (#%d) hoặc Đại Thanh Trừng (#%d). Tạo Header-Only block.", h, fH, oldestH)
+				log.Printf("[SYNC-LIGHTWEIGHT-CATCHUP] Khối lịch sử #%d dưới mốc Snapshot (#%d) hoặc Đại Thanh Trừng (#%d). Tạo Header-Only block.", h, fH, oldestH)
 				hBytes := hdrMap[h]
 				var hdr pb_block.BlockHeader
 				if err := proto.Unmarshal(hBytes, &hdr); err == nil {
@@ -2270,47 +2276,62 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 						Header: &hdr,
 						Body:   nil,
 					}
-					blockRaw, _ = proto.Marshal(fullBlock)
+					blockRaw, _ := proto.Marshal(fullBlock)
+					resChan <- downloadResult{height: h, data: blockRaw}
 				}
+				continue
 			}
 
-			if blockRaw == nil {
-				// [RAM-CACHE-LOOKUP] Kiểm tra xem khối có đang nằm sẵn trong bộ nhớ RAM không
-				s.fetchMu.Lock()
-				cachedBlocks, ok := s.pendingBlocks[h]
-				if ok && len(cachedBlocks) > 0 && len(cachedBlocks[0]) > 0 {
-					blockRaw = cachedBlocks[0]
-				}
-				s.fetchMu.Unlock()
-
-				if blockRaw == nil {
-					var err error
-					hBytes := hdrMap[h]
-					blockRaw, err = s.getOrReconstructBlock(targetPeer, h, hBytes)
-					if err != nil {
-						if isNetworkError(err) {
-							log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s timeout/mất kết nối khi tải thân khối #%d. Ngắt TCP, không phạt IP.", s.shortID(targetPeer), h)
-							s.netManager.Host.Network().ClosePeer(targetPeer)
-						} else {
-							log.Printf("[SYNC-ERROR] ❌ Lấy thân khối #%d thất bại (Dữ liệu rác).", h)
-							s.netManager.punishPeer(targetPeer, fmt.Sprintf("Lỗi tải thân khối #%d (Rác): %v", h, err))
-						}
-						return
-					}
-				} else {
-					log.Printf("[SYNC-CACHE] 💾 Lấy khối #%d trực tiếp từ RAM (pendingBlocks), tiết kiệm băng thông mạng!", h)
-				}
+			// Kiểm tra RAM cache
+			s.fetchMu.Lock()
+			cachedBlocks, ok := s.pendingBlocks[h]
+			s.fetchMu.Unlock()
+			if ok && len(cachedBlocks) > 0 && len(cachedBlocks[0]) > 0 {
+				resChan <- downloadResult{height: h, data: cachedBlocks[0]}
+				continue
 			}
 
-			// [SECURITY-SHIELD] Xác thực chữ ký giao dịch của khối ngay lập tức trước khi tiếp tục tải khối tiếp theo.
-			// Tại sao: Chống tấn công Signature Bomb DoS làm cạn kiệt bộ nhớ RAM khi tải hàng loạt khối rác trước khi đẩy xuống Rust Core.
+			// Kích hoạt tải song song
+			sem <- struct{}{}
+			go func(height uint64, hBytes []byte) {
+				defer func() { <-sem }()
+				blockRaw, err := s.getOrReconstructBlock(targetPeer, height, hBytes)
+				resChan <- downloadResult{height: height, data: blockRaw, err: err}
+			}(h, hdrMap[h])
+		}
+
+		// Thu thập kết quả tải về
+		results := make(map[uint64][]byte)
+		var syncErr error
+		for i := 0; i < batchSize; i++ {
+			res := <-resChan
+			if res.err != nil {
+				syncErr = res.err
+			} else {
+				results[res.height] = res.data
+			}
+		}
+
+		if syncErr != nil {
+			if isNetworkError(syncErr) {
+				log.Printf("[SYNC-TIMEOUT] Peer %s timeout/mất kết nối khi tải song song thân khối. Ngắt TCP, không phạt IP.", s.shortID(targetPeer))
+				s.netManager.Host.Network().ClosePeer(targetPeer)
+			} else {
+				log.Printf("[SYNC-ERROR] Tải song song thân khối thất bại: %v", syncErr)
+				s.netManager.punishPeer(targetPeer, fmt.Sprintf("Lỗi tải song song thân khối: %v", syncErr))
+			}
+			return
+		}
+
+		// Xây dựng lại chuỗi tuần tự và xác thực chữ ký
+		for h := effectiveForkPoint + 1; h <= limitH; h++ {
+			blockRaw := results[h]
 			var block pb_block.Block
 			if err := proto.Unmarshal(blockRaw, &block); err != nil {
-				log.Printf("[SYNC-ERROR] ❌ Không thể giải mã dữ liệu khối #%d: %v. Hủy bỏ quy trình Reorg.", h, err)
+				log.Printf("[SYNC-ERROR] Không thể giải mã dữ liệu khối #%d: %v. Hủy bỏ quy trình Reorg.", h, err)
 				return
 			}
 			if !s.verifyBlockSignatures(&block) {
-				// Tại sao: Khối chứa giao dịch có chữ ký giả mạo ở CatchUp là dấu hiệu tấn công DoS nhằm làm cạn kiệt bộ nhớ hoặc phá hoại.
 				audit.AuditLog("CATCHUP_SIGNATURE_SPOOFING", s.shortID(targetPeer), fmt.Sprintf("Phát hiện khối rác có chữ ký giao dịch giả mạo tại #%d! Hủy tải chuỗi và trừng phạt Peer.", h))
 				s.netManager.punishPeer(targetPeer, fmt.Sprintf("Gửi khối #%d có chữ ký giao dịch không hợp lệ tại CatchUpSync", h))
 				s.netManager.Host.Network().ClosePeer(targetPeer)
@@ -2319,7 +2340,11 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 
 			debtChain = append(debtChain, blockRaw)
 
-			// [WATCHDOG-FEEDING-V3] Đánh dấu đang tải Body nặng và cho chó ăn thêm thời gian 30 phút!
+			s.mu.Lock()
+			s.downloadingHeight = h
+			s.mu.Unlock()
+
+			// Cập nhật Watchdog
 			s.orphanMu.Lock()
 			for _, inv := range s.orphanTracker {
 				if inv.Sender == targetPeer {
