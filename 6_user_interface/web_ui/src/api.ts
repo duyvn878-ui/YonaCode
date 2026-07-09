@@ -92,11 +92,15 @@ export interface Transaction {
   fee: number;
   timestamp: number;
   status: string;
+  // [V39-AUTHORITATIVE] status_code là nguồn sự thật duy nhất (Single Source of Truth) cho trạng thái giao dịch
+  // 0 = Đang chờ (Mempool), 1 = Thành công (Đã vào khối), 2+ = Lỗi/Bị từ chối
+  status_code?: number;
   error_message?: string;
   confirmations: number;
   height: number;
   nonce: number;
   direction?: string; // [PHỤ LỤC D] IN/OUT cho address history
+  is_self?: boolean; // Self-send transaction
   post_balance?: number; // [V37] Số dư sau khi thực hiện (VNT)
   prev_balance?: number; // [V37.1] Số dư TRƯỚC khi thực hiện (VNT)
 }
@@ -361,8 +365,10 @@ const api = {
       nonce: tx.nonce || 0,
       confirmations: tx.confirmations || 0,
       status: tx.status || 'PENDING',
+      status_code: tx.status_code ?? 0,
       error_message: tx.error_message || '',
       direction: tx.direction || 'IN',
+      is_self: !!tx.is_self,
       post_balance: tx.post_balance || 0,
       prev_balance: tx.prev_balance || 0,
     }));
@@ -385,8 +391,10 @@ const api = {
         nonce: tx.nonce || 0,
         confirmations: tx.confirmations || 0,
         status: tx.status || 'PENDING',
+        status_code: tx.status_code ?? 0,
         error_message: tx.error_message || '',
         direction: tx.direction || 'IN',
+        is_self: !!tx.is_self,
         post_balance: tx.post_balance || 0,
         prev_balance: tx.prev_balance || 0,
       };
@@ -568,8 +576,10 @@ const api = {
         nonce: tx.nonce || 0,
         confirmations: tx.confirmations || 0,
         status: tx.status || 'PENDING',
+        status_code: tx.status_code ?? 0,
         error_message: tx.error_message || '',
         direction: tx.direction || 'IN',
+        is_self: !!tx.is_self,
         post_balance: tx.post_balance || 0,
         prev_balance: tx.prev_balance || 0,
       }));

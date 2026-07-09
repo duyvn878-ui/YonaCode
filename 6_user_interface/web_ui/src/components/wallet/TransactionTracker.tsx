@@ -109,10 +109,10 @@ const TransactionTracker: React.FC<TransactionTrackerProps> = ({
             }
             
             // Trạng thái HUD
-            // [BUS-STATUS-FIX] Loại trừ trạng thái WAITING_FOR_BUS khỏi logic "bị từ chối"
-            // Tại sao: Giao dịch đang chờ xe buýt xử lý (tối đa 2 giây) không phải là bị từ chối,
-            // nhưng error_message tạm thời không chứa "(Mempool)" nên bị hiện nhầm thành đỏ.
-            const isRejected = !!(tx.error_message && !tx.error_message.includes("(Mempool)") && !tx.error_message.includes("WAITING_FOR_BUS"));
+            // [V39-AUTHORITATIVE] Dùng status_code (mã số) làm nguồn sự thật duy nhất
+            // status_code: 0 = Đang chờ, 1 = Thành công, 2+ = Lỗi/Bị từ chối bởi Rust Core
+            const txStatusCode = Number(tx.status_code) || 0;
+            const isRejected = txStatusCode >= 2;
             const isMempool = confirms === 0 && !isRejected;
             const isFinalized = confirms >= 6 && !isRejected; 
             const overlayBlocksDone = Math.max(0, confirms - 1);

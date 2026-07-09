@@ -73,8 +73,11 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
   const [copied, setCopied] = useState(false);
 
   const txConfirmations = Number(tx?.confirmations) || 0;
-  // [BUS-STATUS-FIX] Loại trừ trạng thái WAITING_FOR_BUS khỏi logic "bị từ chối"
-  const isRejected = !!(tx?.error_message && !tx.error_message.includes("(Mempool)") && !tx.error_message.includes("WAITING_FOR_BUS"));
+  // [V39-AUTHORITATIVE] Dùng status_code (mã số) làm nguồn sự thật duy nhất (Single Source of Truth)
+  // Tại sao không dùng error_message: Chuỗi ký tự có thể bị cache cũ, parse sai, hoặc thiếu exclusion.
+  // status_code: 0 = Đang chờ, 1 = Thành công, 2+ = Lỗi/Bị từ chối bởi Rust Core.
+  const txStatusCode = Number(tx?.status_code) || 0;
+  const isRejected = txStatusCode >= 2;
   const isFinalized = txConfirmations >= FINALITY_THRESHOLD && !isRejected;
   // Số khối ĐÈ LÊN đã có = confirmations - 1 (trừ đi khối chứa TX)
   const overlayBlocksDone = Math.max(0, txConfirmations - 1);
