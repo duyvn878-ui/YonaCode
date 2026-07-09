@@ -18,6 +18,9 @@ Author / Founder: **Vo Nhat Thien**
 > [!TIP]
 > **Pre-packaged Ledger Data:**  
 > The zip file already contains the `node` folder with the ledger data, so you can synchronize extremely quickly without having to download it via p2p.
+> 
+> Please note the configuration required for the node to accept this ledger. Although the code is already designed to recognize it automatically, you generally just need to extract the zip file, open the extracted folder, and launch it to get it working.
+> It will be a bit more challenging on Linux—if you are running it headless (without a GUI), you will need to manually point the node to the ledger directory.
 
 ---
 
