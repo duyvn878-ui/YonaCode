@@ -46,6 +46,7 @@ export interface NodeStatus {
   is_mining: boolean;
   node_mode: string;
   cpu_intensity: number;    // [MINER V2] Hiển thị cường độ CPU
+  mining_device?: string;   // [MINER GPU/CPU] cpu, gpu, hybrid
   difficulty: string | number;       // [PHỤ LỤC D] Độ khó hiện tại (Chuỗi BigInt hoặc số)
   avg_block_time: number;   // [PHỤ LỤC D] Thời gian khối trung bình (60s)
   block_reward: number;
@@ -332,6 +333,27 @@ const api = {
     });
     if (!res.ok) {
       throw new Error(`Failed to set CPU intensity: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  // [MINER GPU/CPU Selector]
+  async getMiningDevice(): Promise<{status: string, mining_device: string}> {
+    const res = await fetch(`/api/v1/node/mining-device`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch mining device: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  async setMiningDevice(device: string): Promise<{status: string, mining_device: string}> {
+    const res = await fetch(`/api/v1/node/mining-device`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device })
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to set mining device: ${res.statusText}`);
     }
     return res.json();
   },

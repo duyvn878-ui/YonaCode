@@ -13,9 +13,20 @@ interface MinerViewProps {
   isStopping?: boolean;
 }
 
+const formatHashrate = (rate: number) => {
+  if (rate >= 1e12) return { value: (rate / 1e12).toFixed(2), unit: 'TH/s' };
+  if (rate >= 1e9) return { value: (rate / 1e9).toFixed(2), unit: 'GH/s' };
+  if (rate >= 1e6) return { value: (rate / 1e6).toFixed(2), unit: 'MH/s' };
+  if (rate >= 1e3) return { value: (rate / 1e3).toFixed(2), unit: 'KH/s' };
+  return { value: rate.toLocaleString(), unit: 'H/s' };
+};
+
 const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggleMiner, onNotify, isStopping = false }) => {
   const { t } = useLanguage();
   const [intensity, setIntensity] = useState(status?.cpu_intensity || 50);
+  const [deviceMode, setDeviceMode] = useState<string>(() => {
+    return localStorage.getItem('mining_device') || status?.mining_device || 'cpu';
+  });
 
   useEffect(() => {
     if (status?.cpu_intensity) {
@@ -23,8 +34,16 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
     }
   }, [status?.cpu_intensity]);
 
+  useEffect(() => {
+    if (status?.mining_device) {
+      setDeviceMode(status.mining_device);
+      localStorage.setItem('mining_device', status.mining_device);
+    }
+  }, [status?.mining_device]);
+
   const isMining = (status?.is_mining !== undefined) ? status.is_mining : (minerStatus?.is_mining || false);
   const hashrate = status?.hashrate || minerStatus?.hashrate || 0;
+  const { value: hashrateValue, unit: hashrateUnit } = formatHashrate(hashrate);
   const gracePeriodRemaining = Math.ceil(status?.grace_period_remaining || minerStatus?.grace_period_remaining || 0);
 
   const handleIntensityChange = async (val: number) => {
@@ -33,6 +52,17 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
       await api.setCpuIntensity(val);
     } catch (e) {
       onNotify(`❌ Error: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  const handleDeviceChange = async (device: string) => {
+    try {
+      const res = await api.setMiningDevice(device);
+      setDeviceMode(res.mining_device);
+      localStorage.setItem('mining_device', res.mining_device);
+      onNotify(`⚡ Đã chuyển sang thiết bị khai thác: ${device.toUpperCase()}`, 'success');
+    } catch (e) {
+      onNotify(`❌ Lỗi: ${(e as Error).message}`, 'error');
     }
   };
 
@@ -227,9 +257,9 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                       className="relative z-10 flex flex-row items-baseline justify-center gap-3"
                     >
                        <span className="text-[100px] md:text-[110px] font-black italic text-white leading-none tracking-tighter drop-shadow-[0_0_50px_rgba(0,136,255,0.4)]">
-                          {hashrate.toLocaleString()}
+                          {hashrateValue}
                        </span>
-                       <span className="text-2xl md:text-3xl font-black italic text-accent-blue tracking-widest uppercase opacity-90">H/s</span>
+                       <span className="text-2xl md:text-3xl font-black italic text-accent-blue tracking-widest uppercase opacity-90">{hashrateUnit}</span>
                     </motion.div>
                  </AnimatePresence>
                  <div className="absolute -top-16 left-1/2 -translate-x-1/2 opacity-5 pointer-events-none">
@@ -271,11 +301,38 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                     <Cpu size={24} />
                  </div>
                  <div className="flex flex-col">
-                    <span className="text-[11px] font-black uppercase tracking-[0.25em] text-white/40 leading-none">{t.cpu_intensity}</span>
+                    <span className="text-[11px] font-black uppercase tracking-[0.25em] text-white/40 leading-none">{t.miner_title}</span>
                     <span className="text-[8px] text-accent-amber font-bold tracking-widest opacity-60 mt-1">HARDWARE_OPTIMIZER_ACTIVE</span>
                  </div>
               </div>
-              <div className="vanguard-stats-card p-5 bg-black/60 border border-white/[0.05] rounded-2xl relative overflow-hidden shadow-2xl">
+
+              {/* BỘ CHỌN THIẾT BỊ KHAI THÁC */}
+              <div className="mb-4 bg-black/40 border border-white/[0.05] p-4 rounded-2xl relative overflow-hidden">
+                 <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase block mb-3">{t.mining_device}</span>
+                 <div className="grid grid-cols-3 gap-2 bg-black/30 p-1 rounded-xl border border-white/5 mb-3">
+                    {(['cpu', 'gpu', 'hybrid'] as const).map((dev) => (
+                       <button
+                          key={dev}
+                          onClick={() => handleDeviceChange(dev)}
+                          className={`py-2 px-1 text-[9px] font-black uppercase rounded-lg transition-all duration-300 ${
+                             deviceMode === dev
+                               ? 'bg-accent-blue text-white shadow-[0_0_15px_rgba(0,136,255,0.4)]'
+                               : 'text-white/40 hover:text-white/80 hover:bg-white/5'
+                          }`}
+                       >
+                          {dev === 'cpu' ? t.mining_device_cpu : dev === 'gpu' ? t.mining_device_gpu : t.mining_device_hybrid}
+                       </button>
+                    ))}
+                 </div>
+                 {(deviceMode === 'gpu' || deviceMode === 'hybrid') && (
+                    <div className="text-[8px] text-accent-blue/80 font-bold uppercase tracking-wider leading-relaxed bg-accent-blue/5 border border-accent-blue/10 p-2 rounded-lg flex items-start gap-1">
+                       <span>ℹ️</span>
+                       <span>{t.gpu_nvidia_only}</span>
+                    </div>
+                 )}
+              </div>
+
+              <div className="vanguard-stats-card p-5 bg-black/60 border border-white/[0.05] rounded-2xl relative overflow-hidden shadow-2xl transition-all duration-500">
                  <div className="flex justify-between items-end mb-4">
                     <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase">CORE_STRESS_LVL</span>
                     <span className="text-4xl font-black text-accent-amber italic tracking-tighter drop-shadow-[0_0_20px_rgba(247,173,63,0.4)]">{intensity}%</span>
@@ -294,7 +351,19 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                     <span className="uppercase tracking-widest leading-relaxed">{t.thermal_warning}</span>
                  </div>
               </div>
+
+              {deviceMode === 'gpu' && (
+                 <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-3 p-3 bg-accent-blue/10 border border-accent-blue/20 rounded-xl text-[10px] text-accent-blue font-bold flex items-center gap-2"
+                 >
+                    <Activity size={14} className="animate-pulse text-accent-blue" />
+                    <span>{t.cpu_mining_disabled}</span>
+                 </motion.div>
+              )}
            </div>
+
            <div className="p-6 rounded-[24px] bg-gradient-to-br from-accent-blue/10 to-transparent border border-accent-blue/20 flex items-center justify-between shadow-lg">
               <div className="flex flex-col gap-1">
                  <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.25em] leading-none">VANGUARD_CORE</span>
@@ -335,7 +404,9 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
               {isMining && (
                 <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-6 items-start">
                    <span className="text-accent-green font-black min-w-[90px] border-r border-white/10 pr-4">[POW]</span>
-                   <span className="text-accent-green/80 font-bold">{t.log_pow_scanning}</span>
+                   <span className="text-accent-green/80 font-bold">
+                      {deviceMode === 'gpu' ? t.log_pow_scanning_gpu : deviceMode === 'hybrid' ? t.log_pow_scanning_hybrid : t.log_pow_scanning_cpu}
+                   </span>
                 </motion.div>
               )}
               <div className="h-6" />

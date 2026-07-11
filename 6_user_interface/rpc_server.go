@@ -178,6 +178,12 @@ type RPCServer struct {
 	nodeMode   string
 	nodeModeMu sync.RWMutex
 
+	miningDevice      string // "cpu", "gpu", or "hybrid"
+	miningDeviceMu    sync.RWMutex
+	cpuHashrate       uint64
+	gpuHashrate       uint64
+	lastGpuHashTime   time.Time
+
 	// [MINER V3] Startup Guard & Grace Period
 	launchTime     time.Time
 	cpuIntensity   int
@@ -226,6 +232,7 @@ type RPCServer struct {
 	nextStreamId     uint64
 	minerStreamsMu   sync.RWMutex
 	internetAutoPaused bool
+	internetOffline    int32 // 0: Online, 1: Offline
 }
 
 type countedMutex struct {
@@ -244,6 +251,7 @@ type NodeConfig struct {
 	NodeMode      string `json:"node_mode"`
 	RewardAddress string `json:"reward_address"`
 	NodeID        string `json:"node_id,omitempty"` // Thêm NodeID để định danh cấu hình này thuộc về node nào
+	MiningDevice  string `json:"mining_device"`    // Thiết bị khai thác (cpu, gpu, hybrid)
 }
 
 const maxTrackedTxs = 5000 // [VANGUARD-OPTIMIZATION] Giới hạn bộ đệm RAM 5,000 giao dịch để tránh phình to bộ nhớ và đĩa cứng dưới tải cao khi stress test
@@ -276,6 +284,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		senderLocks:       make(map[string]*countedMutex),
 		minerStreams:      make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
 		minerHashrates:    make(map[uint64]uint64),
+		miningDevice:      "cpu",
 	}
 
 	// [MATRIX CONNECT] Liên kết CLI App để đồng bộ Intensity
@@ -1076,15 +1085,21 @@ func (s *RPCServer) loadNodeConfig() {
 		return
 	}
 	s.cpuIntensity = cfg.CpuIntensity
+	if cfg.MiningDevice != "" {
+		s.miningDevice = cfg.MiningDevice
+	} else {
+		s.miningDevice = "cpu"
+	}
 	// [VANGUARD-DISCIPLINE] Mặc định tắt đào khi khởi động để đảm bảo an toàn,
 	// TRỪ KHI người dùng đã chủ động bật qua cờ --mining từ CLI.
 	if s.nodeMode != "full-mining" {
 		s.nodeMode = "verify-only"
-		s.bridge.SetMiningPause(true)
+		s.updateMiningState()
 		s.saveNodeConfig() // [V2.5] Ghi đè cấu hình để lần sau khởi động vẫn Tắt
 		log.Printf("[CONFIG] 🛡️ Kỷ luật: Chế độ đào đã được ép TẮT và lưu trữ.")
 	} else {
-		log.Printf("[CONFIG] 🔥 Chế độ đào được giữ nguyên từ lệnh CLI: %s", s.nodeMode)
+		s.updateMiningState()
+		log.Printf("[CONFIG] 🔥 Chế độ đào được giữ nguyên từ lệnh CLI: %s (Thiết bị: %s)", s.nodeMode, s.miningDevice)
 	}
 
 	// [VANGUARD-NODEID-AUDIT] Chỉ nạp địa chỉ ví đào từ database nếu NodeID trùng khớp
@@ -1116,17 +1131,143 @@ func (s *RPCServer) loadNodeConfig() {
 	log.Printf("[CONFIG] ✅ Đã khôi phục cấu hình từ Rust: Mode=%s, Intensity=%d%%.", s.nodeMode, s.cpuIntensity)
 }
 
+func (s *RPCServer) updateMiningState() {
+	s.nodeModeMu.RLock()
+	mode := s.nodeMode
+	s.nodeModeMu.RUnlock()
+
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
+	if mode == "full-mining" && (device == "cpu" || device == "hybrid") {
+		s.bridge.SetMiningPause(false)
+	} else {
+		s.bridge.SetMiningPause(true)
+	}
+}
+
+func (s *RPCServer) isMiningAllowed() bool {
+	s.nodeModeMu.RLock()
+	mode := s.nodeMode
+	s.nodeModeMu.RUnlock()
+	if mode != "full-mining" {
+		return false
+	}
+
+	// Genesis bootloader: luôn cho phép đào để kích hoạt chuỗi
+	if s.bridge.GetCurrentVersion() == 0 {
+		return true
+	}
+
+	// Đọc số lượng peer hiện tại
+	var peerCount int
+	s.minerStreamsMu.RLock()
+	if s.netMgr != nil && s.netMgr.Host != nil {
+		peerCount = len(s.netMgr.Host.Network().Peers())
+	}
+	s.minerStreamsMu.RUnlock()
+
+	// Cho phép đào nếu: có internet hoạt động HOẶC có ít nhất 1 peer kết nối (cho mạng local/private)
+	isOffline := atomic.LoadInt32(&s.internetOffline) == 1
+	if isOffline {
+		return false
+	}
+
+	// [VANGUARD-SYNC-SHIELD] Chỉ cho phép đào khi đồng bộ hoàn tất (hoặc có vi phạm đồng bộ từ peer)
+	if s.netMgr != nil && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
+		return false
+	}
+
+	return !isOffline || peerCount > 0
+}
+
+func (s *RPCServer) isMiningActive() bool {
+	s.nodeModeMu.RLock()
+	mode := s.nodeMode
+	s.nodeModeMu.RUnlock()
+	if mode != "full-mining" {
+		return false
+	}
+
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
+	// Nếu mất kết nối mạng thì băm tự động bị tạm dừng ở tất cả thiết bị
+	if !s.isMiningAllowed() {
+		return false
+	}
+
+	if device == "gpu" {
+		return true
+	}
+
+	return !s.bridge.IsMiningPaused()
+}
+
+func (s *RPCServer) StartConfiguredMiners() {
+	s.nodeModeMu.RLock()
+	isFullMining := s.nodeMode == "full-mining"
+	s.nodeModeMu.RUnlock()
+
+	if !isFullMining {
+		return
+	}
+
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
+	go func() {
+		time.Sleep(1 * time.Second) // Chờ gRPC / REST Server hoàn toàn lắng nghe
+
+		if device == "cpu" || device == "hybrid" {
+			s.minerStreamsMu.Lock()
+			activeStreams := len(s.minerStreams)
+			s.minerStreamsMu.Unlock()
+			if activeStreams == 0 {
+				if err := s.bridge.StartGenzMiner(s.port + 10000); err != nil {
+					log.Printf("[BRIDGE] ⚠️ Không thể tự động khởi chạy thợ đào genz_miner: %v", err)
+				}
+			}
+		} else {
+			// Nếu chỉ chọn GPU, dừng CPU miner cũ nếu đang chạy
+			s.bridge.StopGenzMiner()
+		}
+
+		if device == "gpu" || device == "hybrid" {
+			if err := s.bridge.StartGpuMiner(s.port); err != nil {
+				log.Printf("[BRIDGE] ⚠️ Không thể tự động khởi chạy thợ đào yona_gpu_miner: %v", err)
+			}
+		} else {
+			// Nếu chỉ chọn CPU, dừng GPU miner cũ nếu đang chạy
+			s.bridge.StopGpuMiner()
+		}
+	}()
+}
+
+func (s *RPCServer) StopConfiguredMiners() {
+	s.bridge.StopGenzMiner()
+	s.bridge.StopGpuMiner()
+}
+
 func (s *RPCServer) saveNodeConfig() {
 	var currentNodeID string
 	if s.netMgr != nil && s.netMgr.Host != nil {
 		currentNodeID = s.netMgr.Host.ID().String()
 	}
 
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
 	cfg := NodeConfig{
 		CpuIntensity:  s.cpuIntensity,
 		NodeMode:      s.nodeMode,
 		RewardAddress: hex.EncodeToString(s.minerAddr),
 		NodeID:        currentNodeID, // Lưu kèm NodeID hiện tại vào database cấu hình
+		MiningDevice:  device,
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -2435,24 +2576,17 @@ func (s *RPCServer) StartGreatPurge(currentHeight uint64) {
 
 // checkGlobalInternet: Kiểm tra xem node có kết nối được với Internet toàn cầu hay không bằng cách gọi HTTP GET tới các dịch vụ DNS IP
 func (s *RPCServer) checkGlobalInternet() bool {
-	endpoints := []string{
-		"http://1.1.1.1",
-		"http://8.8.8.8",
-		"https://www.google.com",
+	dnsServers := []string{
+		"1.1.1.1:53",
+		"8.8.8.8:53",
+		"9.9.9.9:53",
+		"208.67.222.222:53",
 	}
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-	}
-	for _, ep := range endpoints {
-		req, err := http.NewRequest("GET", ep, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("Connection", "close")
-		resp, err := client.Do(req)
+	for _, addr := range dnsServers {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err == nil {
-			resp.Body.Close()
-			return true
+			conn.Close()
+			return true // Kết nối thành công tới ít nhất 1 trung tâm mạng độc lập
 		}
 	}
 	return false
@@ -2476,22 +2610,38 @@ func (s *RPCServer) Start() {
 		for range ticker.C {
 			hasInternet := s.checkGlobalInternet()
 			if !hasInternet {
+				atomic.StoreInt32(&s.internetOffline, 1)
 				if !isInternetDown {
 					isInternetDown = true
 					log.Printf("[INTERNET-WARN] ⚠️ Phát hiện mất kết nối Internet toàn cầu thực tế (Lỗi nhà mạng!).")
-					if s.cliApp.GetNodeMode() == "full-mining" && !s.bridge.IsMiningPaused() {
-						log.Printf("[INTERNET-WARN] ⏸️ Tự động tạm dừng khai thác Blake3-PoW để tránh hao phí tài nguyên máy đào.")
+					if s.cliApp.GetNodeMode() == "full-mining" {
+						log.Printf("[INTERNET-WARN] ⏸️ Tự động tạm dừng khai thác Blake3-PoW và đóng các tiến trình máy đào để bảo vệ chuỗi.")
 						s.bridge.SetMiningPause(true)
+						s.StopConfiguredMiners()
+						
+						// Xóa template khối cũ để ngăn chặn việc đào tiếp tục trên getwork cũ
+						s.cliApp.activeMiningMu.Lock()
+						s.cliApp.activeBlock = nil
+						s.cliApp.activeMiningMu.Unlock()
+						
 						s.internetAutoPaused = true
 					}
 				}
 			} else {
+				atomic.StoreInt32(&s.internetOffline, 0)
 				if isInternetDown {
 					isInternetDown = false
 					log.Printf("[INTERNET-OK] 💚 Đã khôi phục kết nối Internet toàn cầu thực tế.")
 					if s.cliApp.GetNodeMode() == "full-mining" && s.internetAutoPaused {
 						log.Printf("[INTERNET-OK] ▶️ Tự động khôi phục khai thác Blake3-PoW.")
 						s.bridge.SetMiningPause(false)
+						
+						// Tạo lại template khối mới từ mempool và phát sóng
+						s.cliApp.RefreshMiningTask()
+						
+						// Khởi động lại các tiến trình đào GPU/CPU
+						s.StartConfiguredMiners()
+						
 						s.internetAutoPaused = false
 					}
 				}
@@ -2572,6 +2722,8 @@ func (s *RPCServer) Start() {
 	r.HandleFunc("/api/v1/address/{address}/history", s.handleAddressHistory).Methods("GET")
 	r.HandleFunc("/api/v1/supply", s.handleSupply).Methods("GET")
 	r.HandleFunc("/api/v1/miner/status", s.handleMinerStatus).Methods("GET")
+	r.HandleFunc("/api/v1/miner/getwork", s.handleMinerGetWork).Methods("GET")
+	r.HandleFunc("/api/v1/miner/submitwork", s.handleMinerSubmitWork).Methods("POST")
 	// [SECURITY-HARDENING] Các API điều khiển Node ĐÒI HỎI truy cập từ localhost
 	// Tại sao: Ngăn chặn kẻ tấn công từ Internet điều khiển Node (bật/tắt đào, đổi ví, đổi mode)
 	r.HandleFunc("/api/v1/miner/toggle", s.localhostOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -2587,6 +2739,8 @@ func (s *RPCServer) Start() {
 	r.HandleFunc("/api/v1/tx/{txid}", s.walletGate(s.handleGetTxDetail)).Methods("GET")
 	r.HandleFunc("/api/v1/node/mode", s.localhostOnly(s.handleNodeMode)).Methods("POST", "GET")
 	r.HandleFunc("/api/v1/node/cpu", s.localhostOnly(s.handleCpuIntensity)).Methods("POST", "GET")
+	r.HandleFunc("/api/v1/miner/hashrate", s.handleMinerHashrate).Methods("POST")
+	r.HandleFunc("/api/v1/node/mining-device", s.localhostOnly(s.handleMiningDevice)).Methods("POST", "GET")
 
 	// [V12.2] REAL-TIME SSE: Stream trạng thái mạng (C#9 TACTICAL)
 	r.HandleFunc("/api/v1/network/watch-status", s.handleWatchStatus).Methods("GET")
@@ -2648,16 +2802,8 @@ func (s *RPCServer) Start() {
 		}
 	}()
 
-	// Tự động khởi chạy thợ đào độc lập genz_miner kết nối tới cổng gRPC của Node
-	// [SECURITY-HARDENING] Chỉ khởi chạy thợ đào khi Node chạy ở chế độ full-mining để tiết kiệm CPU và tránh bị VPS block
-	if s.cliApp.GetNodeMode() == "full-mining" {
-		go func() {
-			time.Sleep(1 * time.Second) // Chờ gRPC Server hoàn toàn lắng nghe
-			if err := s.bridge.StartGenzMiner(s.port + 10000); err != nil {
-				log.Printf("[BRIDGE] ⚠️ Không thể tự động khởi chạy thợ đào genz_miner: %v", err)
-			}
-		}()
-	}
+	// Tự động khởi chạy thợ đào phù hợp cấu hình (CPU/GPU/Hybrid)
+	s.StartConfiguredMiners()
 }
 
 // --------------------------------------------------------------------------
@@ -2891,9 +3037,10 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"count": len(peers),
 			"list":  peerInfos,
 		},
-		"is_mining":              !s.bridge.IsMiningPaused(),
+		"is_mining":              s.isMiningActive(),
 		"node_mode":              mode,
 		"cpu_intensity":          s.GetCpuIntensity(),
+		"mining_device":          s.miningDevice,
 		"grace_period_remaining": s.getGracePeriodRemaining(),
 		"mining_warning":         miningWarning,
 		"bandwidth": func() map[string]interface{} {
@@ -4656,7 +4803,7 @@ func (s *RPCServer) handleSupply(w http.ResponseWriter, r *http.Request) {
 func (s *RPCServer) handleMinerStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	addr := s.cliApp.GetMinerAddress()
-	isMining := !s.bridge.IsMiningPaused()
+	isMining := s.isMiningActive()
 
 	s.nodeModeMu.RLock()
 	mode := s.nodeMode
@@ -4687,6 +4834,7 @@ func (s *RPCServer) handleMinerStatus(w http.ResponseWriter, r *http.Request) {
 		"target_height":          target,
 		"sync_state":             state,
 		"node_mode":              mode,
+		"mining_device":          s.miningDevice,
 	})
 }
 
@@ -4766,20 +4914,11 @@ func (s *RPCServer) handleMinerToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	s.nodeModeMu.Unlock()
 
-	// [BRIDGE-RECOVERY] Tự động kích hoạt thợ đào nếu bật đào từ UI mà chưa có thợ đào nào kết nối
+	// Tự động kích hoạt hoặc dừng thợ đào tương ứng cấu hình
 	if !newPausedState {
-		s.minerStreamsMu.Lock()
-		activeStreams := len(s.minerStreams)
-		s.minerStreamsMu.Unlock()
-		if activeStreams == 0 {
-			log.Printf("[BRIDGE-RECOVERY] ♻️ Bật đào từ UI nhưng không phát hiện thợ đào nào kết nối. Đang tự động kích hoạt genz_miner...")
-			go func() {
-				time.Sleep(1 * time.Second)
-				if err := s.bridge.StartGenzMiner(s.port + 10000); err != nil {
-					log.Printf("[BRIDGE-RECOVERY] ⚠️ Lỗi khi tự động kích hoạt genz_miner: %v", err)
-				}
-			}()
-		}
+		s.StartConfiguredMiners()
+	} else {
+		s.StopConfiguredMiners()
 	}
 
 	// [VANGUARD-STREAM] Phát sóng lệnh dừng/bắt đầu đào tới các miner gRPC
@@ -4862,7 +5001,7 @@ func (s *RPCServer) handleNodeMode(w http.ResponseWriter, r *http.Request) {
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"mode":        mode,
-			"is_mining":   !s.bridge.IsMiningPaused(),
+			"is_mining":   s.isMiningActive(),
 			"description": s.getModeDescription(mode),
 		})
 		return
@@ -4889,14 +5028,13 @@ func (s *RPCServer) handleNodeMode(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Mode {
 	case "verify-only":
-		// Tắt đào, chuyển sang chế độ tiết kiệm
-		s.bridge.SetMiningPause(true)
 		s.nodeModeMu.Lock()
 		s.nodeMode = "verify-only"
 		if s.cliApp != nil {
 			s.cliApp.SetNodeMode("verify-only")
 		}
 		s.nodeModeMu.Unlock()
+		s.updateMiningState()
 		log.Printf("[NODE] 🔒 Chuyển sang chế độ CHỈ XÁC MINH (Verify-Only)")
 
 	case "full-mining":
@@ -4931,14 +5069,13 @@ func (s *RPCServer) handleNodeMode(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Bật đào Blake3-PoW
-		s.bridge.SetMiningPause(false)
 		s.nodeModeMu.Lock()
 		s.nodeMode = "full-mining"
 		if s.cliApp != nil {
 			s.cliApp.SetNodeMode("full-mining")
 		}
 		s.nodeModeMu.Unlock()
+		s.updateMiningState()
 		log.Printf("[NODE] ⛏️ Kích hoạt động cơ Blake3-PoW (Full Mining)")
 
 	default:
@@ -4952,7 +5089,7 @@ func (s *RPCServer) handleNodeMode(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":      "Success",
 		"mode":        req.Mode,
-		"is_mining":   !s.bridge.IsMiningPaused(),
+		"is_mining":   s.isMiningActive(),
 		"description": s.getModeDescription(req.Mode),
 	})
 }
@@ -5358,7 +5495,7 @@ func (s *RPCServer) GetStatus(ctx context.Context, req *pb_block.GetStatusReques
 		CurrentHeight:   h,
 		FinalizedHeight: f,
 		Hashrate:        atomic.LoadUint64(&s.currentHashrate),
-		IsMining:        !s.bridge.IsMiningPaused(),
+		IsMining:        s.isMiningActive(),
 		Version:         "YonaCode Go V1.2.1-Ready",
 		PeerCount:       uint32(s.netMgr.GetPeerCount()),
 		OldestHeight:    s.bridge.GetOldestHeight(),
@@ -5600,7 +5737,7 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		"network_hashrate":       s.calculateNetworkHashrate(),
 		"network_hashrate_history": s.getNetworkHashrateHistory(),
 		"top_miners":             s.getTopMiners(),
-		"is_mining":              !s.bridge.IsMiningPaused(),
+		"is_mining":              s.isMiningActive(),
 		"peer_count":             s.netMgr.GetPeerCount(),
 		"pending_tx_count":       pendingCount,
 		"block_reward":           float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
@@ -5852,32 +5989,43 @@ func (s *RPCServer) AmountToVNT(val string) (uint64, error) {
 	return res, nil
 }
 
-// [V5.5] startHashrateMonitor: Lấy Hashrate trung bình mỗi 2 giây để cập nhật UI
-// Tại sao: Bỏ phép chia duration ở đây vì hàm s.bridge.GetHashrate() đã tự động tính toán
-// tốc độ thực tế (H/s) và làm mượt bằng thuật toán EMA ở phía Bridge ngầm.
-// Phân luồng: Nếu có thợ đào độc lập qua gRPC stream, lấy trực tiếp từ s.currentHashrate.
-// Ngược lại, lấy từ Bridge của thợ đào ngầm cũ để đảm bảo tính tương thích ngược.
 func (s *RPCServer) startHashrateMonitor() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		s.minerStreamsMu.RLock()
+		var grpcRate uint64
+		for _, hr := range s.minerHashrates {
+			grpcRate += hr
+		}
 		hasActiveMiners := len(s.minerStreams) > 0
 		s.minerStreamsMu.RUnlock()
 
-		var rate float64
-		if hasActiveMiners {
-			// Lấy hashrate thực tế của thợ đào độc lập đã được cập nhật qua ConnectMiner
-			rate = float64(atomic.LoadUint64(&s.currentHashrate))
-		} else {
-			// Nhận trực tiếp Tốc độ (H/s) từ Bridge (fallback cho thợ đào ngầm cũ)
-			currentRate := s.bridge.GetHashrate()
-			rate = float64(currentRate)
-			atomic.StoreUint64(&s.currentHashrate, uint64(rate))
+		s.miningDeviceMu.RLock()
+		device := s.miningDevice
+		s.miningDeviceMu.RUnlock()
+
+		var cpuRate uint64
+		if device == "cpu" || device == "hybrid" {
+			if !hasActiveMiners {
+				cpuRate = s.bridge.GetHashrate()
+			}
 		}
+		atomic.StoreUint64(&s.cpuHashrate, cpuRate)
+
+		// Check if GPU hashrate has timed out (10s)
+		gpuRate := atomic.LoadUint64(&s.gpuHashrate)
+		if gpuRate > 0 && time.Since(s.lastGpuHashTime) > 10*time.Second {
+			gpuRate = 0
+			atomic.StoreUint64(&s.gpuHashrate, 0)
+		}
+
+		// Tổng hashrate = Giao thức gRPC (Các máy đào CPU ngoài/cục bộ) + CPU FFI + GPU Miner (REST)
+		totalRate := grpcRate + cpuRate + gpuRate
+		atomic.StoreUint64(&s.currentHashrate, totalRate)
 		
-		s.recordHashrate(rate) // Ghi nhận hashrate định kỳ vào ring buffer cho biểu đồ Web UI
+		s.recordHashrate(float64(totalRate)) // Ghi nhận hashrate định kỳ vào ring buffer cho biểu đồ Web UI
 	}
 }
 
@@ -6469,13 +6617,8 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 		s.minerStreamsMu.Lock()
 		delete(s.minerStreams, sid)
 		delete(s.minerHashrates, sid)
-		var totalHashrate uint64
-		for _, hr := range s.minerHashrates {
-			totalHashrate += hr
-		}
 		activeStreams := len(s.minerStreams)
 		s.minerStreamsMu.Unlock()
-		atomic.StoreUint64(&s.currentHashrate, totalHashrate)
 		log.Printf("[RPC-GRPC] 🔌 Thợ đào #%d đã ngắt kết nối.", sid)
 
 		// [BRIDGE-RECOVERY] Tự động hồi sinh thợ đào genz_miner.exe nếu bị rụng kết nối đột ngột khi đang bật đào
@@ -6483,7 +6626,11 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 		isFullMining := s.nodeMode == "full-mining"
 		s.nodeModeMu.RUnlock()
 
-		if activeStreams == 0 && isFullMining {
+		s.miningDeviceMu.RLock()
+		device := s.miningDevice
+		s.miningDeviceMu.RUnlock()
+
+		if activeStreams == 0 && isFullMining && (device == "cpu" || device == "hybrid") {
 			log.Printf("[BRIDGE-RECOVERY] ♻️ Phát hiện thợ đào mất kết nối trong lúc Node đang bật đào. Đang tự động hồi sinh genz_miner...")
 			go func() {
 				time.Sleep(3 * time.Second) // Chờ 3 giây để giải phóng cổng cũ
@@ -6561,16 +6708,15 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 		if msg.CurrentHashrate >= 0 {
 			s.minerStreamsMu.Lock()
 			s.minerHashrates[sid] = msg.CurrentHashrate
-			var totalHashrate uint64
-			for _, hr := range s.minerHashrates {
-				totalHashrate += hr
-			}
 			s.minerStreamsMu.Unlock()
-			atomic.StoreUint64(&s.currentHashrate, totalHashrate)
 		}
 
 		// Nhận nonce khi thợ đào giải quyết được khối
 		if msg.FoundNonce > 0 {
+			if !s.isMiningAllowed() {
+				log.Printf("[RPC-GRPC] ⚠️ Bỏ qua nonce từ thợ đào #%d vì mạng đang offline", sid)
+				continue
+			}
 			log.Printf("[RPC-GRPC] 🏆 Nhận được nonce hợp lệ %d (SID: %d) từ thợ đào #%d", msg.FoundNonce, msg.SessionId, sid)
 			if s.cliApp != nil {
 				s.cliApp.miningResultChan <- msg
@@ -6946,4 +7092,185 @@ func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		"txid":   txHashStr,
 	})
 }
+
+// --------------------------------------------------------------------------
+// HTTP ENDPOINTS FOR PURE C++ GPU MINER (ASIC RESISTANT)
+// --------------------------------------------------------------------------
+
+func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.cliApp == nil {
+		http.Error(w, "CLI app not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.isMiningAllowed() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	s.cliApp.activeMiningMu.Lock()
+	activeBlock := s.cliApp.activeBlock
+	activeSessionId := s.cliApp.activeSessionId
+	s.cliApp.activeMiningMu.Unlock()
+
+	if activeBlock == nil || activeBlock.Header == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Marshals block header
+	headerRaw, err := proto.Marshal(activeBlock.Header)
+	if err != nil {
+		http.Error(w, "Failed to marshal block header", http.StatusInternalServerError)
+		return
+	}
+	headerHash := s.bridge.CalculateBlockHeaderHash(headerRaw)
+
+	// Calculates Target U256 (32 bytes) from difficulty
+	targetBytes := difficultyToTarget(activeBlock.Header.Difficulty)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"header_hash": hex.EncodeToString(headerHash),
+		"target":      hex.EncodeToString(targetBytes),
+		"height":      activeBlock.Header.Height,
+		"session_id":  activeSessionId,
+		"intensity":   s.GetCpuIntensity(),
+	})
+}
+
+func (s *RPCServer) handleMinerSubmitWork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.cliApp == nil {
+		http.Error(w, "CLI app not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.isMiningAllowed() {
+		http.Error(w, "Mining is paused due to network disconnection", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Nonce     uint64 `json:"nonce"`
+		SessionId uint64 `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Nonce == 0 {
+		http.Error(w, "Invalid nonce", http.StatusBadRequest)
+		return
+	}
+
+	msg := &pb_block.MinerMessage{
+		FoundNonce: req.Nonce,
+		SessionId:  req.SessionId,
+	}
+
+	select {
+	case s.cliApp.miningResultChan <- msg:
+		log.Printf("[RPC-HTTP] 🏆 Nhận được nonce hợp lệ %d (SID: %d) từ GPU Miner", req.Nonce, req.SessionId)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	default:
+		log.Printf("[RPC-HTTP] ⚠️ Hàng đợi kết quả đào đầy, bỏ qua nonce %d", req.Nonce)
+		http.Error(w, "Result queue full", http.StatusServiceUnavailable)
+	}
+}
+
+func difficultyToTarget(difficultyBytes []byte) []byte {
+	diffPadded := make([]byte, 32)
+	copy(diffPadded, difficultyBytes)
+
+	// Convert little-endian bytes to big.Int for division
+	diffBig := new(big.Int).SetBytes(reverseBytes(diffPadded))
+	if diffBig.Cmp(big.NewInt(1)) <= 0 {
+		targetBytes := make([]byte, 32)
+		for i := range targetBytes {
+			targetBytes[i] = 0xff
+		}
+		return targetBytes
+	}
+
+	maxU256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	targetBig := new(big.Int).Div(maxU256, diffBig)
+
+	targetBytes := make([]byte, 32)
+	tb := targetBig.Bytes()
+	copy(targetBytes[32-len(tb):], tb)
+	return reverseBytes(targetBytes)
+}
+
+func reverseBytes(b []byte) []byte {
+	r := make([]byte, len(b))
+	for i, v := range b {
+		r[len(b)-1-i] = v
+	}
+	return r
+}
+
+func (s *RPCServer) handleMiningDevice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == "GET" {
+		s.miningDeviceMu.RLock()
+		device := s.miningDevice
+		s.miningDeviceMu.RUnlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":        "Success",
+			"mining_device": device,
+		})
+		return
+	}
+
+	// POST: Cập nhật thiết bị đào
+	var req struct {
+		Device string `json:"device"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	if req.Device != "cpu" && req.Device != "gpu" && req.Device != "hybrid" {
+		http.Error(w, "Thiết bị không hợp lệ. Chấp nhận: cpu, gpu, hybrid", http.StatusBadRequest)
+		return
+	}
+
+	s.miningDeviceMu.Lock()
+	s.miningDevice = req.Device
+	s.miningDeviceMu.Unlock()
+
+	s.updateMiningState()
+	s.saveNodeConfig()
+	s.StartConfiguredMiners()
+
+	log.Printf("[RPC-UI] 🎛️ Đã cập nhật thiết bị khai thác: %s", req.Device)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":        "Success",
+		"mining_device": req.Device,
+	})
+}
+
+func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Hashrate uint64 `json:"hashrate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	atomic.StoreUint64(&s.gpuHashrate, req.Hashrate)
+	s.lastGpuHashTime = time.Now()
+	
+	log.Printf("[RPC-UI] ⚡ Nhận báo cáo hashrate từ GPU Miner: %d H/s (%.2f MH/s)", req.Hashrate, float64(req.Hashrate)/1000000.0)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
+}
+
 
