@@ -362,6 +362,28 @@ func (n *NetworkManager) UpdateMinDifficultyFromGenesis() {
 	}
 }
 
+// GetPeerIP phân giải địa chỉ IP từ Peer ID phục vụ ghi log kiểm toán bảo mật
+func (n *NetworkManager) GetPeerIP(id peer.ID) string {
+	if n.Host == nil {
+		return "Unknown"
+	}
+	conns := n.Host.Network().ConnsToPeer(id)
+	for _, conn := range conns {
+		remoteAddr := conn.RemoteMultiaddr()
+		if ip, err := manet.ToIP(remoteAddr); err == nil {
+			return ip.String()
+		}
+	}
+	// Thử tìm trong Peerstore nếu kết nối đã đóng
+	addrs := n.Host.Peerstore().Addrs(id)
+	for _, addr := range addrs {
+		if ip, err := manet.ToIP(addr); err == nil {
+			return ip.String()
+		}
+	}
+	return "Unknown"
+}
+
 // punishPeer thực hiện trừng phạt Peer gửi rác theo cơ chế LEAKY BUCKET + BAN LŨY TIẾN.
 // Tại sao dùng Leaky Bucket thay vì hard-coded penalty:
 //   - Lỗi mạng thoáng qua (packet loss, timeout gRPC) có thể gây vi phạm 1-2 lần rồi tự khỏi.
@@ -656,9 +678,11 @@ func (n *NetworkManager) StartBlockInbox() {
 		}
 		n.TargetPathMu.RUnlock()
 
+		peerIP := n.GetPeerIP(id)
+
 		if !IsValidCheckpoint(block.Header.Height, headerHash) {
 			// Tại sao: Chặn và ghi log kiểm toán ngay khi có khối vi phạm mỏ neo lịch sử gửi qua Gossip.
-			audit.AuditLog("CHECKPOINT_VIOLATION", id.String()[:12], fmt.Sprintf("Khối #%d vi phạm mỏ neo lịch sử (Gossip)", block.Header.Height))
+			audit.AuditLog("CHECKPOINT_VIOLATION", fmt.Sprintf("%s, IP: %s", id.String()[:12], peerIP), fmt.Sprintf("Khối #%d vi phạm mỏ neo lịch sử (Gossip)", block.Header.Height))
 			n.punishPeer(id, fmt.Sprintf("Vi phạm Mỏ neo lịch sử tại khối #%d (Mã băm giả mạo)", block.Header.Height))
 			return pubsub.ValidationReject
 		}
@@ -668,7 +692,7 @@ func (n *NetworkManager) StartBlockInbox() {
 		if err != nil {
 			if err == go_bridge.ErrCriticalFirewall {
 				// Tại sao: Việc phát sóng khối cũ trên Gossip là nỗ lực Reorg bất hợp pháp hoặc spam, log vào kiểm toán.
-				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", id.String()[:12], fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
+				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", id.String()[:12], peerIP), fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
 
 				dbHash := n.Bridge.GetBlockHash(block.Header.Height)
 				reason := fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
@@ -697,7 +721,7 @@ func (n *NetworkManager) StartBlockInbox() {
 		mtp := n.Bridge.GetMedianTimePast(block.Header.Height)
 		if !n.Bridge.VerifyTimestampFirewall(block.Header.Timestamp, mtp, uint64(time.Now().Unix())) {
 			// Tại sao: Tấn công Time-Warp thay đổi thời gian để thao túng độ khó hoặc lịch sử khối, cần ghi vết log kiểm toán.
-			audit.AuditLog("TIME_WARP_ATTEMPT", id.String()[:12], fmt.Sprintf("Khối #%d vi phạm tường lửa thời gian MTP-11 (Gossip)", block.Header.Height))
+			audit.AuditLog("TIME_WARP_ATTEMPT", fmt.Sprintf("%s, IP: %s", id.String()[:12], peerIP), fmt.Sprintf("Khối #%d vi phạm tường lửa thời gian MTP-11 (Gossip)", block.Header.Height))
 			log.Printf("[TIME_WARP] %s", i18n.T("log_time_warp_violation", block.Header.Height))
 			n.punishPeer(id, fmt.Sprintf("Vi phạm Tường lửa thời gian (MTP-11) tại khối #%d", block.Header.Height))
 			return pubsub.ValidationReject
@@ -944,10 +968,12 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 	headerBuf, _ := proto.Marshal(compact.Header)
 	headerHash := n.Bridge.GetCanonicalBlockHeaderHash(headerBuf, compact.Header.Height)
 
+	peerIP := n.GetPeerIP(from)
+
 	// [VANGUARD-CHECKPOINT] Kiểm tra mỏ neo lịch sử
 	if !IsValidCheckpoint(compact.Header.Height, headerHash) {
 		// Tại sao: Khối rút gọn vi phạm mỏ neo lịch sử chỉ ra hành vi sai lệch đồng thuận nghiêm trọng.
-		audit.AuditLog("CHECKPOINT_VIOLATION", from.String()[:12], fmt.Sprintf("Khối rút gọn #%d vi phạm mỏ neo lịch sử", compact.Header.Height))
+		audit.AuditLog("CHECKPOINT_VIOLATION", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Khối rút gọn #%d vi phạm mỏ neo lịch sử", compact.Header.Height))
 		return
 	}
 
@@ -955,7 +981,7 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 	if err != nil {
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Chặn đứng nỗ lực đồng bộ khối rút gọn cũ hơn mốc tường lửa.
-			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
+			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
 
 			dbHash := n.Bridge.GetBlockHash(compact.Header.Height)
 			reason := fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", compact.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
@@ -1342,11 +1368,13 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 	var parentHeader pb_block.BlockHeader
 	proto.Unmarshal(parentHeaderBytes, &parentHeader)
 
+	peerIP := n.GetPeerIP(from)
+
 	// [Audit S1 FIX] Tường lửa Thời gian (Time Firewall) với quy tắc MTP-11
 	mtp := n.Bridge.GetMedianTimePast(block.Header.Height)
 	if !n.Bridge.VerifyTimestampFirewall(block.Header.Timestamp, mtp, uint64(time.Now().Unix())) {
 		// Tại sao: Khối đầy đủ (Heavy Block) vi phạm tường lửa thời gian, ghi nhận sự cố kiểm toán.
-		audit.AuditLog("TIME_WARP_ATTEMPT", from.String()[:12], fmt.Sprintf("Khối đầy đủ #%d vi phạm tường lửa thời gian MTP-11 (Heavy)", block.Header.Height))
+		audit.AuditLog("TIME_WARP_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Khối đầy đủ #%d vi phạm tường lửa thời gian MTP-11 (Heavy)", block.Header.Height))
 		log.Printf("[TIME_WARP] %s", i18n.T("log_time_warp_violation", block.Header.Height))
 		return fmt.Errorf("firewall_violation: timestamp_spoofing")
 	}
@@ -1358,7 +1386,7 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 	// [VANGUARD-CHECKPOINT] Kiểm tra mỏ neo lịch sử
 	if !IsValidCheckpoint(block.Header.Height, headerHash) {
 		// Tại sao: Khối đầy đủ vi phạm checkpoint mỏ neo, ghi nhận sự cố kiểm toán.
-		audit.AuditLog("CHECKPOINT_VIOLATION", from.String()[:12], fmt.Sprintf("Khối đầy đủ #%d vi phạm mỏ neo lịch sử", block.Header.Height))
+		audit.AuditLog("CHECKPOINT_VIOLATION", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Khối đầy đủ #%d vi phạm mỏ neo lịch sử", block.Header.Height))
 		return fmt.Errorf("firewall_violation: checkpoint_mismatch")
 	}
 
@@ -1366,7 +1394,7 @@ func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) e
 	if err != nil {
 		if err == go_bridge.ErrCriticalFirewall {
 			// Tại sao: Khối đầy đủ cũ bị từ chối bởi tường lửa.
-			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", from.String()[:12], fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
+			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
 
 			dbHash := n.Bridge.GetBlockHash(block.Header.Height)
 			reason := fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))

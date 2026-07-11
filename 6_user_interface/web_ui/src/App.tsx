@@ -179,7 +179,7 @@ function App() {
     if (isStopping) return;
 
     try {
-      const currentlyMining = status?.is_mining || false;
+      const currentlyMining = status?.node_mode === "full-mining";
       
       // [SECURITY-MINING FIX] Thợ đào không cần chữ ký, nên không cần PIN. 
       // Chỉ cần thiết lập địa chỉ ví nhận tiền thưởng.
@@ -323,6 +323,21 @@ function App() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent-amber animate-pulse">
                   {status.mining_warning}
                 </p>
+                {status.mining_warning.includes("0xc0000135") && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.installEnv();
+                        addNotification("🚀 Đang tải và cài đặt Microsoft VC++ Redistributable chạy ngầm...", "info");
+                      } catch (e) {
+                        addNotification(`❌ Lỗi: ${(e as Error).message}`, "error");
+                      }
+                    }}
+                    className="ml-4 px-3 py-1 bg-accent-amber text-black text-[9px] font-black uppercase rounded hover:bg-white transition-all duration-300 pointer-events-auto shadow-[0_0_10px_rgba(245,158,11,0.3)] cursor-pointer"
+                  >
+                    Tự động cài đặt
+                  </button>
+                )}
                 <div className="w-2 h-2 rounded-full bg-accent-amber animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
               </motion.div>
             )}

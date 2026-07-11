@@ -748,9 +748,9 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			// [VANGUARD-GUARD] Chốt chặn an toàn: Đợi 75 giây Warm-up để ổn định mạng P2P trước khi đào.
+			// [VANGUARD-GUARD] Chốt chặn an toàn: Đợi 60 giây Warm-up để ổn định mạng P2P trước khi đào.
 			// [VANGUARD-AUTONOMY-FIX] BỎ QUA Warm-up nếu đang ở chế độ Tự trị (failures >= 3)
-			gracePeriod := 75 * time.Second
+			gracePeriod := 60 * time.Second
 
 			app.mu.RLock()
 			failures := 0
