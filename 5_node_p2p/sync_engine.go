@@ -91,6 +91,7 @@ type SyncEngine struct {
 	snapshotChunksLoaded uint32    // [SNAP-SYNC-PROGRESS] Số lượng chunk snapshot đã tải
 	snapshotChunksTotal  uint32    // [SNAP-SYNC-PROGRESS] Tổng số lượng chunk snapshot cần tải
 	downloadingHeight    uint64    // [SYNC-STAGE-UX] Chiều cao khối đang tải trong Phase 1
+	initialSyncDone      bool      // [SYNC-DDoS-PROTECTION] Đánh dấu đồng bộ khởi đầu thành công để chống DDoS ngắt đào
 
 	// [LIGHTWEIGHT ORPHAN CACHE] Chỉ lưu trữ tiêu đề khối mồ côi gần
 	orphanHeaders   map[string]*pb_block.BlockHeader // Key: Hash Hex
@@ -351,6 +352,9 @@ func (s *SyncEngine) syncLoop() {
 		}
 	}()
 
+	// [SYNC-DDoS-PROTECTION] Bộ đếm lỗi tải header theo độ cao khối
+	failedHeadersCount := make(map[uint64]int)
+
 	// [EVENT-DRIVEN] Nhịp đập heartbeat định kỳ 10 giây dự phòng
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
@@ -524,14 +528,15 @@ func (s *SyncEngine) syncLoop() {
 			}
 
 			if currentH >= targetH {
+				s.mu.Lock()
+				s.initialSyncDone = true
 				if s.state != Synced {
-					s.mu.Lock()
 					if s.state == Syncing || s.state == Stalled {
 						s.state = Synced
 						log.Printf("[SYNC] %s", i18n.T("log_sync_success", currentH))
 					}
-					s.mu.Unlock()
 				}
+				s.mu.Unlock()
 				continue
 			}
 
@@ -633,9 +638,21 @@ func (s *SyncEngine) syncLoop() {
 				headerBytes, err := s.netManager.GetHeaderHashByHeight(s.ctx, targetPeer, nextHeight)
 				if err != nil {
 					log.Printf("[SYNC-HEADERS-FIRST] ⏳ Không thể tải tiêu đề #%d từ %s: %v. Thử Peer khác...", nextHeight, s.shortID(targetPeer), err)
+					
+					failedHeadersCount[nextHeight]++
+					if failedHeadersCount[nextHeight] >= 6 {
+						s.mu.Lock()
+						s.syncFailures++
+						s.mu.Unlock()
+						failedHeadersCount[nextHeight] = 0 // Reset bộ đếm sau khi đã cộng dồn lỗi hệ thống
+					}
+
 					time.Sleep(500 * time.Millisecond)
 					continue
 				}
+				
+				// Reset bộ đếm lỗi của block này khi tải thành công
+				delete(failedHeadersCount, nextHeight)
 
 				// [BẢO MẬT/TỐI ƯU HÓA] Kiểm tra xem tiêu đề khối này có khớp với sidechain đã biết không
 				blockHeaderHash := s.netManager.Bridge.CalculateBlockHeaderHash(headerBytes)
@@ -1697,7 +1714,22 @@ func (s *SyncEngine) IsSynced() bool {
 	}
 	s.netManager.PeerMutex.RUnlock()
 
-	// [VANGUARD-SYNC-STRICT] Chỉ Synced nếu đã đạt tới đỉnh cao nhất của mạng lưới.
+	// [VANGUARD-SYNC-STRICT] Phân biệt rõ chế độ Khởi chạy và chế độ Đang đào (Live)
+	s.mu.RLock()
+	isDone := s.initialSyncDone
+	state := s.state
+	s.mu.RUnlock()
+
+	if isDone {
+		// [LIVE-MODE] Chỉ tạm dừng đào khi thực sự đang đồng bộ thường (Syncing) hoặc snapshot (Bootstrapping).
+		// (Lưu ý: Nếu bị kẹt khối lỗi dẫn đến failures >= 3, hàm đã được giải phóng trả về true từ phía trên).
+		if state == Syncing || state == Bootstrapping {
+			return false
+		}
+		return true
+	}
+
+	// [STARTUP-MODE] Khi mới khởi chạy Node, buộc phải đồng bộ đạt tới đỉnh mạng lưới trước khi đào.
 	if maxPeerHeight > actualH {
 		return false
 	}

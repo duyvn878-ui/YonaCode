@@ -237,6 +237,7 @@ const api = {
             is_mining: data.is_mining || false,
             node_mode: data.node_mode || 'verify-only',
             cpu_intensity: data.cpu_intensity || 50,
+            mining_device: data.mining_device || 'cpu',
             difficulty: data.difficulty || 0,
             avg_block_time: data.avg_block_time || 60,
             block_reward: data.block_reward || 0.05,
@@ -354,6 +355,16 @@ const api = {
     });
     if (!res.ok) {
       throw new Error(`Failed to set mining device: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  async installEnv(): Promise<{status: string, message: string}> {
+    const res = await fetch(`/api/v1/node/install-env`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to trigger environment installation: ${res.statusText}`);
     }
     return res.json();
   },

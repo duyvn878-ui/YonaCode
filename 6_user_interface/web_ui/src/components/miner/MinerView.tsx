@@ -28,6 +28,8 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
     return localStorage.getItem('mining_device') || status?.mining_device || 'cpu';
   });
 
+  const [hasInitializedDevice, setHasInitializedDevice] = useState(false);
+
   useEffect(() => {
     if (status?.cpu_intensity) {
       setIntensity(status.cpu_intensity);
@@ -35,13 +37,14 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
   }, [status?.cpu_intensity]);
 
   useEffect(() => {
-    if (status?.mining_device) {
+    if (status?.mining_device && !hasInitializedDevice) {
       setDeviceMode(status.mining_device);
       localStorage.setItem('mining_device', status.mining_device);
+      setHasInitializedDevice(true);
     }
-  }, [status?.mining_device]);
+  }, [status?.mining_device, hasInitializedDevice]);
 
-  const isMining = (status?.is_mining !== undefined) ? status.is_mining : (minerStatus?.is_mining || false);
+  const isMining = status?.node_mode === "full-mining";
   const hashrate = status?.hashrate || minerStatus?.hashrate || 0;
   const { value: hashrateValue, unit: hashrateUnit } = formatHashrate(hashrate);
   const gracePeriodRemaining = Math.ceil(status?.grace_period_remaining || minerStatus?.grace_period_remaining || 0);

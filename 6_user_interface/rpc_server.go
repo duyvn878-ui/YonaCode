@@ -180,6 +180,8 @@ type RPCServer struct {
 
 	miningDevice      string // "cpu", "gpu", or "hybrid"
 	miningDeviceMu    sync.RWMutex
+	gpuEnvError       string
+	gpuEnvErrorMu     sync.RWMutex
 	cpuHashrate       uint64
 	gpuHashrate       uint64
 	lastGpuHashTime   time.Time
@@ -1090,6 +1092,7 @@ func (s *RPCServer) loadNodeConfig() {
 	} else {
 		s.miningDevice = "cpu"
 	}
+	s.updateGpuEnvCheck()
 	// [VANGUARD-DISCIPLINE] Mặc định tắt đào khi khởi động để đảm bảo an toàn,
 	// TRỪ KHI người dùng đã chủ động bật qua cờ --mining từ CLI.
 	if s.nodeMode != "full-mining" {
@@ -1227,6 +1230,7 @@ func (s *RPCServer) StartConfiguredMiners() {
 			activeStreams := len(s.minerStreams)
 			s.minerStreamsMu.Unlock()
 			if activeStreams == 0 {
+				s.bridge.StopGenzMiner() // Đảm bảo dừng tiến trình cũ để tránh xung đột cổng
 				if err := s.bridge.StartGenzMiner(s.port + 10000); err != nil {
 					log.Printf("[BRIDGE] ⚠️ Không thể tự động khởi chạy thợ đào genz_miner: %v", err)
 				}
@@ -1237,6 +1241,7 @@ func (s *RPCServer) StartConfiguredMiners() {
 		}
 
 		if device == "gpu" || device == "hybrid" {
+			s.bridge.StopGpuMiner() // Đảm bảo dừng tiến trình cũ tránh chiếm dụng CUDA
 			if err := s.bridge.StartGpuMiner(s.port); err != nil {
 				log.Printf("[BRIDGE] ⚠️ Không thể tự động khởi chạy thợ đào yona_gpu_miner: %v", err)
 			}
@@ -2727,8 +2732,8 @@ func (s *RPCServer) Start() {
 	// [SECURITY-HARDENING] Các API điều khiển Node ĐÒI HỎI truy cập từ localhost
 	// Tại sao: Ngăn chặn kẻ tấn công từ Internet điều khiển Node (bật/tắt đào, đổi ví, đổi mode)
 	r.HandleFunc("/api/v1/miner/toggle", s.localhostOnly(func(w http.ResponseWriter, r *http.Request) {
-		// [VANGUARD-GUARD] Chốt chặn an toàn: Đợi 75 giây Radar Scan để bảo vệ mạng lưới khỏi Fork
-		gracePeriod := 75 * time.Second
+		// [VANGUARD-GUARD] Chốt chặn an toàn: Đợi 60 giây Radar Scan để bảo vệ mạng lưới khỏi Fork
+		gracePeriod := 60 * time.Second
 		if time.Since(s.launchTime) < gracePeriod {
 			http.Error(w, fmt.Sprintf("Node warming up (Radar Scan), please wait %d s", int((gracePeriod-time.Since(s.launchTime)).Seconds())), http.StatusServiceUnavailable)
 			return
@@ -2753,6 +2758,7 @@ func (s *RPCServer) Start() {
 	// [SECURITY-HARDENING] Endpoint debug/verify_balances chỉ cho phép từ localhost
 	// Tại sao: Tránh lộ thông tin kiểm toán nội bộ ra Internet
 	r.HandleFunc("/api/v1/node/purge", s.localhostOnly(s.handlePurgeData)).Methods("POST")
+	r.HandleFunc("/api/v1/node/install-env", s.localhostOnly(s.handleInstallEnvironment)).Methods("POST")
 	r.HandleFunc("/api/v1/snapshot/import", s.localhostOnly(s.handleManualSnapshotImport)).Methods("POST")
 	r.HandleFunc("/api/v1/snapshot/export", s.localhostOnly(s.handleManualSnapshotExport)).Methods("POST")
 	r.HandleFunc("/api/v1/mempool/purge", s.localhostOnly(s.handleMempoolPurge)).Methods("POST")
@@ -4822,6 +4828,17 @@ func (s *RPCServer) handleMinerStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.gpuEnvErrorMu.RLock()
+	gpuErr := s.gpuEnvError
+	s.gpuEnvErrorMu.RUnlock()
+	if gpuErr != "" {
+		if miningWarning != "" {
+			miningWarning = gpuErr + " | " + miningWarning
+		} else {
+			miningWarning = gpuErr
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"hashrate":               atomic.LoadUint64(&s.currentHashrate),
 		"is_mining":              isMining,
@@ -4839,8 +4856,8 @@ func (s *RPCServer) handleMinerStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RPCServer) getGracePeriodRemaining() float64 {
-	// [VANGUARD-GUARD] Luôn hiển thị thời gian chờ bảo vệ 75s khi mới khởi chạy
-	gracePeriod := 75 * time.Second
+	// [VANGUARD-GUARD] Luôn hiển thị thời gian chờ bảo vệ 60s khi mới khởi chạy
+	gracePeriod := 60 * time.Second
 	timeElapsed := time.Since(s.launchTime)
 
 	if timeElapsed < gracePeriod {
@@ -4916,6 +4933,7 @@ func (s *RPCServer) handleMinerToggle(w http.ResponseWriter, r *http.Request) {
 
 	// Tự động kích hoạt hoặc dừng thợ đào tương ứng cấu hình
 	if !newPausedState {
+		s.updateGpuEnvCheck()
 		s.StartConfiguredMiners()
 	} else {
 		s.StopConfiguredMiners()
@@ -5691,6 +5709,10 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 	currentCpu := s.cpuIntensity
 	s.cpuIntensityMu.RUnlock()
 
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
 	// [TARGET-HEIGHT-FIX] Lấy chiều cao mục tiêu từ SyncEngine và đối soát
 	var targetHeight uint64
 	var syncState = "Stalled"
@@ -5714,6 +5736,17 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 			miningWarning = "Vui lòng chọn ví nhận thưởng để bắt đầu khai thác"
 		} else {
 			miningWarning = "Yêu cầu Khôi phục ví (12 từ khóa) để xử lý hệ thống"
+		}
+	}
+
+	s.gpuEnvErrorMu.RLock()
+	gpuErr := s.gpuEnvError
+	s.gpuEnvErrorMu.RUnlock()
+	if gpuErr != "" {
+		if miningWarning != "" {
+			miningWarning = gpuErr + " | " + miningWarning
+		} else {
+			miningWarning = gpuErr
 		}
 	}
 
@@ -5746,6 +5779,7 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		"total_supply":           float64(s.bridge.GetActualTotalSupply()) / 1e8,
 		"node_mode":              currentMode,
 		"cpu_intensity":          currentCpu,
+		"mining_device":          device,
 		"oldest_height":          s.bridge.GetOldestHeight(),
 		"version":                "YonaCode Go V1.2.1-Ready",
 		"avg_block_time":         s.calculateAvgBlockTime(),
@@ -7244,6 +7278,7 @@ func (s *RPCServer) handleMiningDevice(w http.ResponseWriter, r *http.Request) {
 	s.miningDevice = req.Device
 	s.miningDeviceMu.Unlock()
 
+	s.updateGpuEnvCheck()
 	s.updateMiningState()
 	s.saveNodeConfig()
 	s.StartConfiguredMiners()
@@ -7253,6 +7288,88 @@ func (s *RPCServer) handleMiningDevice(w http.ResponseWriter, r *http.Request) {
 		"status":        "Success",
 		"mining_device": req.Device,
 	})
+}
+
+func (s *RPCServer) updateGpuEnvCheck() {
+	s.miningDeviceMu.RLock()
+	device := s.miningDevice
+	s.miningDeviceMu.RUnlock()
+
+	if device == "gpu" || device == "hybrid" {
+		errStr := s.checkGpuEnvironment()
+		s.gpuEnvErrorMu.Lock()
+		s.gpuEnvError = errStr
+		s.gpuEnvErrorMu.Unlock()
+	} else {
+		s.gpuEnvErrorMu.Lock()
+		s.gpuEnvError = ""
+		s.gpuEnvErrorMu.Unlock()
+	}
+}
+
+func (s *RPCServer) checkGpuEnvironment() string {
+	exePath, _ := os.Executable()
+	searchDir := filepath.Dir(exePath)
+	curr, _ := os.Getwd()
+
+	var minerBin string
+	if runtime.GOOS == "windows" {
+		minerBin = "yona_gpu_miner.exe"
+	} else {
+		minerBin = "yona_gpu_miner"
+	}
+
+	paths := []string{
+		filepath.Join(curr, minerBin),
+		filepath.Join(searchDir, minerBin),
+		filepath.Join(searchDir, "bin", minerBin),
+		filepath.Join(searchDir, "bbuild", minerBin),
+		filepath.Join(curr, "bbuild", minerBin),
+	}
+
+	minerPath := ""
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			minerPath = p
+			break
+		}
+	}
+
+	if minerPath == "" {
+		return "❌ Không tìm thấy tệp tin chạy yona_gpu_miner.exe!"
+	}
+
+	// Chạy thử yona_gpu_miner.exe --check để chẩn đoán môi trường
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, minerPath, "--check")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	err := cmd.Run()
+	if err != nil {
+		outStr := strings.TrimSpace(out.String())
+		// Kiểm tra mã lỗi thiếu DLL trên Windows (0xc0000135)
+		if strings.Contains(err.Error(), "0xc0000135") || strings.Contains(err.Error(), "status 3221225781") {
+			return "❌ Môi trường thiếu: Thiếu thư viện Microsoft Visual C++ Redistributable hoặc Driver NVIDIA (Lỗi DLL 0xc0000135)."
+		}
+		if outStr != "" {
+			if strings.Contains(outStr, "[CUDA-ERROR]") {
+				lines := strings.Split(outStr, "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "[CUDA-ERROR]") {
+						return "❌ " + strings.TrimSpace(strings.ReplaceAll(line, "[CUDA-ERROR]", ""))
+					}
+				}
+			}
+			return "❌ Lỗi GPU: " + outStr
+		}
+		return "❌ Không thể khởi chạy GPU Miner: " + err.Error()
+	}
+
+	return "" // Môi trường OK
 }
 
 func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) {
@@ -7271,6 +7388,69 @@ func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[RPC-UI] ⚡ Nhận báo cáo hashrate từ GPU Miner: %d H/s (%.2f MH/s)", req.Hashrate, float64(req.Hashrate)/1000000.0)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
+}
+
+func (s *RPCServer) handleInstallEnvironment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	log.Printf("[RPC-UI] ⚙️ Nhận lệnh tải và cài đặt Microsoft VC++ Redistributable...")
+
+	// Chạy goroutine ngầm để không block HTTP request
+	go func() {
+		// 1. Tải bộ cài vc_redist.x64.exe từ Microsoft
+		dest := filepath.Join(os.TempDir(), "vc_redist.x64.exe")
+		
+		log.Printf("[AUTO-INSTALL] 📥 Đang tải VC++ Redistributable từ Microsoft...")
+		err := s.downloadFile("https://aka.ms/vs/17/release/vc_redist.x64.exe", dest)
+		if err != nil {
+			log.Printf("[AUTO-INSTALL] ❌ Lỗi tải VC++ Redistributable: %v", err)
+			s.gpuEnvErrorMu.Lock()
+			s.gpuEnvError = "❌ Tải VC++ Redistributable thất bại: " + err.Error()
+			s.gpuEnvErrorMu.Unlock()
+			return
+		}
+
+		// 2. Chạy cài đặt chế độ im lặng (Silent Install)
+		log.Printf("[AUTO-INSTALL] 🛠️ Đang chạy cài đặt im lặng (vc_redist.x64.exe /q /norestart)...")
+		cmd := exec.Command(dest, "/q", "/norestart")
+		runErr := cmd.Run()
+		if runErr != nil {
+			log.Printf("[AUTO-INSTALL] ❌ Cài đặt VC++ Redistributable thất bại: %v", runErr)
+			s.gpuEnvErrorMu.Lock()
+			s.gpuEnvError = "❌ Cài đặt VC++ Redistributable thất bại: " + runErr.Error()
+			s.gpuEnvErrorMu.Unlock()
+			return
+		}
+
+		log.Printf("[AUTO-INSTALL] 🎉 Cài đặt VC++ Redistributable THÀNH CÔNG! Đang quét lại môi trường...")
+		s.updateGpuEnvCheck()
+	}()
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "Success",
+		"message": "Đang bắt đầu tải và cài đặt VC++ Redistributable chạy ngầm. Vui lòng theo dõi trong vài phút.",
+	})
+}
+
+// downloadFile tải file từ URL về dest
+func (s *RPCServer) downloadFile(url string, dest string) error {
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status không hợp lệ: %s", resp.Status)
+	}
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
 
 
