@@ -66,6 +66,7 @@ type Bridge struct {
 	eventCancel    context.CancelFunc // Dùng để đóng stream khi restart
 	serverCmd      *exec.Cmd
 	minerCmd       *exec.Cmd
+	gpuMinerCmd    *exec.Cmd
 	jobHandle      uintptr // [WINDOWS ONLY]
 
 	lastUpdate    time.Time
@@ -352,6 +353,9 @@ func (b *Bridge) restartServer() {
 	}
 	if b.minerCmd != nil && b.minerCmd.Process != nil {
 		_ = b.minerCmd.Process.Kill()
+	}
+	if b.gpuMinerCmd != nil && b.gpuMinerCmd.Process != nil {
+		_ = b.gpuMinerCmd.Process.Kill()
 	}
 
 	log.Printf("[BRIDGE-RECOVERY] ♻️ Đang hồi sinh SCL Server tại cổng %d...", b.sclPort)
@@ -1564,7 +1568,12 @@ func (b *Bridge) StartGenzMiner(grpcPort int) error {
 	}
 
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			log.Printf("[BRIDGE] ⚠️ genz_miner (PID: %d) thoát với lỗi: %v", cmd.Process.Pid, waitErr)
+		} else {
+			log.Printf("[BRIDGE] ℹ️ genz_miner (PID: %d) đã dừng thành công.", cmd.Process.Pid)
+		}
 	}()
 
 	b.mu.Lock()
@@ -1576,5 +1585,100 @@ func (b *Bridge) StartGenzMiner(grpcPort int) error {
 
 	log.Printf("[BRIDGE] 🚀 Đã khởi chạy genz_miner (PID: %d)", cmd.Process.Pid)
 	return nil
+}
+
+// StartGpuMiner tự động khởi chạy thợ đào GPU yona_gpu_miner.exe
+func (b *Bridge) StartGpuMiner(nodePort int) error {
+	// 1. Phân giải đường dẫn thông minh
+	exePath, _ := os.Executable()
+	searchDir := filepath.Dir(exePath)
+	curr, _ := os.Getwd()
+
+	var minerBin string
+	if runtime.GOOS == "windows" {
+		minerBin = "yona_gpu_miner.exe"
+	} else {
+		minerBin = "yona_gpu_miner"
+	}
+
+	paths := []string{
+		filepath.Join(curr, minerBin),
+		filepath.Join(searchDir, minerBin),
+		filepath.Join(searchDir, "bin", minerBin),
+		filepath.Join(searchDir, "bbuild", minerBin),
+		filepath.Join(curr, "bbuild", minerBin),
+	}
+
+	minerPath := ""
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			minerPath = p
+			break
+		}
+	}
+
+	if minerPath == "" {
+		return fmt.Errorf("❌ Không tìm thấy Thợ đào GPU (%s) tại các thư mục kiểm tra: %v", minerBin, paths)
+	}
+
+	fmt.Printf("⚓ [MINER-ANCHOR] Sử dụng Thợ đào GPU tại: %s\n", minerPath)
+
+	args := []string{"127.0.0.1", fmt.Sprintf("%d", nodePort)}
+	cmd := exec.Command(minerPath, args...)
+
+	log.Printf("[BRIDGE] 🚀 Khởi chạy yona_gpu_miner: %s %v", minerPath, args)
+
+	// Ghi log trực tiếp ra cả console (stdout/stderr) và file log hệ thống (node_system.log)
+	cmd.Stdout = io.MultiWriter(os.Stdout, log.Writer())
+	cmd.Stderr = io.MultiWriter(os.Stderr, log.Writer())
+
+	// Kế thừa môi trường hệ điều hành
+	cmd.Env = os.Environ()
+
+	err := cmd.Start()
+	if err != nil {
+		return fmt.Errorf("lỗi khởi chạy thợ đào GPU (%s): %w", minerPath, err)
+	}
+
+	go func() {
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			log.Printf("[BRIDGE] ⚠️ yona_gpu_miner (PID: %d) thoát với lỗi: %v", cmd.Process.Pid, waitErr)
+		} else {
+			log.Printf("[BRIDGE] ℹ️ yona_gpu_miner (PID: %d) đã dừng thành công.", cmd.Process.Pid)
+		}
+	}()
+
+	b.mu.Lock()
+	b.gpuMinerCmd = cmd
+	b.mu.Unlock()
+
+	// Gán tiến trình vào Windows Job Object để tự động kết thúc khi Node chính đóng
+	assignProcessToJob(cmd.Process.Pid)
+
+	log.Printf("[BRIDGE] 🚀 Đã khởi chạy yona_gpu_miner (PID: %d)", cmd.Process.Pid)
+	return nil
+}
+
+// StopGpuMiner dừng tiến trình yona_gpu_miner nếu đang chạy
+func (b *Bridge) StopGpuMiner() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.gpuMinerCmd != nil && b.gpuMinerCmd.Process != nil {
+		log.Printf("[BRIDGE] 🛑 Dừng thợ đào GPU yona_gpu_miner (PID: %d)", b.gpuMinerCmd.Process.Pid)
+		_ = b.gpuMinerCmd.Process.Kill()
+		b.gpuMinerCmd = nil
+	}
+}
+
+// StopGenzMiner dừng tiến trình genz_miner nếu đang chạy
+func (b *Bridge) StopGenzMiner() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.minerCmd != nil && b.minerCmd.Process != nil {
+		log.Printf("[BRIDGE] 🛑 Dừng thợ đào CPU genz_miner (PID: %d)", b.minerCmd.Process.Pid)
+		_ = b.minerCmd.Process.Kill()
+		b.minerCmd = nil
+	}
 }
 

@@ -80,7 +80,12 @@ YonaCode/
 ├── 2_miner_core/         # (Go/Rust) Independent gRPC Miner Station & Go-Rust Bridge Logic
 ├── 5_node_p2p/           # (Go) P2P Network (Libp2p), Sync Engine, Mempool, NAT, Banning
 ├── 6_user_interface/     # (Go) CLI App, HTTP REST API, SSE, Static Web UI
+├── 8_miner_gpu/          # (C++/CUDA) High-performance GPU Miner (Only supports NVIDIA cards)
 └── go.mod / Cargo.toml   # Dependency management
+
+> [!WARNING]
+> Trình đào GPU Miner (`8_miner_gpu`) **chỉ hỗ trợ card đồ họa NVIDIA** (GTX/RTX series). Không hỗ trợ card đồ họa AMD, Intel hay các dòng card khác.
+
 🛠️ Build & Installation Guide
 1. Prerequisites
 Go (v1.21 or higher recommended)

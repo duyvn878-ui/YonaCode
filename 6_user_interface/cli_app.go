@@ -802,20 +802,17 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 				color.Green("[STAGE-2] 🚀 ĐỒNG BỘ KHỞI ĐẦU HOÀN TẤT. Hệ thống chuyển sang chế độ vận hành Live.")
 			}
 
-			if !app.initialSyncComplete || syncState == "Bootstrapping" {
+			// [VANGUARD-SYNC-BLOCK] Chốt chặn an toàn: Chặn tuyệt đối không cho phép thợ đào chạy nếu chưa đồng bộ xong
+			if app.syncEngine != nil && !app.syncEngine.IsSynced() {
 				if time.Now().Second()%10 == 0 {
-					h, target, _ := app.syncEngine.GetSyncProgress()
-					log.Printf("[MINER-WARN] ⚠️ Đang đào trong khi hệ thống chưa đồng bộ xong! #%d/%d (Trạng thái: %s)", h, target, syncState)
+					h, target, state := app.syncEngine.GetSyncProgress()
+					log.Printf("[MINER-WAIT] ⏳ Mạng chưa đồng bộ xong (#%d/%d, Trạng thái: %s). Tạm dừng khai thác để tránh phân nhánh (Fork)...", h, target, state)
 				}
+				time.Sleep(2 * time.Second)
+				continue
 			}
 
 			log.Printf("[MINER-START] %s", i18n.T("log_miner_preparing", app.bridge.GetCurrentVersion()+1))
-
-			// Chuyển sang giai đoạn 2 nếu lần đầu tiên đạt trạng thái Synced
-			if !app.initialSyncComplete {
-				app.initialSyncComplete = true
-				color.Green("[STAGE-2] 🚀 ĐỒNG BỘ KHỞI ĐẦU HOÀN TẤT. Hệ thống chuyển sang chế độ vận hành Live.")
-			}
 
 			// [VANGUARD-MINING-TIP] Giờ đây h luôn là đỉnh cao nhất được mạng lưới chấp nhận
 			h := app.bridge.GetCurrentVersion()
@@ -968,6 +965,12 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 
 			// [VANGUARD-CONSENSUS] Đóng gói lại khối đã có Nonce và gửi lên Consensus Engine
 			finalBlockRaw, _ := proto.Marshal(&minedBlock)
+
+			// [VANGUARD-OFFLINE-BLOCK-SHIELD] Ngăn chặn nộp khối khi mạng mất kết nối (Offline) để tránh phân nhánh chuỗi (fork)
+			if app.rpcSrv != nil && !app.rpcSrv.isMiningAllowed() {
+				log.Printf("[MINER] ⚠️ Hủy bỏ nộp khối #%d lên Consensus Engine vì mạng đang mất kết nối hoặc không có peer.", nextHeight)
+				continue
+			}
 
 			log.Printf("[MINER] ⛓️ Đang gửi khối mới #%d lên Consensus Engine (Trọng số: %x)...", nextHeight, minedBlock.Header.AbsoluteWeight)
 			resp, err := app.bridge.ProcessChain([][]byte{finalBlockRaw})
