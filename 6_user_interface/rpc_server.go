@@ -1072,11 +1072,29 @@ func (s *RPCServer) syncBlockFromRustCore(height uint64) {
 // [V1.60] Quản lý cấu hình Node thông qua Rust Core (CF_META)
 func (s *RPCServer) loadNodeConfig() {
 	log.Printf("[CONFIG-V1.60] 📥 Đang nạp cấu hình từ Rust Core...")
+
+	// Khởi tạo mặc định và ưu tiên áp dụng cờ CLI ngay từ đầu
+	s.miningDevice = "cpu"
+	if s.cliApp != nil && s.cliApp.miningDevice != "" {
+		s.miningDevice = s.cliApp.miningDevice
+		log.Printf("[CONFIG] 🛡️ Thiết lập thiết bị đào từ cờ CLI: %s", s.miningDevice)
+	}
+
 	data, err := s.bridge.GetNodeConfig()
 	if err != nil || len(data) == 0 {
-		log.Printf("[CONFIG] ℹ️ Chưa có cấu hình trong Rust. Sử dụng chế độ hiện tại: %s.", s.nodeMode)
+		log.Printf("[CONFIG] ℹ️ Chưa có cấu hình trong Rust. Sử dụng chế độ hiện tại: %s (Thiết bị: %s).", s.nodeMode, s.miningDevice)
 		if s.cpuIntensity == 0 {
 			s.cpuIntensity = 50
+		}
+		s.updateGpuEnvCheck()
+		if s.nodeMode != "full-mining" {
+			s.nodeMode = "verify-only"
+			s.updateMiningState()
+			s.saveNodeConfig()
+			log.Printf("[CONFIG] 🛡️ Kỷ luật: Chế độ đào đã được ép TẮT và lưu trữ.")
+		} else {
+			s.updateMiningState()
+			log.Printf("[CONFIG] 🔥 Chế độ đào được giữ nguyên từ lệnh CLI: %s (Thiết bị: %s)", s.nodeMode, s.miningDevice)
 		}
 		return
 	}
@@ -1087,15 +1105,16 @@ func (s *RPCServer) loadNodeConfig() {
 		return
 	}
 	s.cpuIntensity = cfg.CpuIntensity
+
+	// Nếu cờ CLI được chỉ định, ưu tiên ghi đè cấu hình đã lưu
 	if s.cliApp != nil && s.cliApp.miningDevice != "" {
 		s.miningDevice = s.cliApp.miningDevice
 		log.Printf("[CONFIG] 🛡️ Ghi đè thiết bị đào từ cờ CLI: %s", s.miningDevice)
 	} else if cfg.MiningDevice != "" {
 		s.miningDevice = cfg.MiningDevice
-	} else {
-		s.miningDevice = "cpu"
 	}
 	s.updateGpuEnvCheck()
+
 	// [VANGUARD-DISCIPLINE] Mặc định tắt đào khi khởi động để đảm bảo an toàn,
 	// TRỪ KHI người dùng đã chủ động bật qua cờ --mining từ CLI.
 	if s.nodeMode != "full-mining" {
