@@ -1,8 +1,3 @@
-# Tên file: GPU_MINER_LINUX.md
-# Tính năng chi tiết: Hướng dẫn cài đặt driver, CUDA Toolkit và biên dịch GPU Miner trên hệ điều hành Linux (Ubuntu/Debian) để tham gia khai thác (mining).
-# Ngày khởi tạo: 12/07/2026
-# Cơ chế vận hành: Tài liệu hướng dẫn cấu hình hệ thống Linux, cài đặt driver NVIDIA và CUDA Toolkit, biên dịch mã nguồn C++/CUDA của Miner và vận hành kết nối đến YonaCode Node.
-
 # Hướng Dẫn Cài Đặt và Khai Thác Bằng GPU trên Linux (Ubuntu/Debian) ⛏️⚡
 
 Tài liệu này hướng dẫn chi tiết cách thiết lập môi trường driver, bộ công cụ lập trình CUDA và biên dịch dự án GPU Miner của YonaCode trên hệ điều hành Linux.
