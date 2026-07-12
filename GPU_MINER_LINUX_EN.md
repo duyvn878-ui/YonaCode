@@ -1,8 +1,3 @@
-# File Name: GPU_MINER_LINUX_EN.md
-# Feature Description: Guide to install drivers, CUDA Toolkit and compile GPU Miner on Linux (Ubuntu/Debian) in English.
-# Creation Date: 07/12/2026
-# Operational Mechanism: Instructions on configuring Linux system, installing NVIDIA drivers and CUDA Toolkit, compiling C++/CUDA miner source code and connecting to YonaCode Node.
-
 # GPU Mining Installation & Run Guide for Linux (Ubuntu/Debian) ⛏️⚡
 
 This guide provides step-by-step instructions on setting up the NVIDIA driver, CUDA toolkit, and compiling/running the YonaCode GPU Miner on Linux systems.
