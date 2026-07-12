@@ -160,6 +160,28 @@ Adjust Proof of Work parameters on the CPU threads.
 ```
 * **Description:** Check miner state (`ACTIVE` / `PAUSED`) and inspect current real-time Hashrate (KH/s or MH/s).
 
+### ⛏️ Standalone Miners
+In addition to triggering mining via the Node's CLI, you can directly launch the standalone miner executables to connect and contribute hashing power to the main Node:
+
+#### 💻 1. Standalone CPU Miner (`genz_miner`)
+* **How to run:**
+  ```bash
+  ./genz_miner --port <node_scl_port>
+  ```
+  *(Default SCL port is RPC port + 42000. For example, if the Node RPC port is 8080, the target SCL connection port is 50080)*
+
+#### ⚡ 2. Standalone GPU Miner (`yona_gpu_miner`)
+*Note: Supports CUDA-compatible NVIDIA graphics cards only.*
+* **Verify CUDA compatibility:**
+  ```bash
+  ./yona_gpu_miner --check
+  ```
+* **How to run:**
+  ```bash
+  ./yona_gpu_miner [node_ip_address] [node_rpc_port]
+  ```
+  *(Example connecting to a local Node: `./yona_gpu_miner 127.0.0.1 8080`)*
+
 ---
 
 ## 🔍 4. LEDGER RAW DATA QUERIES (`yonacode query`)
