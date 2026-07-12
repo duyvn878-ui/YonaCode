@@ -1,6 +1,6 @@
-# Hướng Dẫn Cài Đặt và Khai Thác Bằng GPU trên Linux (Ubuntu/Debian) ⛏️⚡
+# Hướng Dẫn Biên Dịch và Vận Hành Trình Đào GPU trên Linux (Ubuntu/Debian) ⛏️⚡
 
-Tài liệu này hướng dẫn chi tiết cách thiết lập môi trường driver, bộ công cụ lập trình CUDA và biên dịch dự án GPU Miner của YonaCode trên hệ điều hành Linux.
+Tài liệu này hướng dẫn chi tiết các bước cài đặt thư viện phụ thuộc, biên dịch mã nguồn C++/CUDA và vận hành kết nối trình đào GPU Miner của YonaCode trên hệ điều hành Linux.
 
 ---
 

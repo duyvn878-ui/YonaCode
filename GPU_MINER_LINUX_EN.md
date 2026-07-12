@@ -1,6 +1,6 @@
-# GPU Mining Installation & Run Guide for Linux (Ubuntu/Debian) ⛏️⚡
+# GPU Miner Compilation & Operation Guide for Linux (Ubuntu/Debian) ⛏️⚡
 
-This guide provides step-by-step instructions on setting up the NVIDIA driver, CUDA toolkit, and compiling/running the YonaCode GPU Miner on Linux systems.
+This guide provides step-by-step instructions on installing dependencies, compiling the C++/CUDA source code, and running the YonaCode GPU Miner on Linux systems.
 
 ---
 
