@@ -235,6 +235,7 @@ type RPCServer struct {
 	minerStreamsMu   sync.RWMutex
 	internetAutoPaused bool
 	internetOffline    int32 // 0: Online, 1: Offline
+	lastRejectLogTime  time.Time
 }
 
 type countedMutex struct {
@@ -285,8 +286,8 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		lastWalletUpdate:  time.Time{},
 		senderLocks:       make(map[string]*countedMutex),
 		minerStreams:      make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
-		minerHashrates:    make(map[uint64]uint64),
 		miningDevice:      "cpu",
+		lastRejectLogTime:  time.Time{},
 	}
 
 	// [MATRIX CONNECT] Liên kết CLI App để đồng bộ Intensity
@@ -1179,12 +1180,6 @@ func (s *RPCServer) isMiningAllowed() bool {
 	if mode != "full-mining" {
 		return false
 	}
-
-	// Genesis bootloader: luôn cho phép đào để kích hoạt chuỗi
-	if s.bridge.GetCurrentVersion() == 0 {
-		return true
-	}
-
 	// Đọc số lượng peer hiện tại
 	var peerCount int
 	s.minerStreamsMu.RLock()
@@ -7168,6 +7163,25 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.isMiningAllowed() {
+		// Throttled log một lần mỗi 15 giây để tránh tràn ngập màn hình console
+		s.nodeModeMu.Lock()
+		now := time.Now()
+		if now.Sub(s.lastRejectLogTime) >= 15*time.Second {
+			s.lastRejectLogTime = now
+			s.nodeModeMu.Unlock()
+
+			reason := "Mạng chưa đồng bộ hoặc mất kết nối (Network offline or unsynced)"
+			if s.netMgr != nil && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
+				h, target, state := s.netMgr.SyncEngine.GetSyncProgress()
+				reason = fmt.Sprintf("Mạng chưa đồng bộ hoàn tất (Height: #%d/%d, Trạng thái: %s)", h, target, state)
+			} else if atomic.LoadInt32(&s.internetOffline) == 1 {
+				reason = "Mất kết nối Internet thực tế (Internet connection lost)"
+			}
+			log.Printf("[MINER-GETWORK] ⚠️ Từ chối cấp công việc cho thợ đào (Mining template request rejected): %s", reason)
+		} else {
+			s.nodeModeMu.Unlock()
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -7210,7 +7224,8 @@ func (s *RPCServer) handleMinerSubmitWork(w http.ResponseWriter, r *http.Request
 	}
 
 	if !s.isMiningAllowed() {
-		http.Error(w, "Mining is paused due to network disconnection", http.StatusServiceUnavailable)
+		log.Printf("[MINER-SUBMIT] ❌ Từ chối nhận khối đã giải quyết (Block submission rejected): Mạng chưa đồng bộ hoặc mất kết nối (Network offline or unsynced)")
+		http.Error(w, "Mining is paused due to network disconnection or sync in progress", http.StatusServiceUnavailable)
 		return
 	}
 
