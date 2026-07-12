@@ -39,7 +39,7 @@ The answer is profit and competition. Currently, the competition among altcoins 
 
 ### 3. Long-term Goal: Decentralization (Founder Exit in 6 Months)
 To achieve true decentralization:
-* **Founder Exit:** Mr. Duy will completely step away from the project **6 months** after launch.
+* **Founder Exit:** Mr. Duy will completely step away from the project **6 months** after launch (which can be extended up to a maximum of 2 times).
 * **True Autonomy:** The purpose of this exit is for the project to achieve true decentralization, remaining entirely independent of the founder's influence and avoiding any personal dependence.
 
 ## 🌟 Core Pillars & Philosophy
