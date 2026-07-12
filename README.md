@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/Rust-1.75+-dea584?logo=rust)
 ![License](https://img.shields.io/badge/License-Open_Source-green)
 
-**YonaCode Go** (Ticker: **$YGO / GO**) is not just a new layer-1 blockchain; it is a "Coded Manifesto" for Generation Z. The project is designed to replace (not inherit) the outdated legacy systems, acting as a countervailing power against financial centralization and inflation. Its architecture has been completely built from scratch using **Rust** (Consensus Core) and **Go** (P2P Network).
+**YonaCode Go** (Ticker: **$YGO / GO**) is not just a new layer-1 blockchain; it is a "Coded Manifesto" for Generation Z. The project is explicitly designed to create a new generation of "digital gold"—a pure store of value and speculative instrument, fundamentally different from a transactional currency—acting as a countervailing power against financial centralization and inflation. Its architecture has been completely built from scratch using **Rust** (Consensus Core) and **Go** (P2P Network).
 
 Author / Founder: **Vo Nhat Thien**
 
@@ -23,6 +23,24 @@ Author / Founder: **Vo Nhat Thien**
 > It will be a bit more challenging on Linux—if you are running it headless (without a GUI), you will need to manually point the node to the ledger directory.
 
 ---
+
+## 🎯 Vision & Strategic Positioning
+
+### 1. Competing with Bitcoin Instead of Tech Altcoins (Why We Don't Fight Solana or Sui)
+If it comes to technology, we absolutely cannot compete with projects like Solana or Sui. Since I will have to leave, after the project is decentralized there will be no one to lead it. Therefore, my only path is to compete with Bitcoin. Running after technology requires continuous upgrades, but once I am gone, who will be responsible for upgrading it? Thus, choosing to compete with Bitcoin is the most logical choice. We want to create a new generation of digital gold that functions more clearly as a store of value, positioned to compete with Bitcoin.
+
+### 2. A Pure Tool for Speculation (Why We Need a "New Bitcoin")
+When asked: *"Why do we need a new Bitcoin?"*
+The answer is profit and competition. Currently, the competition among altcoins is too fierce. A "new Bitcoin" can obviously provide a much higher potential profit margin compared to the legacy Bitcoin (which has already grown too large), while avoiding the fierce competition of current altcoins.
+
+> [!WARNING]
+> **RISK WARNING:** We will not make any explicit promises or guarantees about profits—doing so would be deceitful. The risks are always enormous. Participating in this project may very well be a crazy gamble, like throwing money out the window, and becoming one of the most risky speculative ventures in history.
+> However, it cannot be denied that blockchain is the ultimate speculative tool in human history. If only judged by technology and degree of decentralization, how can Bitcoin compare to Monero? Yet Bitcoin remains King because it is the ultimate symbol of global speculative belief. Legacy Bitcoin is already too large to be an attractive speculative asset from an economic perspective, so our project's concept forces us to compete with Bitcoin.
+
+### 3. Long-term Goal: Decentralization (Founder Exit in 6 Months)
+To achieve true decentralization:
+* **Founder Exit:** Mr. Duy will completely step away from the project **6 months** after launch.
+* **True Autonomy:** The purpose of this exit is for the project to achieve true decentralization, remaining entirely independent of the founder's influence and avoiding any personal dependence.
 
 ## 🌟 Core Pillars & Philosophy
 

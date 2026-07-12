@@ -1087,7 +1087,10 @@ func (s *RPCServer) loadNodeConfig() {
 		return
 	}
 	s.cpuIntensity = cfg.CpuIntensity
-	if cfg.MiningDevice != "" {
+	if s.cliApp != nil && s.cliApp.miningDevice != "" {
+		s.miningDevice = s.cliApp.miningDevice
+		log.Printf("[CONFIG] 🛡️ Ghi đè thiết bị đào từ cờ CLI: %s", s.miningDevice)
+	} else if cfg.MiningDevice != "" {
 		s.miningDevice = cfg.MiningDevice
 	} else {
 		s.miningDevice = "cpu"
@@ -7343,10 +7346,15 @@ func (s *RPCServer) checkGpuEnvironment() string {
 	}
 
 	if minerPath == "" {
-		return "❌ Không tìm thấy tệp tin chạy yona_gpu_miner.exe!"
+		return fmt.Sprintf("❌ Không tìm thấy tệp tin chạy %s!", minerBin)
 	}
 
-	// Chạy thử yona_gpu_miner.exe --check để chẩn đoán môi trường
+	// [UNIX-PERMISSION-FIX] Tự động cấp quyền thực thi cho yona_gpu_miner trên hệ điều hành UNIX
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(minerPath, 0755)
+	}
+
+	// Chạy thử yona_gpu_miner --check để chẩn đoán môi trường
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 

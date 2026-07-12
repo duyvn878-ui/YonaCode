@@ -85,6 +85,13 @@ type CLIApp struct {
 
 	walletServerEnabled bool
 	walletToken         string
+	miningDevice        string // "cpu", "gpu", or "hybrid"
+}
+
+func (c *CLIApp) SetMiningDevice(device string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.miningDevice = device
 }
 
 func (c *CLIApp) EnableWalletServer(enabled bool, token string) {
