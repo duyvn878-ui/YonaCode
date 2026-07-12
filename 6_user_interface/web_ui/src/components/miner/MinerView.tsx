@@ -59,12 +59,20 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
   };
 
   const handleDeviceChange = async (device: string) => {
+    // Cập nhật giao diện lập tức
+    setDeviceMode(device);
+    localStorage.setItem('mining_device', device);
     try {
       const res = await api.setMiningDevice(device);
-      setDeviceMode(res.mining_device);
-      localStorage.setItem('mining_device', res.mining_device);
+      if (res.mining_device !== device) {
+        setDeviceMode(res.mining_device);
+        localStorage.setItem('mining_device', res.mining_device);
+      }
       onNotify(`⚡ Đã chuyển sang thiết bị khai thác: ${device.toUpperCase()}`, 'success');
     } catch (e) {
+      // Khôi phục giá trị cũ nếu lỗi
+      const saved = localStorage.getItem('mining_device') || 'cpu';
+      setDeviceMode(saved);
       onNotify(`❌ Lỗi: ${(e as Error).message}`, 'error');
     }
   };
@@ -281,7 +289,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                     <span className="text-[10px] text-white/30 font-black tracking-[0.25em] mb-2 uppercase">BLOCK_REWARD</span>
                     <div className="flex items-baseline gap-1">
                        <span className="text-[20px] text-accent-amber font-black italic shadow-text">
-                         {((status?.block_reward || 0) / 100000000).toLocaleString(undefined, {minimumFractionDigits: 8})}
+                          {(status?.block_reward || 0).toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 8})}
                        </span>
                        <span className="text-xs text-accent-amber font-bold uppercase">GO</span>
                     </div>

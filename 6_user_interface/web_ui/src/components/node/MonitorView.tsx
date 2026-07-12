@@ -386,7 +386,7 @@ const MonitorView: React.FC<MonitorViewProps> = ({ status }) => {
                  </div>
                  <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col gap-1">
                     <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">BLOCK_REWARD</span>
-                    <span className="text-[16px] font-black text-accent-green italic tracking-tighter">{((status.block_reward || 0) / 100000000).toFixed(4)} GO</span>
+                    <span className="text-[16px] font-black text-accent-green italic tracking-tighter">{(status.block_reward || 0).toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 8})} GO</span>
                  </div>
               </div>
            </div>

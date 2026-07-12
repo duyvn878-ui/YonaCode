@@ -59,6 +59,7 @@ func safeSlice8(h []byte) []byte {
 const (
 	HandshakeProtocol = "/btc_gen_z/handshake/1.0.0"
 	SyncProtocol      = "/btc_gen_z/sync/1.0.0"
+	SmartSyncProtocol = "/btc_gen_z/sync/1.1.0"
 	PexProtocol       = "/btc_gen_z/pex/1.0.0"
 	FileChunkProtocol = "/btc_gen_z/file_chunk/1.0"
 	ManifestProtocol  = "/btc_gen_z/manifest/1.0"
@@ -1621,6 +1622,7 @@ func (n *NetworkManager) Bootstrap() error {
 	// [V1.0 FINAL] Đăng ký các trình xử lý giao thức P2P
 	n.Host.SetStreamHandler(HandshakeProtocol, n.HandleHandshake)
 	n.Host.SetStreamHandler(SyncProtocol, n.HandleSyncRequest)
+	n.Host.SetStreamHandler(SmartSyncProtocol, n.HandleSmartSyncRequest)
 
 	// [VANGUARD-REORG-FIX] Kích hoạt trình xử lý Header Sync để tìm điểm rẽ nhánh
 	n.RegisterHeaderSyncHandler()
@@ -2874,6 +2876,155 @@ func (n *NetworkManager) SelectBestPeer(candidates []peer.ID) peer.ID {
 	}
 
 	return candidates[0]
+}
+
+// SmartSyncRequest định nghĩa payload yêu cầu tải thông minh
+type SmartSyncRequest struct {
+	StartHeight uint64 `json:"start_height"`
+	EndHeight   uint64 `json:"end_height"`
+	MaxBytes    uint32 `json:"max_bytes"`
+}
+
+// HandleSmartSyncRequest xử lý yêu cầu đồng bộ khối hàng loạt thông minh (10MB/không giới hạn số block cứng nhắc)
+func (n *NetworkManager) HandleSmartSyncRequest(s network.Stream) {
+	defer s.Close()
+
+	// 1. Đọc yêu cầu JSON từ Stream (tối đa 4KB)
+	decoder := json.NewDecoder(io.LimitReader(s, 4096))
+	var req SmartSyncRequest
+	if err := decoder.Decode(&req); err != nil {
+		log.Printf("[SMART-SYNC-PULL] ❌ Lỗi giải mã yêu cầu JSON từ %s: %v", s.Conn().RemotePeer(), err)
+		return
+	}
+
+	// 2. Thiết lập cấu hình mặc định nếu thiếu hoặc sai lệch
+	if req.MaxBytes == 0 || req.MaxBytes > 15*1024*1024 { // Giới hạn tối đa 15MB cho một lần gộp
+		req.MaxBytes = 10 * 1024 * 1024 // Mặc định 10MB
+	}
+	if req.EndHeight < req.StartHeight {
+		return
+	}
+
+	log.Printf("[SMART-SYNC-PULL] 📡 Nhận yêu cầu tải thông minh từ %s: Từ #%d đến #%d, Dung lượng tối đa: %d MB",
+		s.Conn().RemotePeer().String()[:12], req.StartHeight, req.EndHeight, req.MaxBytes/(1024*1024))
+
+	// 3. Gom các khối thô từ Rust Core cho đến khi vượt quá giới hạn bytes
+	var blocksToGossip [][]byte
+	var accumulatedSize uint32 = 0
+
+	for h := req.StartHeight; h <= req.EndHeight; h++ {
+		blockRaw := n.Bridge.GetBlock(h)
+		if len(blockRaw) == 0 {
+			break // Hết chuỗi canonical cục bộ
+		}
+
+		// Kiểm tra nếu khối tiếp theo làm vượt quá giới hạn bytes
+		blockSize := uint32(len(blockRaw))
+		if accumulatedSize+blockSize > req.MaxBytes {
+			if len(blocksToGossip) == 0 {
+				// Đảm bảo gửi ít nhất 1 khối nếu khối đầu tiên quá to
+				blocksToGossip = append(blocksToGossip, blockRaw)
+				accumulatedSize += blockSize
+			}
+			break
+		}
+
+		blocksToGossip = append(blocksToGossip, blockRaw)
+		accumulatedSize += blockSize
+	}
+
+	log.Printf("[SMART-SYNC-PULL] 📦 Gom thành công %d khối (Tổng dung lượng: %.2f MB) để gửi đi.",
+		len(blocksToGossip), float64(accumulatedSize)/(1024*1024))
+
+	// 4. Viết phản hồi dạng nhị phân hiệu năng cao:
+	// - 4 bytes: Số lượng khối (uint32, BigEndian)
+	// - Lặp qua từng khối:
+	//   - 4 bytes: Kích thước khối (uint32, BigEndian)
+	//   - N bytes: Dữ liệu khối thô
+	s.SetWriteDeadline(time.Now().Add(120 * time.Second))
+
+	var countBuf [4]byte
+	binary.BigEndian.PutUint32(countBuf[:], uint32(len(blocksToGossip)))
+	if _, err := s.Write(countBuf[:]); err != nil {
+		return
+	}
+
+	for _, blockRaw := range blocksToGossip {
+		var sizeBuf [4]byte
+		binary.BigEndian.PutUint32(sizeBuf[:], uint32(len(blockRaw)))
+		if _, err := s.Write(sizeBuf[:]); err != nil {
+			return
+		}
+		if _, err := s.Write(blockRaw); err != nil {
+			return
+		}
+	}
+}
+
+// RequestBlockBatchSmart thực hiện gửi yêu cầu tải thông minh lên Peer mục tiêu
+func (n *NetworkManager) RequestBlockBatchSmart(ctx context.Context, p peer.ID, startHeight, endHeight uint64, maxBytes uint32) ([][]byte, error) {
+	if n.Host == nil {
+		return nil, fmt.Errorf("host is nil (mock environment)")
+	}
+
+	// Kiểm tra xem Peer có thực sự hỗ trợ SmartSyncProtocol
+	protocols, err := n.Host.Peerstore().SupportsProtocols(p, SmartSyncProtocol)
+	if err != nil || len(protocols) == 0 {
+		return nil, fmt.Errorf("protocol not supported by peer %s", p.String()[:12])
+	}
+
+	tCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	s, err := n.Host.NewStream(tCtx, p, SmartSyncProtocol)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+
+	// Gửi yêu cầu JSON
+	req := SmartSyncRequest{
+		StartHeight: startHeight,
+		EndHeight:   endHeight,
+		MaxBytes:    maxBytes,
+	}
+	reqData, _ := json.Marshal(req)
+	if _, err := s.Write(reqData); err != nil {
+		return nil, err
+	}
+	s.CloseWrite()
+
+	s.SetReadDeadline(time.Now().Add(120 * time.Second))
+
+	// Đọc số lượng khối
+	var countBuf [4]byte
+	if _, err := io.ReadFull(s, countBuf[:]); err != nil {
+		return nil, err
+	}
+	numBlocks := binary.BigEndian.Uint32(countBuf[:])
+	if numBlocks == 0 {
+		return nil, nil
+	}
+
+	blocks := make([][]byte, 0, numBlocks)
+	for i := uint32(0); i < numBlocks; i++ {
+		var sizeBuf [4]byte
+		if _, err := io.ReadFull(s, sizeBuf[:]); err != nil {
+			return nil, err
+		}
+		blockSize := binary.BigEndian.Uint32(sizeBuf[:])
+		if blockSize > 36*1024*1024 { // Vượt quá giới hạn khối
+			return nil, fmt.Errorf("block size too large: %d bytes", blockSize)
+		}
+
+		blockRaw := make([]byte, blockSize)
+		if _, err := io.ReadFull(s, blockRaw); err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, blockRaw)
+	}
+
+	return blocks, nil
 }
 
 

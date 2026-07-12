@@ -2272,6 +2272,66 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 
 		// [SYNC-LOOP-CATCHUP] Lặp tải thân khối theo các mẻ 100 khối cho đến khi tải hết toàn bộ chùm 10,000 headers
 		for effectiveForkPoint < highestH {
+			// 1. Thử dùng tính năng tải khối thông minh (Smart P2P Sync) nếu Peer hỗ trợ
+			smartSuccess := false
+			protocols, pErr := s.netManager.Host.Peerstore().SupportsProtocols(targetPeer, SmartSyncProtocol)
+			if pErr == nil && len(protocols) > 0 {
+				log.Printf("[SMART-SYNC] 🧠 Phát hiện Peer %s hỗ trợ SmartSyncProtocol 1.1.0! Tiến hành tải thông minh...", s.shortID(targetPeer))
+				// Tải tối đa toàn bộ chùm còn lại, giới hạn dung lượng 10MB (cho phép sai số 1MB, thiết lập MaxBytes = 10MB)
+				maxSmartBytes := uint32(10 * 1024 * 1024)
+				smartBlocks, err := s.netManager.RequestBlockBatchSmart(s.netManager.Ctx, targetPeer, effectiveForkPoint+1, highestH, maxSmartBytes)
+				if err == nil && len(smartBlocks) > 0 {
+					log.Printf("[SMART-SYNC] 📥 Đã tải thành công %d khối thông minh (từ #%d đến #%d). Đang thẩm định qua Rust Core...", len(smartBlocks), effectiveForkPoint+1, effectiveForkPoint+uint64(len(smartBlocks)))
+					
+					// Thẩm định qua ProcessChain theo từng mẻ nhỏ 10 khối
+					chunkSize := 10
+					var chainErr error
+					var lastResp *pb_block.SyncChainResponse
+					for i := 0; i < len(smartBlocks); i += chunkSize {
+						end := i + chunkSize
+						if end > len(smartBlocks) {
+							end = len(smartBlocks)
+						}
+						chunk := smartBlocks[i:end]
+						resp, err := s.netManager.Bridge.ProcessChain(chunk)
+						if err != nil {
+							chainErr = err
+							break
+						}
+						if resp != nil && (resp.Status == 2 || resp.Status == 4) {
+							lastResp = resp
+							chainErr = fmt.Errorf("ProcessChain failed status %d: %s", resp.Status, resp.ErrorMsg)
+							break
+						}
+						lastResp = resp
+						if resp != nil && resp.Status == 1 {
+							s.mu.Lock()
+							s.currentHeight = resp.NewHeight
+							s.mu.Unlock()
+						}
+					}
+					
+					if chainErr == nil && lastResp != nil && (lastResp.Status == 1 || lastResp.Status == 0) {
+						if lastResp.Status == 1 {
+							log.Printf("[REORG-SUCCESS] 🔄 Reorg thông minh thành công lên cao độ #%d!", lastResp.NewHeight)
+							s.mu.Lock()
+							s.currentHeight = lastResp.NewHeight
+							s.mu.Unlock()
+						}
+						effectiveForkPoint = effectiveForkPoint + uint64(len(smartBlocks))
+						smartSuccess = true
+					} else {
+						log.Printf("[SMART-SYNC] ⚠️ Thẩm định chuỗi thông minh thất bại: %v. Sẽ lùi về tải mẻ 100 cũ.", chainErr)
+					}
+				} else {
+					log.Printf("[SMART-SYNC] ⚠️ Tải mẻ thông minh thất bại hoặc rỗng: %v. Sẽ lùi về tải mẻ 100 cũ.", err)
+				}
+			}
+
+			if smartSuccess {
+				continue
+			}
+
 			// [ANTI-OOM-PATCH] Giới hạn số lượng thân khối (Block Body) tải vào RAM tối đa 100 khối mỗi chu kỳ.
 			// Lý do: Nếu tải toàn bộ 10,000 khối vào RAM cùng một lúc, với kích thước khối từ 5MB - 35MB,
 			// sẽ tiêu tốn hàng chục GB RAM dẫn đến sập (OOM) Node. Giới hạn 100 khối giúp RAM nhẹ nhàng.
