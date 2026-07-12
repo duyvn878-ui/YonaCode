@@ -95,7 +95,7 @@ func main() {
 		p2pPort = availableP2PPort
 	}
 
-	// 5. Decode mining reward address
+	rewardAddrHex = strings.TrimPrefix(strings.TrimSpace(rewardAddrHex), "0x")
 	rewardAddr, _ := hex.DecodeString(rewardAddrHex)
 	if len(rewardAddr) == 0 {
 		rewardAddr = make([]byte, 32)
