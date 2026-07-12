@@ -504,6 +504,9 @@ func (b *Bridge) ensureSclServer(port int) error {
 	}
 
 	args := []string{"--port", fmt.Sprintf("%d", port)}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(serverPath, 0755)
+	}
 	cmd := exec.Command(serverPath, args...)
 
 	log.Printf("[BRIDGE] 🚀 Khởi chạy SCL Server: %s %v", serverPath, args)
@@ -1551,6 +1554,9 @@ func (b *Bridge) StartGenzMiner(grpcPort int) error {
 	fmt.Printf("⚓ [MINER-ANCHOR] Sử dụng Thợ đào độc lập tại: %s\n", minerPath)
 
 	args := []string{"--port", fmt.Sprintf("%d", grpcPort)}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(minerPath, 0755)
+	}
 	cmd := exec.Command(minerPath, args...)
 
 	log.Printf("[BRIDGE] 🚀 Khởi chạy genz_miner: %s %v", minerPath, args)
@@ -1624,6 +1630,9 @@ func (b *Bridge) StartGpuMiner(nodePort int) error {
 	fmt.Printf("⚓ [MINER-ANCHOR] Sử dụng Thợ đào GPU tại: %s\n", minerPath)
 
 	args := []string{"127.0.0.1", fmt.Sprintf("%d", nodePort)}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(minerPath, 0755)
+	}
 	cmd := exec.Command(minerPath, args...)
 
 	log.Printf("[BRIDGE] 🚀 Khởi chạy yona_gpu_miner: %s %v", minerPath, args)

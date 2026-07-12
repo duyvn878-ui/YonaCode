@@ -251,6 +251,7 @@ var nodeStartCmd = &cobra.Command{
 
 		disableMdns, _ := cmd.Flags().GetBool("disable-mdns")
 		mining, _ := cmd.Flags().GetBool("mining")
+		miningDevice, _ := cmd.Flags().GetString("mining-device")
 		syncMode, _ := cmd.Flags().GetString("sync-mode")
 		writeLog, _ := cmd.Flags().GetBool("write-log")
 		walletServer, _ := cmd.Flags().GetBool("wallet-server")
@@ -289,6 +290,13 @@ var nodeStartCmd = &cobra.Command{
 		}
 
 		app := user_interface.NewCLIApp(dbPath, rewardAddr, minerKey, sclPort)
+		if miningDevice != "" {
+			miningDevice = strings.ToLower(strings.TrimSpace(miningDevice))
+			if miningDevice != "cpu" && miningDevice != "gpu" && miningDevice != "hybrid" {
+				log.Fatalf("❌ Lỗi: Thiết bị đào không hợp lệ '%s'. Chỉ chấp nhận: cpu, gpu, hybrid", miningDevice)
+			}
+			app.SetMiningDevice(miningDevice)
+		}
 		app.EnableWalletServer(walletServer, walletToken)
 
 		// [VANGUARD-CONTROL] Thiết lập chế độ Node dựa trên cờ lệnh
@@ -699,6 +707,7 @@ func init() {
 	nodeStartCmd.Flags().Int("p2p-port", 9000, "Cổng mạng P2P")
 	nodeStartCmd.Flags().Bool("disable-mdns", false, "Vô hiệu hóa khám phá nội bộ mDNS")
 	nodeStartCmd.Flags().Bool("mining", false, "Kích hoạt thợ đào (Mặc định là TẮT)")
+	nodeStartCmd.Flags().String("mining-device", "cpu", "Thiết bị khai thác: cpu, gpu, hoặc hybrid")
 	nodeStartCmd.Flags().String("sync-mode", "full", "Chế độ đồng bộ: 'full' hoặc 'snap'")
 	nodeStartCmd.Flags().Bool("write-log", false, "Kích hoạt ghi log vật lý ra file đĩa cứng")
 	nodeStartCmd.Flags().Int("max-tx-per-block", 1000, "Giới hạn số giao dịch tối đa được phép đóng gói vào mỗi khối")

@@ -39,6 +39,7 @@ var (
 	syncMode    string
 	rewardAddrHex string
 	minerPIN    string
+	miningDevice string
 )
 
 func main() {
@@ -49,6 +50,7 @@ func main() {
 	flag.StringVar(&dbPath, "db-path", "node", "Database Directory Path")
 	flag.StringVar(&peersStr, "peers", "", "Comma-separated initial peer addresses")
 	flag.BoolVar(&mining, "mining", false, "Enable mining (PoW)")
+	flag.StringVar(&miningDevice, "mining-device", "cpu", "Mining device: 'cpu', 'gpu', or 'hybrid'")
 	flag.StringVar(&syncMode, "sync-mode", "snap", "Sync mode: 'snap' or 'full'")
 	flag.StringVar(&rewardAddrHex, "reward-address", "0000000000000000000000000000000000000000000000000000000000000000", "Mining reward recipient address")
 	flag.StringVar(&minerPIN, "miner-pin", "", "Wallet PIN/Password for mining key decryption")
@@ -122,6 +124,13 @@ func main() {
 		app.SetNodeMode("full-mining")
 	} else {
 		app.SetNodeMode("verify-only")
+	}
+	if miningDevice != "" {
+		miningDevice = strings.ToLower(strings.TrimSpace(miningDevice))
+		if miningDevice != "cpu" && miningDevice != "gpu" && miningDevice != "hybrid" {
+			log.Fatalf("❌ Lỗi: Thiết bị đào không hợp lệ '%s'. Chỉ chấp nhận: cpu, gpu, hybrid", miningDevice)
+		}
+		app.SetMiningDevice(miningDevice)
 	}
 	app.SetSyncMode(syncMode)
 

@@ -12,7 +12,8 @@ echo [BUILD] 2. Dang bien dich Rust Core (DLL, scl_server, genz_miner)...
 echo ===================================================
 cd 0_shared_lib
 set RUSTFLAGS=-C target-feature=+crt-static
-cargo build --release --lib --bin scl_server --bin genz_miner
+set CARGO_TARGET_DIR=d:\hanhtrinhhocta-p\sssd\target_win
+cargo build -j 1 --release --lib --bin scl_server --bin genz_miner
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Cargo build that bai!
     exit /b %ERRORLEVEL%
@@ -22,9 +23,9 @@ cd ..
 echo ===================================================
 echo [BUILD] 3. Copy file Rust vao bin...
 echo ===================================================
-copy /Y 0_shared_lib\target\release\scl_server.exe bin\scl_server.exe
-copy /Y 0_shared_lib\target\release\genz_miner.exe bin\genz_miner.exe
-copy /Y 0_shared_lib\target\release\btc_genz_scl.dll bin\btc_genz_scl.dll
+copy /Y d:\hanhtrinhhocta-p\sssd\target_win\release\scl_server.exe bin\scl_server.exe
+copy /Y d:\hanhtrinhhocta-p\sssd\target_win\release\genz_miner.exe bin\genz_miner.exe
+copy /Y d:\hanhtrinhhocta-p\sssd\target_win\release\btc_genz_scl.dll bin\btc_genz_scl.dll
 
 echo ===================================================
 echo [BUILD] 4. Bien dich Go Core (YonaCode.exe)...
