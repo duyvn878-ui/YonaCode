@@ -2,6 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/fatih/color"
 	"btc_genz/6_user_interface/i18n"
@@ -19,12 +25,52 @@ var miningStartCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		addr, _ := cmd.Flags().GetString("reward-address")
 		threads, _ := cmd.Flags().GetInt("threads")
+		device, _ := cmd.Flags().GetString("mining-device")
+		
 		color.Green("⛏️ " + i18n.T("mining_start"))
-		fmt.Printf("   Address: %s | Threads: %d\n", addr, threads)
+		fmt.Printf("   Address: %s | Threads: %d | Device: %s\n", addr, threads, device)
 
 		if client == nil {
 			color.Red("❌ Error: Không thể kết nối tới Node gRPC (Client nil)")
 			return
+		}
+
+		// Đồng bộ thiết bị đào (mining-device) tới Node qua HTTP API
+		if device != "" {
+			device = strings.ToLower(strings.TrimSpace(device))
+			if device == "cpu" || device == "gpu" || device == "hybrid" {
+				parts := strings.Split(nodeAddr, ":")
+				host := "127.0.0.1"
+				grpcPort := 18080
+				if len(parts) > 0 && parts[0] != "" {
+					host = parts[0]
+				}
+				if len(parts) > 1 {
+					fmt.Sscanf(parts[1], "%d", &grpcPort)
+				}
+				httpPort := grpcPort - 10000
+
+				url := fmt.Sprintf("http://%s:%d/api/v1/node/mining-device", host, httpPort)
+				payload := fmt.Sprintf(`{"device":"%s"}`, device)
+				
+				reqHttp, err := http.NewRequest("POST", url, strings.NewReader(payload))
+				if err == nil {
+					reqHttp.Header.Set("Content-Type", "application/json")
+					tokenFile := filepath.Join(dbPath, ".auth_token")
+					if data, err := os.ReadFile(tokenFile); err == nil {
+						reqHttp.Header.Set("x-auth-token", strings.TrimSpace(string(data)))
+					}
+
+					clientHttp := &http.Client{Timeout: 5 * time.Second}
+					respHttp, err := clientHttp.Do(reqHttp)
+					if err == nil {
+						respHttp.Body.Close()
+						fmt.Printf("   [CONFIG] Đã đồng bộ thiết bị đào '%s' sang Node chính.\n", device)
+					} else {
+						fmt.Printf("   ⚠️ Không thể đồng bộ thiết bị đào sang Node: %v\n", err)
+					}
+				}
+			}
 		}
 
 		_, err := client.StartMining(cmd.Context(), &pb_block.StartMiningRequest{
@@ -86,4 +132,5 @@ func init() {
 	
 	miningStartCmd.Flags().String("reward-address", "", "Địa chỉ nhận phần thưởng khối")
 	miningStartCmd.Flags().Int("threads", 4, "Số luồng CPU sử dụng")
+	miningStartCmd.Flags().String("mining-device", "cpu", "Thiết bị khai thác: cpu, gpu, hoặc hybrid")
 }
