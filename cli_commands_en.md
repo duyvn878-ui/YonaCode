@@ -28,7 +28,8 @@ Used to launch, monitor state, connect to peers, and perform offline recovery ta
 ```
 * **Description:** Launch the Node Server. If port configurations are omitted, the Node automatically scans and binds to available TCP ports.
 * **Supported Flags:**
-  * `--mining`: Automatically start CPU mining loop when node starts.
+  * `--mining`: Automatically start mining loop when node starts.
+  * `--mining-device`: Mining device to use: `cpu` (default), `gpu` (NVIDIA GPU only), or `hybrid` (combines both CPU and GPU).
   * `--reward-address`: Wallet address to receive block rewards (Coinbase).
   * `--port`: HTTP port for running the Dashboard / Web UI.
   * `--p2p-port`: Listening port for horizontal peer-to-peer connections.
