@@ -160,6 +160,28 @@ Nhóm lệnh điều khiển động cơ băm Proof of Work (PoW) trực tiếp 
 ```
 * **Chức năng:** Kiểm tra xem thợ đào đang ở trạng thái chạy (`ACTIVE`) hay tạm dừng (`PAUSED`), đồng thời hiển thị tốc độ băm thời gian thực (Hashrate: KH/s hoặc MH/s).
 
+### ⛏️ Các trình đào độc lập (Standalone Miners)
+Bên cạnh việc ra lệnh đào qua CLI của Node, bạn có thể chạy trực tiếp các tệp thực thi thợ đào độc lập để kết nối và đóng góp năng lực băm cho Node chính:
+
+#### 💻 1. Trình đào CPU độc lập (`genz_miner`)
+* **Cách khởi chạy:**
+  ```bash
+  ./genz_miner --port <cổng_scl_của_node>
+  ```
+  *(Cổng SCL mặc định là cổng RPC + 42000, ví dụ nếu RPC port là 8080 thì cổng SCL kết nối là 50080)*
+
+#### ⚡ 2. Trình đào GPU độc lập (`yona_gpu_miner`)
+*Chú ý: Chỉ hỗ trợ card đồ họa NVIDIA tương thích CUDA.*
+* **Kiểm tra tương thích CUDA:**
+  ```bash
+  ./yona_gpu_miner --check
+  ```
+* **Cách khởi chạy:**
+  ```bash
+  ./yona_gpu_miner [địa_chỉ_ip_node] [cổng_rpc_node]
+  ```
+  *(Ví dụ kết nối tới Node chạy ở local: `./yona_gpu_miner 127.0.0.1 8080`)*
+
 ---
 
 ## 🔍 4. NHÓM LỆNH TRUY VẤN SỔ CÁI (`yonacode query`)
