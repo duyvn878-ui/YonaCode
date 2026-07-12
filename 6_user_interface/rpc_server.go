@@ -4885,10 +4885,17 @@ func (s *RPCServer) handleMinerToggle(w http.ResponseWriter, r *http.Request) {
 
 	paused := s.bridge.IsMiningPaused()
 	if paused {
-		// [WARNING-ONLY] Thay thế chặn cứng bằng ghi nhận log cảnh báo an ninh đồng bộ theo yêu cầu người dùng
+		// [VANGUARD-SYNC-BLOCK] Chặn cứng không cho phép bật đào khi chưa đồng bộ hoàn tất
 		peerCount := s.netMgr.GetPeerCount()
 		if peerCount > 0 && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
-			log.Printf("[MINER-WARN] ⚠️ CẢNH BÁO AN NINH: Bật đào khi chưa hoàn thành đồng bộ mạng lưới! Có nguy cơ bị fork và ban.")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":     "Error",
+				"message":    "Hệ thống chưa đồng bộ xong. Vui lòng đợi đồng bộ hoàn tất trước khi bật đào!",
+				"error_code": "MINER_BLOCKED_SYNC",
+			})
+			return
 		}
 
 		// [V2.0 SAFETY] Kiểm tra ví đào hợp lệ trước khi bật

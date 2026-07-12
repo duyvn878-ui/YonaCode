@@ -2270,10 +2270,12 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 			effectiveForkPoint = actualH
 		}
 
-		// [ANTI-OOM-PATCH] Giới hạn số lượng thân khối (Block Body) tải vào RAM tối đa 100 khối mỗi chu kỳ.
-		// Lý do: Nếu tải toàn bộ 10,000 khối vào RAM cùng một lúc, với kích thước khối từ 5MB - 35MB,
-		// sẽ tiêu tốn hàng chục GB RAM dẫn đến sập (OOM) Node. Giới hạn 100 khối giúp RAM nhẹ nhàng.
-		limitH := highestH
+		// [SYNC-LOOP-CATCHUP] Lặp tải thân khối theo các mẻ 100 khối cho đến khi tải hết toàn bộ chùm 10,000 headers
+		for effectiveForkPoint < highestH {
+			// [ANTI-OOM-PATCH] Giới hạn số lượng thân khối (Block Body) tải vào RAM tối đa 100 khối mỗi chu kỳ.
+			// Lý do: Nếu tải toàn bộ 10,000 khối vào RAM cùng một lúc, với kích thước khối từ 5MB - 35MB,
+			// sẽ tiêu tốn hàng chục GB RAM dẫn đến sập (OOM) Node. Giới hạn 100 khối giúp RAM nhẹ nhàng.
+			limitH := highestH
 		if limitH > effectiveForkPoint+100 {
 			limitH = effectiveForkPoint + 100
 			log.Printf("[ANTI-OOM-PATCH] 🛡️ Giới hạn tải thân khối tối đa 100 khối từ #%d đến #%d (Cắt giảm từ mốc gốc #%d để bảo vệ RAM).", effectiveForkPoint+1, limitH, highestH)
@@ -2507,7 +2509,10 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 			}
 		}
 
-	} else if evalResp.Status == 4 { // INTERNAL_ERROR
+		// Cập nhật điểm tiếp theo để loop tải tiếp
+		effectiveForkPoint = limitH
+	}
+} else if evalResp.Status == 4 { // INTERNAL_ERROR
 		log.Printf("[SYNC-ERROR] 🛑 DB nội bộ bị lỗi/hỏng khi thẩm định chuỗi từ Peer %s: %s. KHÔNG BAN PEER!", s.shortID(targetPeer), evalResp.ErrorMsg)
 	} else if evalResp.Status == 2 { // INVALID
 		if strings.Contains(evalResp.ErrorMsg, "ERR_IMMUTABLE_FIREWALL_VIOLATION") || strings.Contains(evalResp.ErrorMsg, "vi phạm") || strings.Contains(evalResp.ErrorMsg, "FIREWALL") {

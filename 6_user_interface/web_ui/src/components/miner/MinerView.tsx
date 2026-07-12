@@ -190,10 +190,10 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
            </div>
 
            <button 
-             onClick={(!isStopping && gracePeriodRemaining === 0) ? handleToggleMiner : undefined}
+             onClick={(!isStopping && gracePeriodRemaining === 0 && status?.sync.state !== 'SYNCING' && status?.sync.state !== 'BOOTSTRAPPING') ? handleToggleMiner : undefined}
              className={`w-full py-4 px-6 rounded-xl font-black tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-3 relative overflow-hidden group
-               ${(isStopping || gracePeriodRemaining > 0)
-                 ? 'bg-white/5 border border-white/10 cursor-wait opacity-60 text-white/40' 
+               ${(isStopping || gracePeriodRemaining > 0 || status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING')
+                 ? 'bg-white/5 border border-white/10 cursor-not-allowed opacity-60 text-white/40' 
                  : (isMining 
                    ? 'bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.1)] cursor-pointer' 
                    : 'bg-accent-green/10 border border-accent-green/30 hover:bg-accent-green/20 text-accent-green shadow-[0_0_20px_rgba(0,242,148,0.1)] cursor-pointer')}`}
@@ -206,10 +206,17 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                      <span>SCANNING NETWORK...</span>
                    </>
                  ) : (
-                   <>
-                     <Pickaxe size={14} className={isStopping ? 'animate-spin' : ''} />
-                     <span>{isStopping ? 'STOPPING...' : (isMining ? t.mining_stop_btn : t.mining_start_btn)}</span>
-                   </>
+                   (status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') ? (
+                     <>
+                       <Activity size={14} className="animate-spin" />
+                       <span>{t.mining_blocked_sync?.toUpperCase() || "SYNCING..."}</span>
+                     </>
+                   ) : (
+                     <>
+                       <Pickaxe size={14} className={isStopping ? 'animate-spin' : ''} />
+                       <span>{isStopping ? 'STOPPING...' : (isMining ? t.mining_stop_btn : t.mining_start_btn)}</span>
+                     </>
+                   )
                  )}
               </span>
            </button>
