@@ -115,7 +115,11 @@ A deliberate attack is defined by its nature: mobilizing a massive amount of hid
 ```
 
 1. **Layer 1: Economic Deterrence (Protocol Level):** Enforced automatically by the protocol code (the Constitution). The dynamic 10x segment energy filter forces attackers to buy and run 10 times the hardware of the rest of the network without receiving public block rewards, ensuring economic bankruptcy before they can modify the ledger.
-2. **Layer 2: Social Contract (Consensus Level):** In the extreme event of a massive, hostile double-spend attack, the community and developers will invoke social consensus to coordinate a Hard Fork to isolate and discard the attacker's chain. The network will reject the malicious fork and retain the original public chain. When the attacker's chain is priced at zero, their investment in electricity and hardware is completely lost, ensuring 100% economic destruction for the attacker while keeping honest user assets fully preserved.
+2. **Layer 2: Social Contract (Consensus Level):** In the extreme event of a massive, hostile double-spend attack, the community and developers will invoke social consensus to coordinate a Hard Fork to isolate and discard the attacker's chain. The network will reject the malicious branch and retain the original public chain. When the attacker's chain value is zero, their investment in electricity and hardware will be completely lost, ensuring 100% economic destruction for the attacker while keeping honest user assets fully preserved.
+
+> **MAD IMMUTABILITY MANIFESTO:**
+> We declare that we DO NOT ACCEPT any history reversal attacks, even if such an extreme hashrate violence scenario actually occurs in practice. To protect the absolute immutability of the system, if a fork attack deliberately performs double-spending, the community and developers will actively intervene through social consensus to implement a Hard Fork to isolate and reverse the attacker's chain.
+> The entire network will flatly reject that malicious alternative chain, keeping the original public chain intact to protect the immutability of transactions and the assets of legitimate users.
 
 👉 **Note**: To quickly review technical counterarguments or deep dives into the network split paradox and Game Theory, please refer to our Whitepaper or drop your questions right below in the comment section!
 
