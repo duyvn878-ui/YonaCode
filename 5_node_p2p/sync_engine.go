@@ -1,13 +1,13 @@
 /**
  * @file sync_engine.go
  * @brief Cơ chế đồng bộ hóa blockchain cho YonaCode (YonaCode Security Sync Engine).
- * @details Thực thi Đồng thuận Vô Nhật Thiên (No-Day-Sky Consensus) với cơ chế phòng thủ nâng cấp:
- *  - 5 khối đỉnh (Flexible Zone): Cho phép Reorg theo Nakamoto Consensus.
- *  - Vùng Đá Tảng (Boulder Zone): Tường lửa Bất biến, cấm tuyệt đối ghi đè lịch sử.
- *  - Đồng bộ mồ côi nâng cấp: Đồng bộ chùm đồng bộ chùm dây chuyền (Recursive Debt Collection) cho cả Sync và Gossip.
+ * @details Thực thi Giao thức Đồng thuận Võ Nhật Thiên (VNT Consensus 2.0) với cơ chế phòng thủ nâng cấp:
+ *  - Phân tầng Sổ cái: Vùng Đá Tảng (Boulder Zone) và Vùng Linh Hoạt (Flexible Zone) lùi 5 khối đỉnh.
+ *  - Tường lửa Bất biến: Ngăn chặn Reorg sâu tại Boulder Zone bằng Trọng tài Năng lượng x10.
+ *  - Đồng bộ mồ côi nâng cấp: Đồng bộ chùm dây chuyền (Recursive Debt Collection) cho cả Sync và Gossip.
  *
- * @author  & Vô Nhật Thiên - YonaCode V1.1 Security
- * @date 2026-05-18
+ * @author Võ Nhật Thiên & Cộng sự - YonaCode V2.0 Security
+ * @date 2026-07-13
  */
 
 package node_p2p
