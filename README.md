@@ -46,17 +46,79 @@ To achieve true decentralization:
 
 YonaCode resolves the fatal flaws of traditional consensus mechanisms through proprietary and revolutionary technologies:
 
-### 🛡️ 1. VNT Consensus: True Immutability Guided by the "Invisible Hand"
-At its core, VNT Consensus is not a new cryptographic algorithm, but a philosophical breakthrough: embedding an economic theory (The Invisible Hand) directly into the consensus rules of the Code. This enables a PoW system to achieve "true immutability" without relying on the massive, tyrannical energy consumption (Hashrate) typical of legacy systems.
+### 🛡️ 1. Vo Nhat Thien Consensus Protocol (VNT Consensus 2.0)
+The Vo Nhat Thien Consensus Protocol (VNT Consensus 2.0) is the core architecture governing the macro network of YonaCode ($YGO$). It is a layered consensus system that uses dynamic mathematics to completely resolve P2P infrastructural vulnerability. The ultimate goal of VNT Consensus is not to establish a rigid set of locking rules, but to achieve a supreme form of security through fragmented Proof-of-Work energy combined with social intent: **MAD Immutability**.
 
-* **Market as the Arbiter, Not the Code**: Legacy systems utilize automated algorithms to wipe out the assets of a weaker fork during macroeconomic disruptions (such as undersea fiber-optic cable cuts that split the network). YonaCode does not allow machines to make such executive decisions. The determination of the "canonical chain" is left to the "Invisible Hand"—meaning the recognition and valuation by the Community, Miners, and Capital Inflow.
-* **Absolute Asset Preservation**: User assets remain intact across parallel forks; no one loses their funds unjustly due to a cold, emotionless line of code.
-* **5-Block Firewall & Ultra-Low Activation Rate**: To allow the Invisible Hand to operate safely, the system uses mathematics to hard-lock all transactions that are deeper than 5 blocks (~6 minutes). No matter how massive, malicious hashrate cannot rewrite finalized history.
-* **Proven by Empirical Data**: The probability of the network needing to rely on the Invisible Hand is extremely low. Over 10 years of operational history from high-speed PoW networks (like Dogecoin with a 60s block time) shows that natural forks caused by network latency only go 1 to 2 blocks deep. A natural fork exceeding 5 blocks is practically impossible (0%).
+#### A. Layered Ledger Architecture and Dynamic Checkpoint Boundary
+At each independently running node in the network, the ledger state is continuously split into two logical partitions based on the node's current block height $N$ and the dynamic Checkpoint boundary rule:
 
-Therefore, the 5-block rule acts as a redundant safety buffer. The Invisible Hand is essentially an "Emergency Evacuation Protocol," invoked only during Black Swan disasters (such as a global internet blackout). Machines handle short-term deviations, while major crises are left to the free market.
+$$\text{Checkpoint} = N - 5$$
+
+```
+    [BOULDER ZONE - IMMUTABLE]      |     [FLEXIBLE ZONE - POW CONVERGENCE]
+... --- 44 --- 45 ------------------|--- 46 --- 47 --- 48 --- 49 --- 50 (Tip N)
+               ^                    |
+        Checkpoint (N-5)            |
+```
+
+* **Flexible Zone ($\le 5$ blocks from the tip):** From block $N-4$ to the current tip $N$. This acts as a short-range buffer for natural network convergence. Any micro-forks resulting from physical network latency (a few seconds) between honest miners are resolved using traditional Proof-of-Work rules ($\times 1$). The chain with the highest accumulated cumulative difficulty ($U256$) wins. Empirical data shows natural forks only go 1 to 2 blocks deep.
+* **Boulder Zone ($> 5$ blocks from the tip):** From block $N-5$ backward to the Genesis block. This region is frozen under normal operation. Here, VNT Consensus implements a dynamic energy arbiter filter called the **Invisible Hand** to regulate chain reorganization and defense.
+
+#### B. Dynamic Fork Resolution and the $\times 10$ Energy Filter
+When a node receives an alternative chain structure via GossipSub, it performs the **LCA (Lowest Common Ancestor)** algorithm to find the last common block hash between the local chain and the incoming chain.
+
+If $\text{Fork\_Point} < \text{Checkpoint}$ (a deep reorg attempting to alter the Boulder Zone), the **Fragmented Energy Arbitration Process** is triggered. The node isolates and measures the accumulated difficulty since the block immediately following the common ancestor ($\text{LCA} + 1$) to the respective tip of each branch:
+
+$$\text{Work}_{\text{New\_Fork}} \ge 10 \times \text{Work}_{\text{Current\_Branch}}$$
+
+Where:
+* $\text{Work}_{\text{Current\_Branch}}$: Cumulative difficulty ($U256$) from block $\text{LCA}+1$ to the current local tip $N$.
+* $\text{Work}_{\text{New\_Fork}}$: Cumulative difficulty ($U256$) from block $\text{LCA}+1$ to the incoming branch tip $M$.
+
+* **Scenario 1: Auto-Healing for Isolated Nodes:** If a VPS node is isolated due to local network failure, it might mine a few weak blocks locally. When connection is restored and the global main chain (mined by the entire world's hashrate) arrives, its energy exceeds the isolated node's local work by thousands of times, easily satisfying the $\times 10$ threshold. The system recognizes this as an honest but disconnected node, temporarily opens the firewall, wipes the local invalid blocks since $\text{LCA}+1$, and executes `forced_state_sync()` to merge the node into the main chain instantly.
+* **Scenario 2: Thwarting Malicious Reorgs and Spam:** If a malicious peer transmits a weak attacker fork or spam chain, it cannot meet the 10x segment energy multiplier. The firewall remains locked, the data is discarded, a `GOSSIP_OLD_BLOCK_ATTEMPT` audit log is recorded, and the peer is banned.
+
+#### C. Mathematical Proof: Invalidation of the 51% Attack
+VNT Consensus mathematically guarantees that an attacker possessing 51% hashrate is powerless to silently mine a longer chain and rewrite history.
+
+In traditional Nakamoto Consensus, the network views the chain statically, allowing a 51% attacker mining in secret to eventually reveal a longer chain and replace the public history. In VNT Consensus, the honest network is dynamic, continuously accumulating difficulty.
+
+Suppose the public honest network runs at hashrate $H = 49\%$, and the attacker mines in secret with hashrate $X = 51\%$. The ratio of the attacker's accumulated energy to the honest network's energy over elapsed time $T$ is:
+
+$$\frac{X}{H} = \frac{51\%}{49\%} \approx 1.04 \text{ times}$$
+
+To break the Boulder Zone firewall, the attacker's hidden fork must accumulate at least 10 times the energy of the honest chain segment:
+
+$$\text{Work}_{\text{Fork}} \ge 10 \times \text{Work}_{\text{Honest}}$$
+$$51 \times T \ge 10 \times (49 \times T)$$
+$$51 \times T \ge 490 \times T$$
+
+This inequality has **no solution** for any $T > 0$. Because the honest network continues to actively build on the public chain, the energy ratio of the attacker's branch to the honest branch is bound at $\approx 1.04$ times. No matter how many hours or days the attacker mines, their hidden chain will be instantly rejected by the firewall because its energy cannot scale to 10 times that of the honest segment.
+
+**Hardware Barrier:** To execute an instantaneous attack, an attacker must control at least $\ge 90.9\%$ of the global hashrate (adding 10 times the current network hashrate in hardware).
+
+#### D. MAD Immutability and the Social Contract
+Through these mathematical filters, YonaCode establishes a supreme security state: **MAD Immutability (Mutually Assured Destruction)**.
+
+A deliberate attack is defined by its nature: mobilizing a massive amount of hidden hashrate to mine in secret to perform a double-spend. The network employs a dual-layered deterrence model to protect the ledger:
+
+```
+                  [ VNT CONSENSUS: DUAL-LAYER MAD DETERRENCE ]
+                                       |
+          +----------------------------+----------------------------+
+          |                                                         |
+[ LAYER 1: ECONOMIC DETERRENCE ]                         [ LAYER 2: SOCIAL CONTRACT ]
+  (Automated by Protocol Code)                             (Executed by Human Intent)
+   - Dynamic 10x energy filter.                             - Absolute refusal of reorg attacks.
+   - Enforces >= 90.9% hashrate barrier.                    - Double-spend attempt = Hard Fork.
+   - Bankrupts attacker economically.                       - Attacker chain value set to zero.
+```
+
+1. **Layer 1: Economic Deterrence (Protocol Level):** Enforced automatically by the protocol code (the Constitution). The dynamic 10x segment energy filter forces attackers to buy and run 10 times the hardware of the rest of the network without receiving public block rewards, ensuring economic bankruptcy before they can modify the ledger.
+2. **Layer 2: Social Contract (Consensus Level):** In the extreme event of a massive, hostile double-spend attack, the community and developers will invoke social consensus to coordinate a Hard Fork to isolate and discard the attacker's chain. The network will reject the malicious fork and retain the original public chain. When the attacker's chain is priced at zero, their investment in electricity and hardware is completely lost, ensuring 100% economic destruction for the attacker while keeping honest user assets fully preserved.
 
 👉 **Note**: To quickly review technical counterarguments or deep dives into the network split paradox and Game Theory, please refer to our Whitepaper or drop your questions right below in the comment section!
+
 
 ### ⚡ 2. Ultralight Architecture (48H Great Purge)
 Automatically deletes detailed Block Body data after 48 hours. Only Block Headers and State Roots are retained. Running a Full Node is now a basic right for everyone using a standard personal computer hard drive.
