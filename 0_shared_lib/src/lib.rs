@@ -192,6 +192,8 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
     let mut history_diffs = Vec::new();
     let mut current_weight = U256::zero();
     let mut fork_point = 0;
+    let mut is_deep_reorg = false;
+    let mut current_weight_at_fork = U256::zero();
 
     if is_bootstrap {
         // [BOOTSTRAP MODE] Bắt đầu từ Genesis
@@ -227,17 +229,6 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
 
         let stored_parent_header_raw = mgr.get_header_raw(&parent_hash_arr);
         if stored_parent_header_raw.is_none() {
-            let parent_height = first_header.height - 1;
-            let finalized_h = mgr.get_finalized_height();
-            // Đã sửa thành `<`: Cho phép rẽ nhánh có chung gốc chính xác tại khối Finalized
-            if parent_height < finalized_h { 
-                log::error!("[CONSENSUS-SECURITY] 🚨 Điểm rẽ nhánh của chuỗi tại cao độ #{} vi phạm Tường lửa Bất biến (Nằm sâu dưới vùng chốt #{})!", parent_height, finalized_h);
-                return EvaluateHeaderChainResponse {
-                    status: 2,
-                    fork_point: 0,
-                    error_msg: format!("ERR_IMMUTABLE_FIREWALL_VIOLATION: Điểm rẽ nhánh tại #{} nằm sâu dưới mốc bất biến #{}!", parent_height, finalized_h),
-                };
-            }
             return EvaluateHeaderChainResponse { status: 2, fork_point: 0, error_msg: "Không tìm thấy điểm rẽ nhánh trong DB".into() };
         }
         
@@ -261,6 +252,7 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
             weight_padded[..w_len].copy_from_slice(&stored_parent_header.absolute_weight[..w_len]);
         }
         current_weight = U256::from_little_endian(&weight_padded);
+        current_weight_at_fork = current_weight;
         fork_point = first_header.height - 1;
 
         // Tải cửa sổ LWMA từ DB (Cần n+1 timestamps và n difficulties cho khối h.height)
@@ -334,13 +326,8 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
             if stored_hash == header_hash {
                 is_matched = true;
             } else if h.height <= finalized_h {
-                // [ANTI-BYPASS] Trực tiếp chặn đứng nỗ lực thay đổi chuỗi tại hoặc trước finalized height
-                log::error!("[CONSENSUS-SECURITY] 🚨 Phát hiện chuỗi rẽ nhánh vi phạm Tường lửa Bất biến tại #{}!", h.height);
-                return EvaluateHeaderChainResponse {
-                    status: 2,
-                    fork_point: 0,
-                    error_msg: format!("ERR_IMMUTABLE_FIREWALL_VIOLATION: Chuỗi header tại cao độ #{} vi phạm khối đã finalize!", h.height),
-                };
+                log::warn!("[VNT-CONSENSUS] ⚠️ Phát hiện rẽ nhánh sâu tại #{} (Tường lửa: #{}). Ghi nhận chờ Trọng tài Năng lượng phân xử.", h.height, finalized_h);
+                is_deep_reorg = true;
             }
         }
 
@@ -355,6 +342,7 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
                         weight_padded[..w_len].copy_from_slice(&stored_h.absolute_weight[..w_len]);
                     }
                     current_weight = U256::from_little_endian(&weight_padded);
+                    current_weight_at_fork = current_weight;
                 }
             }
             
@@ -508,6 +496,7 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
         EvaluateHeaderChainResponse { status: 0, fork_point: 0, error_msg: "".into() }
     } else {
         let current_tip_height = mgr.get_current_version();
+        let mut current_tip_weight = U256::zero();
         if let Some(tip_hash) = mgr.get_block_hash(current_tip_height) {
             if let Some(tip_raw) = mgr.get_header_raw(&tip_hash) {
                 if let Ok(tip_h) = BlockHeader::decode(&tip_raw[..]) {
@@ -517,14 +506,44 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
                     if w_len > 0 {
                         weight_padded[..w_len].copy_from_slice(&tip_h.absolute_weight[..w_len]);
                     }
-                    let current_tip_weight = U256::from_little_endian(&weight_padded);
-                    if current_weight > current_tip_weight {
-                        return EvaluateHeaderChainResponse { status: 0, fork_point, error_msg: "".into() };
-                    }
+                    current_tip_weight = U256::from_little_endian(&weight_padded);
                 }
             }
         }
-        EvaluateHeaderChainResponse { status: 1, fork_point, error_msg: "Nhẹ hơn hoặc bằng".into() }
+
+        if is_deep_reorg {
+            // BƯỚC 3: TÍNH TOÁN NĂNG LƯỢNG PHÂN ĐOẠN TRANH CHẤP
+            let local_segment_weight = current_tip_weight.saturating_sub(current_weight_at_fork);
+            let new_segment_weight = current_weight.saturating_sub(current_weight_at_fork);
+            let required_weight = local_segment_weight.saturating_mul(U256::from(10u64));
+
+            log::info!("[VNT-CONSENSUS] ⚖️ Phân đoạn rẽ nhánh sâu (Header): Cục bộ = {}, Mạng = {}, Yêu cầu x10 = {}", local_segment_weight, new_segment_weight, required_weight);
+
+            if new_segment_weight >= required_weight {
+                log::warn!("[INVISIBLE-HAND] ✋ BÀN TAY VÔ HÌNH (Header): Cho phép thông hành chuỗi mới (>= 10x).");
+                EvaluateHeaderChainResponse { status: 0, fork_point, error_msg: "".into() }
+            } else if new_segment_weight >= local_segment_weight {
+                log::warn!("[VNT-CONSENSUS] ⚠️ Chuỗi rẽ nhánh sâu có năng lượng cao nhưng chưa đủ ngưỡng x10. Bỏ qua, không phạt.");
+                EvaluateHeaderChainResponse { 
+                    status: 1, // Bỏ qua nhưng không phạt
+                    fork_point, 
+                    error_msg: format!("Chain is heavier but < 10x. New: {} < Required: {}. Ignored.", new_segment_weight, required_weight)
+                }
+            } else {
+                log::error!("[FIREWALL] 🧱 CHẶN ĐỨNG HACKER: Chuỗi rác rẽ nhánh sâu bị từ chối.");
+                EvaluateHeaderChainResponse {
+                    status: 2, // Phạt / Ban
+                    fork_point: 0,
+                    error_msg: "ERR_IMMUTABLE_FIREWALL_VIOLATION: Chuỗi rác cố tình rẽ nhánh sâu".into()
+                }
+            }
+        } else {
+            if current_weight > current_tip_weight {
+                EvaluateHeaderChainResponse { status: 0, fork_point, error_msg: "".into() }
+            } else {
+                EvaluateHeaderChainResponse { status: 1, fork_point, error_msg: "Nhẹ hơn hoặc bằng".into() }
+            }
+        }
     }
 }
 
@@ -2577,10 +2596,6 @@ pub fn verify_block_reconstruction(tx_root: Vec<u8>, tx_hashes: Vec<Vec<u8>>) ->
 }
 
 
-pub fn set_mining_pause(pause: bool) {
-    log::info!("[FFI-MINER] 🕹️ Lệnh điều khiển từ UI: PAUSE = {}", pause);
-    genz_pow::PAUSE_MINING.store(pause, std::sync::atomic::Ordering::Relaxed);
-}
 
 pub fn get_account_state(address: &[u8; 32]) -> AccountState {
     if let Some(mgr) = state_manager::get_state_manager() {
@@ -2597,9 +2612,6 @@ pub fn update_account_at_height(address: &[u8; 32], state: AccountState, height:
 }
 
 
-pub fn is_mining_paused() -> bool {
-    genz_pow::PAUSE_MINING.load(std::sync::atomic::Ordering::Relaxed)
-}
 
 
 /// [VANGUARD-V2] Block Proposer tập trung tại Rust Core.
@@ -2801,19 +2813,7 @@ pub fn get_address_type(addr: Vec<u8>) -> i32 {
 
 
 
-// --- DAG Stubs ---
-// [Audit V10.4 FINAL] Đã xóa bỏ hoàn toàn (Khai tử DAG logic).
-pub fn start_mining_v2_ffi(task_bytes: Vec<u8>) -> Vec<u8> {
-    genz_pow::start_mining_v2_internal(task_bytes)
-}
 
-pub fn submit_mining_task_ffi(task_bytes: Vec<u8>) {
-    genz_pow::submit_mining_task_internal(task_bytes)
-}
-
-pub fn get_mining_result_ffi() -> Vec<u8> {
-    genz_pow::get_mining_result_internal()
-}
 
 pub fn delete_by_hash_ffi(hash: Vec<u8>) -> bool {
     if hash.len() != 32 { return false; }

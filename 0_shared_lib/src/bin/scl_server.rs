@@ -563,24 +563,7 @@ impl SclService for MySclService {
     }
 
 
-    async fn submit_mining_task(&self, request: Request<BytesRequest>) -> Result<Response<GenericResponse>, Status> {
-        verify_auth_token(&request)?;
-        let req = request.into_inner();
-        btc_genz_scl::submit_mining_task_ffi(req.data);
-        Ok(Response::new(GenericResponse { success: true, error_msg: "".to_string() }))
-    }
 
-    async fn set_mining_pause(&self, request: Request<BoolRequest>) -> Result<Response<GenericResponse>, Status> {
-        verify_auth_token(&request)?;
-        let req = request.into_inner();
-        btc_genz_scl::set_mining_pause(req.value);
-        Ok(Response::new(GenericResponse { success: true, error_msg: "".to_string() }))
-    }
-
-    async fn is_mining_paused(&self, _request: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
-        let value = btc_genz_scl::is_mining_paused();
-        Ok(Response::new(BoolResponse { value }))
-    }
 
     async fn calculate_short_tx_id(&self, request: Request<ShortIdRequest>) -> Result<Response<Uint64Response>, Status> {
         let req = request.into_inner();
@@ -763,28 +746,7 @@ impl SclService for MySclService {
         }
     }
 
-    async fn start_mining_v2(&self, request: Request<BytesRequest>) -> Result<Response<GenericResponse>, Status> {
-        if btc_genz_scl::state_manager::get_state_manager().is_none() {
-            return Err(Status::unavailable("StateManager not initialized"));
-        }
-        verify_auth_token(&request)?;
-        let req = request.into_inner();
-        let _ = btc_genz_scl::start_mining_v2_ffi(req.data);
-        Ok(Response::new(GenericResponse { success: true, error_msg: "".into() }))
-    }
 
-    async fn get_mining_result(&self, request: Request<Empty>) -> Result<Response<MiningResult>, Status> {
-        if btc_genz_scl::state_manager::get_state_manager().is_none() {
-            return Err(Status::unavailable("StateManager not initialized"));
-        }
-        verify_auth_token(&request)?;
-        let res_bytes = btc_genz_scl::get_mining_result_ffi();
-        if let Ok(res) = MiningResult::decode(res_bytes.as_slice()) {
-            Ok(Response::new(res))
-        } else {
-            Ok(Response::new(MiningResult { nonce: 0, block_hash: vec![], success: false, session_id: 0 }))
-        }
-    }
 
     async fn get_block_hash(&self, request: Request<Uint64Request>) -> Result<Response<BytesResponse>, Status> {
         if btc_genz_scl::state_manager::get_state_manager().is_none() {

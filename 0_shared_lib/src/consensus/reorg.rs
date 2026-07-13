@@ -224,14 +224,10 @@ pub fn process_chain(req: SyncChainRequest, is_syncing: bool, deadline: u64) -> 
     }
 
     // Kiểm tra Tường lửa Đá Tảng (Finality)
-    let finalized_h = mgr.get_finalized_height();
-    if fork_point_height < finalized_h {
-        return SyncChainResponse { 
-            status: 2, 
-            error_msg: format!("Fork point #{} is below finalized height #{}", fork_point_height, finalized_h),
-            instruction: create_cmd(sync_instruction::Strategy::DeepRecovery, 0, 0), // Lỗi nghiêm trọng, cần reset sync state
-            ..Default::default()
-        };
+    let mut finalized_h = mgr.get_finalized_height();
+    let is_deep_reorg = fork_point_height < finalized_h;
+    if is_deep_reorg {
+        log::warn!("[VNT-CONSENSUS] ⚠️ CẢNH BÁO: Phát hiện rẽ nhánh sâu tại #{} (Tường lửa: #{}). Chờ phán quyết từ Trọng tài Năng lượng...", fork_point_height, finalized_h);
     }
 
     // 3. Tính toán trọng số chuỗi mới & Xác thực Năng lượng (PoW)
@@ -462,17 +458,52 @@ pub fn process_chain(req: SyncChainRequest, is_syncing: bool, deadline: u64) -> 
         U256::from(0)
     };
 
-    // 4. Quyết định: Chuỗi mới có nặng hơn không?
-    log::info!("[VANGUARD-CONSENSUS] ⚖️ So sánh trọng số: Chuỗi mới ({}) vs Chuỗi hiện tại ({})", new_chain_weight, current_weight);
+    // 4. Quyết định: Phân xử bằng Trọng tài Năng lượng (VNT Consensus)
+    if is_deep_reorg {
+        // BƯỚC 3: TÍNH TOÁN NĂNG LƯỢNG PHÂN ĐOẠN TRANH CHẤP
+        let local_segment_weight = current_weight.saturating_sub(fork_point_weight);
+        let new_segment_weight = new_chain_weight.saturating_sub(fork_point_weight);
 
-    if new_chain_weight <= current_weight {
-        log::warn!("[VANGUARD-CONSENSUS] ⚠️ Chuỗi nhận được nhẹ hơn hoặc bằng chuỗi hiện tại. Bỏ qua Reorg.");
-        return SyncChainResponse { 
-            status: 0, // ACCEPTED (nhưng không Reorg vì nhẹ hơn)
-            error_msg: format!("Chain is lighter or equal. New: {} <= Current: {}. Stored but not canonical.", new_chain_weight, current_weight),
-            instruction: create_cmd(sync_instruction::Strategy::Continue, 0, 0),
-            ..Default::default()
-        };
+        // BƯỚC 4: TRỌNG TÀI NĂNG LƯỢNG (Quy tắc x10 Override)
+        let required_weight = local_segment_weight.saturating_mul(U256::from(10u64));
+
+        log::info!("[VNT-CONSENSUS] ⚖️ Phân đoạn rẽ nhánh sâu: Cục bộ = {}, Mạng = {}, Yêu cầu x10 = {}", local_segment_weight, new_segment_weight, required_weight);
+
+        if new_segment_weight >= required_weight {
+            // KỊCH BẢN 4.1: Bàn tay vô hình kích hoạt (Chuỗi chính cứu hộ)
+            log::warn!("[INVISIBLE-HAND] ✋ BÀN TAY VÔ HÌNH KÍCH HOẠT: Mở khóa tường lửa bất biến tại #{}! Năng lượng chuỗi mới áp đảo (>= 10x) chuỗi kẹt cục bộ.", finalized_h);
+            mgr.force_set_finalized_height(fork_point_height);
+            finalized_h = fork_point_height;
+        } else if new_segment_weight >= local_segment_weight {
+            // [TRƯỜNG HỢP 1] Nặng hơn cục bộ nhưng CHƯA ĐỦ x10 -> KHÔNG BAN, CHỈ BỎ QUA
+            log::warn!("[VNT-CONSENSUS] ⚠️ Chuỗi rẽ nhánh sâu có năng lượng cao nhưng chưa đủ ngưỡng x10. Bỏ qua, không phạt Peer.");
+            return SyncChainResponse { 
+                status: 0, // Trả về 0 để Go Node hiểu là Side-chain hợp lệ nhưng bị bỏ qua, KHÔNG BAN
+                error_msg: format!("Chain is heavier but < 10x. New: {} < Required: {}. Ignored.", new_segment_weight, required_weight),
+                instruction: create_cmd(sync_instruction::Strategy::Continue, 0, 0),
+                ..Default::default()
+            };
+        } else {
+            // [TRƯỜNG HỢP 2] Nhẹ hơn cục bộ -> LÀ RÁC/DDOS -> BAN
+            log::error!("[FIREWALL] 🧱 CHẶN ĐỨNG HACKER: Chuỗi rác rẽ nhánh sâu bị từ chối.");
+            return SyncChainResponse {
+                status: 2, // Trả về 2 để Go Node BAN Peer này
+                error_msg: format!("ERR_IMMUTABLE_FIREWALL_VIOLATION: Chuỗi rác cố tình rẽ nhánh sâu"),
+                instruction: create_cmd(sync_instruction::Strategy::DeepRecovery, 0, 0),
+                ..Default::default()
+            };
+        }
+    } else {
+        // VÙNG LINH HOẠT (Flexible Zone): Luật PoW Nakamoto truyền thống
+        if new_chain_weight <= current_weight {
+            log::warn!("[VANGUARD-CONSENSUS] ⚠️ Chuỗi nhận được nhẹ hơn hoặc bằng chuỗi hiện tại. Bỏ qua Reorg.");
+            return SyncChainResponse { 
+                status: 0, 
+                error_msg: format!("Chain is lighter or equal. New: {} <= Current: {}. Stored but not canonical.", new_chain_weight, current_weight),
+                instruction: create_cmd(sync_instruction::Strategy::Continue, 0, 0),
+                ..Default::default()
+            };
+        }
     }
 
     // --- BẮT ĐẦU QUY TRÌNH REORG AN TOÀN ---

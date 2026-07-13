@@ -802,26 +802,6 @@ pub mod scl_service_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::StringResponse>, tonic::Status>;
-        /// [VANGUARD-MINING-V2] Cơ chế đào không chặn (Asynchronous Mining)
-        async fn start_mining_v2(
-            &self,
-            request: tonic::Request<super::BytesRequest>,
-        ) -> std::result::Result<tonic::Response<super::GenericResponse>, tonic::Status>;
-        async fn get_mining_result(
-            &self,
-            request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<
-            tonic::Response<super::super::consensus::MiningResult>,
-            tonic::Status,
-        >;
-        async fn submit_mining_task(
-            &self,
-            request: tonic::Request<super::BytesRequest>,
-        ) -> std::result::Result<tonic::Response<super::GenericResponse>, tonic::Status>;
-        async fn set_mining_pause(
-            &self,
-            request: tonic::Request<super::BoolRequest>,
-        ) -> std::result::Result<tonic::Response<super::GenericResponse>, tonic::Status>;
         /// [VANGUARD-NETWORK-OPTIMIZATION] 112-byte Raw Header Streaming
         async fn pack_header_v112(
             &self,
@@ -831,10 +811,6 @@ pub mod scl_service_server {
             &self,
             request: tonic::Request<super::BytesRequest>,
         ) -> std::result::Result<tonic::Response<super::BytesResponse>, tonic::Status>;
-        async fn is_mining_paused(
-            &self,
-            request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::BoolResponse>, tonic::Status>;
         async fn calculate_short_tx_id(
             &self,
             request: tonic::Request<super::ShortIdRequest>,
@@ -2189,182 +2165,6 @@ pub mod scl_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/btc_genz.scl.SclService/StartMiningV2" => {
-                    #[allow(non_camel_case_types)]
-                    struct StartMiningV2Svc<T: SclService>(pub Arc<T>);
-                    impl<T: SclService> tonic::server::UnaryService<super::BytesRequest>
-                    for StartMiningV2Svc<T> {
-                        type Response = super::GenericResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::BytesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SclService>::start_mining_v2(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = StartMiningV2Svc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/btc_genz.scl.SclService/GetMiningResult" => {
-                    #[allow(non_camel_case_types)]
-                    struct GetMiningResultSvc<T: SclService>(pub Arc<T>);
-                    impl<T: SclService> tonic::server::UnaryService<super::Empty>
-                    for GetMiningResultSvc<T> {
-                        type Response = super::super::consensus::MiningResult;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::Empty>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SclService>::get_mining_result(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = GetMiningResultSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/btc_genz.scl.SclService/SubmitMiningTask" => {
-                    #[allow(non_camel_case_types)]
-                    struct SubmitMiningTaskSvc<T: SclService>(pub Arc<T>);
-                    impl<T: SclService> tonic::server::UnaryService<super::BytesRequest>
-                    for SubmitMiningTaskSvc<T> {
-                        type Response = super::GenericResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::BytesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SclService>::submit_mining_task(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = SubmitMiningTaskSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/btc_genz.scl.SclService/SetMiningPause" => {
-                    #[allow(non_camel_case_types)]
-                    struct SetMiningPauseSvc<T: SclService>(pub Arc<T>);
-                    impl<T: SclService> tonic::server::UnaryService<super::BoolRequest>
-                    for SetMiningPauseSvc<T> {
-                        type Response = super::GenericResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::BoolRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SclService>::set_mining_pause(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = SetMiningPauseSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/btc_genz.scl.SclService/PackHeaderV112" => {
                     #[allow(non_camel_case_types)]
                     struct PackHeaderV112Svc<T: SclService>(pub Arc<T>);
@@ -2438,50 +2238,6 @@ pub mod scl_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = UnpackHeaderV112Svc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/btc_genz.scl.SclService/IsMiningPaused" => {
-                    #[allow(non_camel_case_types)]
-                    struct IsMiningPausedSvc<T: SclService>(pub Arc<T>);
-                    impl<T: SclService> tonic::server::UnaryService<super::Empty>
-                    for IsMiningPausedSvc<T> {
-                        type Response = super::BoolResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::Empty>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SclService>::is_mining_paused(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = IsMiningPausedSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

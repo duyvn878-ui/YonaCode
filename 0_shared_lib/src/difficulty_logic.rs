@@ -14,7 +14,13 @@ pub const LWMA_WINDOW: usize = 120;
 // Lưu ý: Trong hệ thống này, difficulty càng cao thì càng KHÓ (giống khái niệm Difficulty của Bitcoin),
 // nhưng chúng ta sẽ chuyển đổi nó sang Target để so sánh Hash < Target.
 lazy_static::lazy_static! {
-    pub static ref MIN_DIFFICULTY: U256 = U256::from(1_200_000_000u64);
+    pub static ref MIN_DIFFICULTY: U256 = {
+        if std::env::var("BTC_GENZ_TEST_MODE").is_ok() {
+            U256::from(1u64)
+        } else {
+            U256::from(1_200_000_000u64)
+        }
+    };
     pub static ref MAX_TARGET: U256 = U256::MAX;
 }
 

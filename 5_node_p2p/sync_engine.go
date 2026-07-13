@@ -756,16 +756,9 @@ func (s *SyncEngine) syncLoop() {
 					continue
 				}
 
-				fH := s.netManager.Bridge.GetFinalizedHeight()
-				if evalResp.ForkPoint < fH {
-					audit.AuditLog("FIREWALL_VIOLATION_DEEP_REORG", s.shortID(targetPeer), fmt.Sprintf("Tấn công Deep Reorg. ForkPoint: %d, FinalizedHeight: %d", evalResp.ForkPoint, fH))
-					s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Deep Reorg")
-					s.netManager.Host.Network().ClosePeer(targetPeer)
-					continue
-				}
 
 				// [VANGUARD-OPTIMIZATION] Áp dụng quy tắc Header-Only dưới mốc Snapshot và Đại Thanh Trừng
-				fH = s.netManager.Bridge.GetFinalizedHeight()
+				fH := s.netManager.Bridge.GetFinalizedHeight()
 				oldestH := s.netManager.Bridge.GetOldestHeight()
 
 				if nextHeight < fH || nextHeight < oldestH {
@@ -1621,6 +1614,10 @@ func (s *SyncEngine) FastSyncBootstrap() {
 			// [FAIL-SAFE] Tẩy rửa trạng thái bị nhiễm độc
 			log.Printf("[FAIL-SAFE] ☢️ Node bị nhiễm độc trạng thái! Đang kích hoạt Tẩy Rửa Sổ Cái (Reset State)...")
 			s.netManager.Bridge.ResetStateCompletely()
+
+			// [PROACTIVE-CLEANUP] Xóa file snapshot lỗi khỏi đĩa để chống tốn tài nguyên và nhiễm độc lặp lại
+			os.Remove(snapFile)
+			os.Remove(tmpFile)
 			
 			s.netManager.punishPeer(bestPeer, "Gửi Snapshot có StateRoot sai lệch sau khi nạp")
 			s.netManager.Host.Network().ClosePeer(bestPeer)
@@ -1651,10 +1648,6 @@ func (s *SyncEngine) FastSyncBootstrap() {
 	}
 }
 
-// [V1.0-RESTRUCTED] Logic findForkPoint đã được chuyển về Rust Core.
-func (s *SyncEngine) findForkPoint(peerID peer.ID, localHeight uint64) (uint64, error) {
-	return s.finalizedHeight, fmt.Errorf("logic đã được chuyển về Rust Core")
-}
 
 // [VANGUARD-CATCHUP] Kích hoạt cơ chế "Mặt dày" (Debounce) để đồng bộ lùi
 // [V2.1 FIX] IsSynced kiểm tra cả Grace Period trước khi cho phép đào.
@@ -1763,9 +1756,6 @@ func (s *SyncEngine) UpdateHeight(height uint64) {
 	s.mu.Unlock()
 }
 
-// [V1.0-RESTRUCTED] Logic CheckFinality đã được chuyển về Rust Core.
-func (s *SyncEngine) CheckFinality(newHeight uint64) {
-}
 
 func (s *SyncEngine) GetFinalizedHeight() uint64 {
 	s.mu.RLock()
@@ -2160,76 +2150,107 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 	oldestH := s.netManager.PeerOldestHeights[targetPeer] // Lấy mốc Purge của Peer
 	s.netManager.PeerMutex.RUnlock()
 
-	if peerH < startH {
-		log.Printf("[SYNC-GUARD] 🛡️ Hủy CatchUpSync vì Peer Height (%d) thấp hơn mốc bắt đầu sync (%d).", peerH, startH)
-		return
-	}
+	stepBackAttempts := 0
+	var evalResp *pb_block.EvaluateHeaderChainResponse
+	var hBatch [][]byte
 
-	// [DEADLOOP-FIX] Chống xin mồ côi mù quáng vào vùng đã bị Pruned
-	// V2: Kích hoạt FastSyncBootstrap trực tiếp thay vì return im lặng.
-	// Tại sao: syncLoop kiểm tra canProvideNextBlock dùng PeerHeights map chứa ghost peer
-	// với oldest=0 (false positive), khiến Snapshot Chasing ở syncLoop không bao giờ kích hoạt.
-	// CatchUpSync cứ return → syncLoop chạy lại → CatchUpSync return → vòng lặp chết.
-	if oldestH > startH {
-		log.Printf("[SYNC-LOCATOR] ⚠️ Peer %s đã Pruned dữ liệu tại #%d (Oldest: %d). Hủy CatchUpSync.", s.shortID(targetPeer), startH, oldestH)
-		log.Printf("[SYNC-LOCATOR] 🚀 Kích hoạt FastSyncBootstrap trực tiếp để nhảy cóc qua vùng Pruned!")
-		go s.FastSyncBootstrap()
-		return
-	}
-
-	// [VÁ LỖI TREADMILL] Tăng sải bước tải Header lên 10000 khối thay vì kẹt ở 100
-	// Tại sao: Giúp node nhanh chóng đuổi kịp đỉnh mạng khi lệch sâu, giảm số lần giao dịch P2P dư thừa.
-	count := uint32(10000)
-	if peerH >= startH {
-		needed := uint32(peerH - startH + 1)
-		if needed < count {
-			count = needed
-		}
-	}
-
-	log.Printf("[SYNC-LOCATOR] 📡 Xin chùm %d Header từ mốc #%d để phân xử...", count, startH)
-	// [MAINNET-TIMEOUT] Tăng timeout từ 15s lên 30s để tránh việc treo cờ catchUpRunning hoặc hủy đồng bộ
-	// giữa chừng do đường truyền mạng P2P bị nghẽn hoặc Peer phản hồi chậm khi tải Header Batch.
-	timeoutCtx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-	hBatch, err := s.netManager.DownloadHeaderBatch(timeoutCtx, targetPeer, startH, count)
-	cancel()
-
-	if err != nil || len(hBatch) == 0 {
-		if len(hBatch) == 0 && err == nil {
-			log.Printf("[SYNC-LOCATOR] ⚠️ Peer %s cung cấp Header Batch rỗng. Đánh 1 Strike.", s.shortID(targetPeer))
-			s.netManager.punishPeer(targetPeer, "Gửi Header Batch rỗng khi được yêu cầu")
-		} else if isNetworkError(err) {
-			// [BAO DUNG VỚI LỖI MẠNG] Không phạt IP, chỉ ngắt kết nối để thử Peer khác
-			log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s mạng chậm/timeout/mất kết nối khi tải Header. Cắt TCP, không phạt IP.", s.shortID(targetPeer))
-			s.netManager.Host.Network().ClosePeer(targetPeer)
-		} else {
-			// Lỗi rác/giải mã -> Ác ý -> Phạt
-			log.Printf("[SYNC-LOCATOR] 🛑 Peer %s gửi dữ liệu rác. Đánh 1 Strike. Lỗi: %v", s.shortID(targetPeer), err)
-			s.netManager.punishPeer(targetPeer, fmt.Sprintf("Lỗi tải Header Batch (Dữ liệu rác/hỏng): %v", err))
-		}
-		return
-	}
-
-	// 2. Nhờ Rust đánh giá chuỗi Header này
-	evalResp, err := s.netManager.Bridge.EvaluateHeaderChain(hBatch)
-	if err != nil || evalResp == nil {
-		return
-	}
-
-	if evalResp.Status != 0 {
-		log.Printf("[SYNC-REJECT] ⚠️ Rust từ chối chuỗi Header từ %s: Mã lỗi %d - %s", s.shortID(targetPeer), evalResp.Status, evalResp.ErrorMsg)
-		return
-	}
-
-	if evalResp.Status == 0 { // Nhánh rẽ NẶNG HƠN (Hợp lệ)
-		// KIỂM TRA TƯỜNG LỬA BẤT BIẾN (Finality Protection)
-		if evalResp.ForkPoint < fH {
-			log.Printf("[FIREWALL] %s", i18n.T("log_firewall_deep_reorg", s.shortID(targetPeer)))
-			s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Deep Reorg")
-			s.netManager.Host.Network().ClosePeer(targetPeer)
+	for {
+		if peerH < startH {
+			log.Printf("[SYNC-GUARD] 🛡️ Hủy CatchUpSync vì Peer Height (%d) thấp hơn mốc bắt đầu sync (%d).", peerH, startH)
 			return
 		}
 
+		// [DEADLOOP-FIX] Chống xin mồ côi mù quáng vào vùng đã bị Pruned
+		// V2: Kích hoạt FastSyncBootstrap trực tiếp thay vì return im lặng.
+		if oldestH > startH {
+			log.Printf("[SYNC-LOCATOR] ⚠️ Peer %s đã Pruned dữ liệu tại #%d (Oldest: %d). Hủy CatchUpSync.", s.shortID(targetPeer), startH, oldestH)
+			log.Printf("[SYNC-LOCATOR] 🚀 Kích hoạt FastSyncBootstrap trực tiếp để nhảy cóc qua vùng Pruned!")
+			go s.FastSyncBootstrap()
+			return
+		}
+
+		// [VÁ LỖI TREADMILL] Tăng sải bước tải Header lên 10000 khối thay vì kẹt ở 100
+		count := uint32(10000)
+		if peerH >= startH {
+			needed := uint32(peerH - startH + 1)
+			if needed < count {
+				count = needed
+			}
+		}
+
+		log.Printf("[SYNC-LOCATOR] 📡 Xin chùm %d Header từ mốc #%d để phân xử... (Vòng lặp lùi: %d)", count, startH, stepBackAttempts)
+		// [MAINNET-TIMEOUT] Tăng timeout từ 15s lên 30s để tránh việc treo cờ catchUpRunning hoặc hủy đồng bộ
+		// giữa chừng do đường truyền mạng P2P bị nghẽn hoặc Peer phản hồi chậm khi tải Header Batch.
+		timeoutCtx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+		var err error
+		hBatch, err = s.netManager.DownloadHeaderBatch(timeoutCtx, targetPeer, startH, count)
+		cancel()
+
+		if err != nil || len(hBatch) == 0 {
+			if len(hBatch) == 0 && err == nil {
+				if peerH >= startH {
+					log.Printf("[SYNC-LOCATOR] ⚠️ Peer %s cung cấp Header Batch rỗng mặc dù quảng bá chiều cao %d >= %d. Đánh 1 Strike.", s.shortID(targetPeer), peerH, startH)
+					s.netManager.punishPeer(targetPeer, "Gửi Header Batch rỗng khi được yêu cầu (Peer quảng bá chiều cao đủ)")
+				} else {
+					log.Printf("[SYNC-LOCATOR] 🕊️ Peer %s trả về Header Batch rỗng vì chiều cao quảng bá %d < %d (không đủ dữ liệu). Bỏ qua không phạt.", s.shortID(targetPeer), peerH, startH)
+				}
+			} else if isNetworkError(err) {
+				// [BAO DUNG VỚI LỖI MẠNG] Không phạt IP, chỉ ngắt kết nối để thử Peer khác
+				log.Printf("[SYNC-TIMEOUT] ⏳ Peer %s mạng chậm/timeout/mất kết nối khi tải Header. Cắt TCP, không phạt IP.", s.shortID(targetPeer))
+				s.netManager.Host.Network().ClosePeer(targetPeer)
+			} else {
+				// Lỗi rác/giải mã -> Ác ý -> Phạt
+				log.Printf("[SYNC-LOCATOR] 🛑 Peer %s gửi dữ liệu rác. Đánh 1 Strike. Lỗi: %v", s.shortID(targetPeer), err)
+				s.netManager.punishPeer(targetPeer, fmt.Sprintf("Lỗi tải Header Batch (Dữ liệu rác/hỏng): %v", err))
+			}
+			return
+		}
+
+		// 2. Nhờ Rust đánh giá chuỗi Header này
+		var bridgeErr error
+		evalResp, bridgeErr = s.netManager.Bridge.EvaluateHeaderChain(hBatch)
+		if bridgeErr != nil || evalResp == nil {
+			return
+		}
+
+		if evalResp.Status != 0 {
+			errMsg := evalResp.ErrorMsg
+			// Tại sao: Nếu Rust Core trả về lỗi thiếu cha (không tìm thấy điểm rẽ nhánh), điều đó chứng tỏ điểm rẽ nhánh (LCA) nằm sâu hơn mốc startH hiện tại.
+			// Lúc này, Go Node sẽ kích hoạt cơ chế lùi bước lũy tiến (Step-Back LCA Search) để tải các Header cũ hơn từ Peer, 
+			// tiếp tục quăng lưới ngược dòng lịch sử cho đến khi tìm thấy khối cha chung đã được lưu trữ cục bộ.
+			if evalResp.Status == 2 && (strings.Contains(errMsg, "Không tìm thấy điểm rẽ nhánh") || strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "Parent hash")) {
+				stepBackAttempts++
+				stepBack := uint64(100)
+				if stepBackAttempts > 1 {
+					stepBack = 500
+				}
+				if stepBackAttempts > 2 {
+					stepBack = 2000
+				}
+
+				if startH > stepBack {
+					startH -= stepBack
+				} else {
+					startH = 0
+				}
+				log.Printf("[SYNC-LOCATOR] 📉 Phát hiện rẽ nhánh sâu nhưng thiếu cha. Đang lùi mốc tìm kiếm về #%d để tìm lại điểm rẽ nhánh...", startH)
+				continue
+			}
+
+			// Từ chối do lỗi khác
+			log.Printf("[SYNC-REJECT] ⚠️ Rust từ chối chuỗi Header từ %s: Mã lỗi %d - %s", s.shortID(targetPeer), evalResp.Status, evalResp.ErrorMsg)
+			if evalResp.Status == 2 {
+				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Malicious deep reorg attempt: "+evalResp.ErrorMsg)
+				s.netManager.Host.Network().ClosePeer(targetPeer)
+			}
+			return
+		}
+
+		// Status == 0: Hợp lệ, tiến hành thực thi tải khối
+		break
+	}
+
+	if evalResp.Status == 0 { // Nhánh rẽ NẶNG HƠN (Hợp lệ)
 		// Tìm height cao nhất trong hBatch để biết đích đến và lập bản đồ headers bytes
 		var highestH uint64
 		hdrMap := make(map[uint64][]byte)
@@ -2493,6 +2514,35 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 					s.mu.Lock()
 					s.currentHeight = lastResp.NewHeight
 					s.mu.Unlock()
+
+					// [VNT-CONSENSUS POST-CLEANUP] KIỂM TRA XEM CÓ PHẢI LÀ DEEP REORG KHÔNG?
+					if effectiveForkPoint < fH {
+						log.Printf("🌪️ [INVISIBLE-HAND] CƠN BÃO ĐI QUA: Bàn tay vô hình vừa cắt bỏ lịch sử sâu (từ #%d về #%d). Kích hoạt dọn dẹp quy mô lớn!", fH, effectiveForkPoint)
+						
+						// 1. Dọn sạch Mempool hoàn toàn (Giao dịch cũ có thể lỗi Nonce/Số dư)
+						if s.mempool != nil {
+							s.mempool.Purge()
+						}
+						// 2. Gỡ bỏ mọi án phạt mạng (Đại Ân Xá)
+						if s.netManager.BanMgr != nil {
+							s.netManager.BanMgr.ClearAllBans()
+						}
+						s.netManager.PenaltyMu.Lock()
+						s.netManager.PeerPenalties = make(map[peer.ID]int)
+						s.netManager.PeerPenaltyTimes = make(map[peer.ID]time.Time)
+						s.netManager.PeerUnbanTimes = make(map[peer.ID]time.Time)
+						s.netManager.PenaltyMu.Unlock()
+
+						// 3. Tín hiệu cho RPC Server làm sạch bộ đệm UI (OnRollback)
+						if s.netManager.OnRollback != nil {
+							go s.netManager.OnRollback(effectiveForkPoint)
+						}
+					} else {
+						// Reorg bình thường trong vùng linh hoạt 5 khối
+						if s.mempool != nil {
+							s.mempool.Purge()
+						}
+					}
 				} else {
 					log.Printf("[SYNC-SUCCESS] 🌾 Gom khối Locator thành công nhưng chuỗi rẽ nhánh nhẹ hơn/bằng chuỗi chính. Đã lưu side-chain an toàn tại cao độ #%d. Không phạt peer.", lastResp.NewHeight)
 					

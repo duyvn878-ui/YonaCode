@@ -279,7 +279,7 @@ func (b *Bridge) startHealthMonitor() {
 		// 2. Kiểm tra phản hồi gRPC (Heartbeat) với Timeout lớn hơn (5s thay vì 2s)
 		if !b.IsSyncing() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, err := b.sclClient.client.IsMiningPaused(ctx, &go_bridge_pb.Empty{})
+			_, err := b.sclClient.client.GetFinalizedHeight(ctx, &go_bridge_pb.Empty{})
 			cancel()
 
 			if err != nil {
@@ -806,52 +806,16 @@ func (b *Bridge) CalculateBlockHeaderHash(data []byte) []byte {
 	return b.fastSclClient.CalculateBlockHeaderHash(data)
 }
 
-func (b *Bridge) StartMiningV2(task []byte) error  {
-	if b.minerSclClient == nil {
-		return fmt.Errorf("minerSclClient chưa kết nối")
-	}
-	return b.minerSclClient.StartMiningV2(task)
-}
-
-func (b *Bridge) GetMiningResult() ([]byte, error) {
-	if b.minerSclClient == nil {
-		return nil, fmt.Errorf("minerSclClient chưa kết nối")
-	}
-	return b.minerSclClient.GetMiningResult()
-}
-
-func (b *Bridge) SubmitMiningTask(task []byte) {
-	if b.minerSclClient == nil {
-		return
-	}
-	b.minerSclClient.SubmitMiningTask(task)
-}
-
 func (b *Bridge) SetMiningPause(pause bool) {
 	b.cacheMu.Lock()
 	b.cachedMiningPaused = pause
 	b.cacheMu.Unlock()
-	if b.minerSclClient == nil {
-		return
-	}
-	b.minerSclClient.SetMiningPause(pause)
 }
 
 func (b *Bridge) IsMiningPaused() bool {
-	// Tại sao: Nếu đang đồng bộ dữ liệu nặng, sử dụng giá trị cache để tránh gọi gRPC làm tăng độ trễ và có nguy cơ nghẽn.
-	if b.IsSyncing() {
-		b.cacheMu.RLock()
-		defer b.cacheMu.RUnlock()
-		return b.cachedMiningPaused
-	}
-	if b.minerSclClient == nil {
-		return true
-	}
-	paused := b.minerSclClient.IsMiningPaused()
-	b.cacheMu.Lock()
-	b.cachedMiningPaused = paused
-	b.cacheMu.Unlock()
-	return paused
+	b.cacheMu.RLock()
+	defer b.cacheMu.RUnlock()
+	return b.cachedMiningPaused
 }
 
 func (b *Bridge) GetHashrate() uint64 {
