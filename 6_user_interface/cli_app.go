@@ -1352,7 +1352,6 @@ func (c *CLIApp) RefreshMiningTask() {
 	pendingTxs := c.mempool.GetPartitionedTransactions(node_p2p.DefaultBlockMaxSize)
 	taskBytes, sid := c.buildAndSubmitTemplate(nextHeight, pendingTxs)
 	if len(taskBytes) > 0 {
-		c.bridge.StartMiningV2(taskBytes)
 		if c.rpcSrv != nil {
 			c.rpcSrv.BroadcastMiningTask(taskBytes, sid, c.activeDifficulty)
 		}

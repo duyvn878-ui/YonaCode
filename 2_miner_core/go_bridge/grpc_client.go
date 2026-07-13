@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/proto"
 )
 
 type SclClient struct {
@@ -374,54 +373,7 @@ func (c *SclClient) CalculateAbsoluteWeight(parent []byte, diff []byte) []byte {
 	return resp.Data
 }
 
-func (c *SclClient) StartMiningV2(task []byte) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	authCtx := c.authCtx(ctx)
-	_, err := c.client.StartMiningV2(authCtx, &pb.BytesRequest{Data: task})
-	return err
-}
 
-func (c *SclClient) GetMiningResult() ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// [SECURITY-HARDENING] YĂªu cáº§u auth token Ä‘á»ƒ láº¥y káº¿t quáº£ Ä‘Ă o (Vanguard Consensus Rule)
-	authCtx := c.authCtx(ctx)
-	resp, err := c.client.GetMiningResult(authCtx, &pb.Empty{})
-	if err != nil {
-		return nil, err
-	}
-
-	// Encode back to bytes for the high-level bridge logic
-	return proto.Marshal(resp)
-}
-
-func (c *SclClient) SubmitMiningTask(task []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	authCtx := c.authCtx(ctx)
-	c.client.SubmitMiningTask(authCtx, &pb.BytesRequest{Data: task})
-}
-
-func (c *SclClient) SetMiningPause(pause bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	authCtx := c.authCtx(ctx)
-	c.client.SetMiningPause(authCtx, &pb.BoolRequest{Value: pause})
-}
-
-func (c *SclClient) IsMiningPaused() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	resp, err := c.client.IsMiningPaused(ctx, &pb.Empty{})
-	if err != nil {
-		return true
-	}
-	return resp.Value
-}
 
 func (c *SclClient) CalculateShortTxId(txHash []byte, nonce uint64) uint64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

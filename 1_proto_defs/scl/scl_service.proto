@@ -434,17 +434,9 @@ service SclService {
     rpc CalculateAbsoluteWeight(WeightRequest) returns (BytesResponse);
     rpc DebugDumpSmtNodes(Empty) returns (StringResponse);
     
-    // [VANGUARD-MINING-V2] Cơ chế đào không chặn (Asynchronous Mining)
-    rpc StartMiningV2(BytesRequest) returns (GenericResponse);
-    rpc GetMiningResult(Empty) returns (btc_genz.consensus.MiningResult);
-    rpc SubmitMiningTask(BytesRequest) returns (GenericResponse);
-    rpc SetMiningPause(BoolRequest) returns (GenericResponse);
-    
     // [VANGUARD-NETWORK-OPTIMIZATION] 112-byte Raw Header Streaming
     rpc PackHeaderV112(BytesRequest) returns (BytesResponse);
     rpc UnpackHeaderV112(BytesRequest) returns (BytesResponse);
-
-    rpc IsMiningPaused(Empty) returns (BoolResponse);
     
     rpc CalculateShortTxId(ShortIdRequest) returns (Uint64Response);
     rpc VerifyBlockReconstruction(ReconstructionRequest) returns (BoolResponse);

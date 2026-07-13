@@ -263,7 +263,6 @@ type P2PDiscovery interface {
 
 type SyncEngineInterface interface {
 	IsSynced() bool
-	CheckFinality(height uint64)
 	GetFinalizedHeight() uint64
 	HandleBlockArrival(block *pb_block.Block, from peer.ID)
 	GetSyncProgress() (uint64, uint64, string)
@@ -692,13 +691,11 @@ func (n *NetworkManager) StartBlockInbox() {
 		isValid, err := n.Bridge.VerifyPow(headerBuf, block.Header.Nonce, block.Header.Difficulty, block.Header.Height)
 		if err != nil {
 			if err == go_bridge.ErrCriticalFirewall {
-				// Tại sao: Việc phát sóng khối cũ trên Gossip là nỗ lực Reorg bất hợp pháp hoặc spam, log vào kiểm toán.
-				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", id.String()[:12], peerIP), fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub", block.Header.Height))
-
-				dbHash := n.Bridge.GetBlockHash(block.Header.Height)
-				reason := fmt.Sprintf("Gossip block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
-				n.punishPeer(id, reason)
-				return pubsub.ValidationReject
+				// Tại sao: Việc phát sóng khối cũ trên Gossip có thể do Peer đang bị lag hoặc đồng bộ chậm, tránh cấm nhầm peer để đảm bảo khả năng hội tụ mạng.
+				diffVal := go_bridge.BytesToBigInt(block.Header.Difficulty).String()
+				audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", id.String()[:12], peerIP), fmt.Sprintf("Từ chối khối cũ #%d truyền qua GossipSub (Độ khó: %s, Bỏ qua không cấm)", block.Header.Height, diffVal))
+				log.Printf("[GOSSIP] 🛡️ Bỏ qua khối cũ #%d từ Peer %s (Độ khó: %s, Peer/Node này đang bị lag).", block.Header.Height, id.String()[:12], diffVal)
+				return pubsub.ValidationIgnore
 			}
 			log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối #%d: %v. Bỏ qua không ban Peer.", block.Header.Height, err)
 			return pubsub.ValidationIgnore // [VANGUARD-FIX] Lỗi nội bộ gRPC -> KHÔNG BAN, CHỈ IGNORE!
@@ -981,12 +978,10 @@ func (n *NetworkManager) processCompactBlock(from peer.ID, compact *pb_block.Com
 	isValid, err := n.Bridge.VerifyPow(headerBuf, nonce, compact.Header.Difficulty, compact.Header.Height)
 	if err != nil {
 		if err == go_bridge.ErrCriticalFirewall {
-			// Tại sao: Chặn đứng nỗ lực đồng bộ khối rút gọn cũ hơn mốc tường lửa.
-			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub", compact.Header.Height))
-
-			dbHash := n.Bridge.GetBlockHash(compact.Header.Height)
-			reason := fmt.Sprintf("Gossip compact block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", compact.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
-			n.punishPeer(from, reason)
+			// Tại sao: Việc nhận khối rút gọn cũ có thể do Peer đang bị lag hoặc đồng bộ chậm, tránh cấm nhầm peer để đảm bảo khả năng hội tụ mạng.
+			diffVal := go_bridge.BytesToBigInt(compact.Header.Difficulty).String()
+			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Từ chối khối rút gọn cũ #%d truyền qua GossipSub (Độ khó: %s, Bỏ qua không cấm)", compact.Header.Height, diffVal))
+			log.Printf("[GOSSIP] 🛡️ Bỏ qua khối rút gọn cũ #%d từ Peer %s (Độ khó: %s, Peer/Node này đang bị lag).", compact.Header.Height, from.String()[:12], diffVal)
 			return
 		}
 		log.Printf("[SYSTEM-WARN] ⚠️ Lỗi nội bộ không thể check PoW cho khối rút gọn #%d: %v. Bỏ qua không ban Peer.", compact.Header.Height, err)
@@ -1296,63 +1291,6 @@ func (n *NetworkManager) handleBlockProcessing(from peer.ID, data []byte) {
 	}
 }
 
-func (n *NetworkManager) VerifyBlockLight(block *pb_block.Block) (*big.Int, error) {
-	if block.Header == nil {
-		return nil, fmt.Errorf("thiếu header")
-	}
-
-	// [VANGUARD-BOOTSTRAP] Trường hợp đặc biệt cho Khối Genesis (#0)
-	if block.Header.Height == 0 {
-		hBytes, _ := proto.Marshal(block.Header)
-		actualHash := n.Bridge.GetCanonicalBlockHeaderHash(hBytes, 0)
-
-		// [S#3 TRUTH] Nếu khớp Checkpoint thì mặc định tin tưởng Genesis
-		if IsValidCheckpoint(0, actualHash) {
-			currentWeight := go_bridge.BytesToBigInt(n.Bridge.CalculateAbsoluteWeight(nil, block.Header.Difficulty))
-			return currentWeight, nil
-		}
-
-		// Nếu không khớp Checkpoint, vẫn thử xác thực PoW như bình thường
-		headerBuf, _ := proto.Marshal(block.Header)
-		isValidPoW, err := n.Bridge.VerifyPow(headerBuf, block.Header.Nonce, block.Header.Difficulty, 0)
-		if err != nil {
-			return nil, err
-		}
-		if !isValidPoW {
-			return nil, fmt.Errorf("pow_invalid_genesis")
-		}
-		currentWeight := go_bridge.BytesToBigInt(n.Bridge.CalculateAbsoluteWeight(nil, block.Header.Difficulty))
-		return currentWeight, nil
-	}
-
-	// [Satoshi-Style] Tải Header của khối cha từ Rust Core
-	parentHeaderBytes := n.Bridge.GetHeaderRaw(block.Header.ParentHash.Value)
-	if parentHeaderBytes == nil {
-		return nil, fmt.Errorf("mồ côi")
-	}
-
-	var parentHeader pb_block.BlockHeader
-	proto.Unmarshal(parentHeaderBytes, &parentHeader)
-
-	// 1. Xác thực Bằng chứng công việc (PoW) - Chốt chặn bảo mật tối thượng
-	headerBuf, _ := proto.Marshal(block.Header)
-
-	isValidPoW, err := n.Bridge.VerifyPow(headerBuf, block.Header.Nonce, block.Header.Difficulty, block.Header.Height)
-	if err != nil {
-		return nil, err
-	}
-	if !isValidPoW {
-		log.Printf("[POW-FAIL] H#%d | Nonce: %d | Diff: %x | HeaderBufLen: %d",
-			block.Header.Height, block.Header.Nonce, block.Header.Difficulty, len(headerBuf))
-		return nil, fmt.Errorf("pow_invalid")
-	}
-
-	// 2. Tự tính toán trọng lượng tích lũy mới dựa trên quy tắc đồng thuận chung
-	currentWeight := go_bridge.BytesToBigInt(n.Bridge.CalculateAbsoluteWeight(nil, block.Header.Difficulty))
-	expectedWeight := new(big.Int).Add(go_bridge.BytesToBigInt(parentHeader.AbsoluteWeight), currentWeight)
-
-	return expectedWeight, nil
-}
 
 // CalculateHeaderHashDeterministic: Tạo mã băm Header chuẩn (Vanguard 112-byte + Rust Context)
 func (n *NetworkManager) CalculateHeaderHashDeterministic(h *pb_block.BlockHeader) []byte {
@@ -1361,54 +1299,6 @@ func (n *NetworkManager) CalculateHeaderHashDeterministic(h *pb_block.BlockHeade
 	return n.Bridge.CalculateBlockHeaderHash(buf)
 }
 
-func (n *NetworkManager) VerifyBlockHeavy(from peer.ID, block *pb_block.Block) error {
-	parentHeaderBytes := n.Bridge.GetHeaderRaw(block.Header.ParentHash.Value)
-	if parentHeaderBytes == nil {
-		return fmt.Errorf("parent_not_found")
-	}
-	var parentHeader pb_block.BlockHeader
-	proto.Unmarshal(parentHeaderBytes, &parentHeader)
-
-	peerIP := n.GetPeerIP(from)
-
-	// [Audit S1 FIX] Tường lửa Thời gian (Time Firewall) với quy tắc MTP-11
-	mtp := n.Bridge.GetMedianTimePast(block.Header.Height)
-	if !n.Bridge.VerifyTimestampFirewall(block.Header.Timestamp, mtp, uint64(time.Now().Unix())) {
-		// Tại sao: Khối đầy đủ (Heavy Block) vi phạm tường lửa thời gian, ghi nhận sự cố kiểm toán.
-		audit.AuditLog("TIME_WARP_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Khối đầy đủ #%d vi phạm tường lửa thời gian MTP-11 (Heavy)", block.Header.Height))
-		log.Printf("[TIME_WARP] %s", i18n.T("log_time_warp_violation", block.Header.Height))
-		return fmt.Errorf("firewall_violation: timestamp_spoofing")
-	}
-
-	nonce := block.Header.Nonce
-	headerBuf, _ := proto.Marshal(block.Header)
-	headerHash := n.Bridge.GetCanonicalBlockHeaderHash(headerBuf, block.Header.Height)
-
-	// [VANGUARD-CHECKPOINT] Kiểm tra mỏ neo lịch sử
-	if !IsValidCheckpoint(block.Header.Height, headerHash) {
-		// Tại sao: Khối đầy đủ vi phạm checkpoint mỏ neo, ghi nhận sự cố kiểm toán.
-		audit.AuditLog("CHECKPOINT_VIOLATION", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Khối đầy đủ #%d vi phạm mỏ neo lịch sử", block.Header.Height))
-		return fmt.Errorf("firewall_violation: checkpoint_mismatch")
-	}
-
-	isValid, err := n.Bridge.VerifyPow(headerBuf, nonce, block.Header.Difficulty, block.Header.Height)
-	if err != nil {
-		if err == go_bridge.ErrCriticalFirewall {
-			// Tại sao: Khối đầy đủ cũ bị từ chối bởi tường lửa.
-			audit.AuditLog("GOSSIP_OLD_BLOCK_ATTEMPT", fmt.Sprintf("%s, IP: %s", from.String()[:12], peerIP), fmt.Sprintf("Từ chối khối đầy đủ cũ #%d truyền qua GossipSub", block.Header.Height))
-
-			dbHash := n.Bridge.GetBlockHash(block.Header.Height)
-			reason := fmt.Sprintf("Block #%d vi phạm Tường lửa Bất biến: Mã băm nhận được (%x) lệch so với mã băm chuẩn trong DB (%x)", block.Header.Height, safeSlice8(headerHash), safeSlice8(dbHash))
-			n.punishPeer(from, reason)
-			return err
-		}
-		return err
-	}
-	if !isValid {
-		return fmt.Errorf("PoW sai")
-	}
-	return nil
-}
 
 func (n *NetworkManager) GetBlockFromNetwork(p peer.ID, h uint64) ([]byte, error) {
 	return n.RequestBlockWithContext(n.Ctx, p, h, nil)
