@@ -148,7 +148,9 @@ The system is engineered based on a **3-Tier Tactical Model**:
 ## 💰 Cryptoeconomics
 
 - **Max Total Supply**: `20,000,000 GO` (Permanently hard-capped)
-- **Sub-units**: `1 GO = 100,000,000 VNT`
+- **Official Display Unit (Coin)**: `GO`
+- **Official Base Unit (Cannot be divided further)**: `VNT` (Named after the initials of the architecture designer - Vo Nhat Thien).
+- **Official Conversion Rate**: `1 GO = 100,000,000 VNT` ($10^8$ VNT)
 - **Block Time**: `75 seconds`
 - **Emission Schedule**: A fair cross-generational distribution schedule spanning **300 years**. Absolutely no long-term inflation after reaching the PoW peak (Year 5).
 - **Reward Mechanism**: *Single Winner* - The miner who successfully mines a block receives 100% of the block reward and all transaction fees.
