@@ -324,3 +324,49 @@ Nếu muốn bật trình đào ngay khi chạy node:
    journalctl -u yonacode-node.service -f
    ```
 
+---
+
+## ⛏️ 8. HƯỚNG DẪN LỆNH KHAI THÁC BỂ ĐÀO (MINING POOL CLI GUIDE)
+
+YonaCode hỗ trợ đầy đủ giải pháp khai thác Bể đào (Pool Mining). Bạn có thể tự vận hành một Pool riêng trên máy chủ VPS hoặc cho phép các thợ đào kết nối đến Pool của bạn.
+
+### 📡 Lệnh vận hành Pool trên VPS (Dành cho chủ Bể)
+Để kích hoạt tính năng Bể đào trên Node Server của bạn:
+```bash
+./YonaCode node start --pool-enable --pool-address <địa_chỉ_ví_pool> --pool-key <khóa_riêng_tư_pool> --pool-fee 0.01 --pool-diff-mult 100
+```
+* **Các cờ hỗ trợ Pool:**
+  * `--pool-enable`: Bật tính năng Pool Server.
+  * `--pool-address`: Ví của chủ bể để nhận 1% phí đào tự động.
+  * `--pool-key`: Khóa bí mật ví của chủ bể để tự động ký giao dịch giải thưởng (Payout) cho thợ đào.
+  * `--pool-fee`: Phí Bể đào cố định (ví dụ: `0.01` tương đương 1%).
+  * `--pool-diff-mult`: Bội số giảm độ khó cho thợ đào trong bể dễ tìm share hơn (ví dụ: `100` lần dễ hơn độ khó mạng).
+
+### ⛏️ Lệnh đào kết nối Pool (Dành cho thợ đào)
+Thợ đào có thể dùng lệnh CLI chính để kết nối tự động đến VPS Pool:
+```bash
+./YonaCode pool-mine <địa_chỉ_ví_nhận_thưởng> [cờ_hỗ_trợ]
+```
+> [!NOTE]
+> Lệnh đào mặc định sẽ **tự động kết nối** tới địa chỉ IP của Bể đào mặc định của mạng lưới (**`110.172.28.103`**). Người dùng không cần phải truyền thêm cờ `--url` trừ khi muốn kết nối tới một bể đào khác.
+
+* **Các cờ hỗ trợ:**
+  * `-d` / `--device`: Thiết bị khai thác sử dụng: `cpu` (mặc định) hoặc `gpu` (card đồ họa NVIDIA CUDA).
+  * `-t` / `--threads`: Số luồng CPU sử dụng (chỉ áp dụng khi chọn `cpu`).
+  * `-u` / `--url`: Đường dẫn kết nối Pool thủ công (chỉ dùng khi muốn chỉ định một bể đào khác bể mặc định).
+
+* **Ví dụ khởi chạy tự động (Khuyên dùng):**
+  * Đào bằng GPU NVIDIA (Tự động kết nối Bể đào chính):
+    ```bash
+    ./YonaCode pool-mine --device gpu 0xYourWalletAddress
+    ```
+  * Đào bằng CPU với 4 luồng (Tự động kết nối Bể đào chính):
+    ```bash
+    ./YonaCode pool-mine --device cpu --threads 4 0xYourWalletAddress
+    ```
+
+* **Ví dụ kết nối tới Bể khác thủ công:**
+  ```bash
+  ./YonaCode pool-mine --device gpu --url 192.168.1.100:8080 0xYourWalletAddress
+  ```
+

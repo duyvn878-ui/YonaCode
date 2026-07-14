@@ -53,6 +53,13 @@ export interface NodeStatus {
   grace_period_remaining?: number;
   mining_warning?: string; // [VANGUARD-SECURITY] Cảnh báo thợ đào chưa đăng nhập
   top_miners: MinerStats[];
+  active_alert?: {
+    id: number;
+    message_vi: string;
+    message_en: string;
+    github_url?: string;
+    expiration_block: number;
+  } | null;
 }
 
 export interface MinerStatus {
@@ -282,6 +289,14 @@ const api = {
       grace_period_remaining: data.grace_period_remaining || 0
     };
   },
+  async getPoolStatus(): Promise<any> {
+    const res = await fetch('/api/v1/pool/status');
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+    return await res.json();
+  },
+
 
   async toggleMiner(): Promise<void> {
     const res = await fetch('/api/v1/miner/toggle', { method: 'POST' });
@@ -355,6 +370,27 @@ const api = {
     });
     if (!res.ok) {
       throw new Error(`Failed to set mining device: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  // [POOL MINER CONTROL]
+  async togglePoolMiner(payload: { enabled: boolean, device: string, pool_url: string, address: string, threads: number }): Promise<{ status: string, is_pool_mining: boolean }> {
+    const res = await fetch(`/api/v1/pool/miner/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to toggle pool miner: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  async getPoolMinerStatus(): Promise<{ status: string, is_pool_mining: boolean, device: string }> {
+    const res = await fetch(`/api/v1/pool/miner/status`);
+    if (!res.ok) {
+      throw new Error(`Failed to get pool miner status: ${res.statusText}`);
     }
     return res.json();
   },
@@ -763,10 +799,11 @@ const api = {
   },
 
   // [SHUTDOWN-V1.0] Gửi yêu cầu tắt Node tới backend
-  async shutdownNode(): Promise<{ success: boolean; message: string }> {
+  async shutdownNode(confirm: string): Promise<{ success: boolean; message: string }> {
     const res = await fetch('/api/v1/node/shutdown', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm })
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: 'Không thể gửi yêu cầu tắt Node' }));

@@ -913,12 +913,16 @@ pub fn execute_block_internal(
     touched_for_maturation.push(miner);
     for tx in &body.transactions {
         if let Some(s) = &tx.sender {
-            let mut s_addr = [0u8; 32]; s_addr.copy_from_slice(&s.value);
-            touched_for_maturation.push(s_addr);
+            if s.value.len() == 32 {
+                let mut s_addr = [0u8; 32]; s_addr.copy_from_slice(&s.value);
+                touched_for_maturation.push(s_addr);
+            }
         }
         if let Some(r) = &tx.receiver {
-            let mut r_addr = [0u8; 32]; r_addr.copy_from_slice(&r.value);
-            touched_for_maturation.push(r_addr);
+            if r.value.len() == 32 {
+                let mut r_addr = [0u8; 32]; r_addr.copy_from_slice(&r.value);
+                touched_for_maturation.push(r_addr);
+            }
         }
     }
 
@@ -1439,9 +1443,13 @@ pub fn get_spendable_balance(address: Vec<u8>) -> u64 {
 /// [LỚP 3] Kiểm tra UTXO/Nonce và áp dụng thay đổi
 pub fn apply_transaction(mgr: &mut StateManager, tx: &Transaction) -> Result<(), Status> {
     let mut s_addr = [0u8; 32];
-    if let Some(ref addr) = tx.sender { s_addr.copy_from_slice(&addr.value); }
+    if let Some(ref addr) = tx.sender {
+        if addr.value.len() == 32 { s_addr.copy_from_slice(&addr.value); }
+    }
     let mut r_addr = [0u8; 32];
-    if let Some(ref addr) = tx.receiver { r_addr.copy_from_slice(&addr.value); }
+    if let Some(ref addr) = tx.receiver {
+        if addr.value.len() == 32 { r_addr.copy_from_slice(&addr.value); }
+    }
 
     // 1. Cập nhật Sender
     let mut s_state = mgr.get_account_state(&s_addr);

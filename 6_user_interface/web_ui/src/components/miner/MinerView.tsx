@@ -38,8 +38,14 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
   useEffect(() => {
     if (status?.mining_device && !hasInitializedDevice) {
-      setDeviceMode(status.mining_device);
-      localStorage.setItem('mining_device', status.mining_device);
+      const savedDevice = localStorage.getItem('mining_device');
+      if (savedDevice && (savedDevice === 'cpu' || savedDevice === 'gpu' || savedDevice === 'hybrid') && savedDevice !== status.mining_device) {
+        setDeviceMode(savedDevice);
+        api.setMiningDevice(savedDevice).catch(console.warn);
+      } else {
+        setDeviceMode(status.mining_device);
+        localStorage.setItem('mining_device', status.mining_device);
+      }
       setHasInitializedDevice(true);
     }
   }, [status?.mining_device, hasInitializedDevice]);

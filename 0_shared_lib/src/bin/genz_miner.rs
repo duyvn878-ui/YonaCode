@@ -40,28 +40,48 @@ async fn main() {
 
     // Xử lý đối số dòng lệnh để xác định địa chỉ node gRPC và số luồng băm
     let args: Vec<String> = std::env::args().collect();
-    let mut server_url = "http://127.0.0.1:18080".to_string();
+    let mut server_url_opt = None;
     let mut threads_opt = None;
+    let mut wallet_address = None;
 
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--url" && i + 1 < args.len() {
-            server_url = args[i + 1].clone();
+            server_url_opt = Some(args[i + 1].clone());
             i += 2;
         } else if args[i] == "--port" && i + 1 < args.len() {
-            server_url = format!("http://127.0.0.1:{}", args[i + 1]);
+            server_url_opt = Some(format!("http://127.0.0.1:{}", args[i + 1]));
             i += 2;
         } else if (args[i] == "--threads" || args[i] == "-t") && i + 1 < args.len() {
             if let Ok(t) = args[i + 1].parse::<usize>() {
                 threads_opt = Some(t);
             }
             i += 2;
+        } else if (args[i] == "--address" || args[i] == "-a") && i + 1 < args.len() {
+            wallet_address = Some(args[i + 1].clone());
+            i += 2;
         } else {
             i += 1;
         }
     }
 
+    let server_url = match server_url_opt {
+        Some(url) => url,
+        None => {
+            if wallet_address.is_some() {
+                // Đọc IP từ biến môi trường YONA_POOL_IP nếu có để tăng tính động, fallback về VPS IP mặc định
+                let pool_ip = std::env::var("YONA_POOL_IP").unwrap_or_else(|_| "110.172.28.103".to_string());
+                format!("http://{}:18080", pool_ip)
+            } else {
+                "http://127.0.0.1:18080".to_string()
+            }
+        }
+    };
+
     log::info!("[MINER-INIT] 📡 Địa chỉ gRPC Go Node: {}", server_url);
+    if let Some(ref addr) = wallet_address {
+        log::info!("[MINER-INIT] 🏦 Chế độ đào Bể (Pool Mining) hoạt động. Ví thợ đào: {}", addr);
+    }
 
     // Xác định số luồng khai thác tối ưu
     let total_cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
@@ -104,7 +124,14 @@ async fn main() {
                 }
 
                 // Thực hiện kết nối luồng gRPC 2 chiều
-                match client.connect_miner(ReceiverStream::new(local_rx)).await {
+                let mut req = tonic::Request::new(ReceiverStream::new(local_rx));
+                if let Some(ref addr) = wallet_address {
+                    if let Ok(meta_val) = tonic::metadata::MetadataValue::try_from(addr.as_str()) {
+                        req.metadata_mut().insert("x-wallet-address", meta_val);
+                    }
+                }
+
+                match client.connect_miner(req).await {
                     Ok(response) => {
                         let mut inbound = response.into_inner();
                         log::info!("[MINER-CONN] 🚀 Bắt đầu nhận lệnh điều khiển từ Go Node.");

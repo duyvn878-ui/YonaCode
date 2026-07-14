@@ -42,6 +42,7 @@ import (
 	node_p2p "btc_genz/5_node_p2p"
 	"btc_genz/6_user_interface/audit"
 	"btc_genz/6_user_interface/internal"
+	"btc_genz/9_mining_pool"
 	pb_block "btc_genz/proto"
 
 	"github.com/gorilla/mux"
@@ -198,6 +199,12 @@ type RPCServer struct {
 	lastHashTime         time.Time
 	rateLimitersMu       sync.Mutex
 
+	// [POOL-MINER-UI] Quản lý tiến trình đào pool trực tiếp từ giao diện
+	poolMinerCmd    *exec.Cmd
+	poolMinerCmdMu  sync.Mutex
+	isPoolMining    bool
+	poolMinerDevice string
+
 	// [V5.0 ELITE] Kênh thông báo cập nhật giao diện tức thì
 	txUpdateChan    chan struct{}
 	blockUpdateChan chan struct{} // [REALTIME-BLOCK-FIX] Đánh thức UI khi có khối mới
@@ -228,9 +235,12 @@ type RPCServer struct {
 	senderLocks   map[string]*countedMutex
 	senderLocksMu sync.Mutex
 
+	pool          *mining_pool.MiningPool
+
 	// [MINER-STREAM] Các trường quản lý kết nối thợ đào độc lập
 	minerStreams     map[uint64]pb_block.MinerGateway_ConnectMinerServer
 	minerHashrates   map[uint64]uint64
+	minerAddresses   map[uint64]string
 	nextStreamId     uint64
 	minerStreamsMu   sync.RWMutex
 	internetAutoPaused bool
@@ -286,6 +296,8 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		lastWalletUpdate:  time.Time{},
 		senderLocks:       make(map[string]*countedMutex),
 		minerStreams:      make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
+		minerHashrates:    make(map[uint64]uint64),
+		minerAddresses:    make(map[uint64]string),
 		miningDevice:      "cpu",
 		lastRejectLogTime:  time.Time{},
 	}
@@ -2614,8 +2626,122 @@ func (s *RPCServer) checkGlobalInternet() bool {
 	return false
 }
 
+type NetworkAlert struct {
+	ID              int64  `json:"id"`
+	MessageVi       string `json:"message_vi"`
+	MessageEn       string `json:"message_en"`
+	GithubUrl       string `json:"github_url"`
+	ExpirationBlock uint64 `json:"expiration_block"`
+	Signature       string `json:"signature"`
+}
+
+var (
+	activeAlert   *NetworkAlert
+	activeAlertMu sync.RWMutex
+)
+
+func verifyAlertSignature(alert *NetworkAlert, pubKeyHex string) bool {
+	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
+	if err != nil || len(pubKeyBytes) != 32 {
+		return false
+	}
+	sigBytes, err := hex.DecodeString(alert.Signature)
+	if err != nil || len(sigBytes) != 64 {
+		return false
+	}
+	payload := fmt.Sprintf("%d|%s|%s|%s|%d", alert.ID, alert.MessageVi, alert.MessageEn, alert.GithubUrl, alert.ExpirationBlock)
+	return ed25519.Verify(pubKeyBytes, []byte(payload), sigBytes)
+}
+
+func (s *RPCServer) startAlertPoller() {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	pubKeyAdmin := "680303fe459c4622e35c279347755db9b1139776fab81f83d8eaa141fa080146"
+	url := "https://raw.githubusercontent.com/duyvn878/YonaCode/main/alert.json"
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	s.fetchAlert(client, pubKeyAdmin, url)
+
+	for range ticker.C {
+		s.fetchAlert(client, pubKeyAdmin, url)
+	}
+}
+
+func (s *RPCServer) fetchAlert(client *http.Client, pubKeyAdmin, url string) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	var alert NetworkAlert
+	if err := json.NewDecoder(resp.Body).Decode(&alert); err != nil {
+		return
+	}
+
+	activeAlertMu.RLock()
+	currentAlert := activeAlert
+	activeAlertMu.RUnlock()
+
+	currentHeight := s.bridge.GetCurrentVersion()
+
+	// [ANTI-REPLAY / ANTI-ROLLBACK SHIELD]
+	// Xác minh 3 lớp dựa trên Block Height:
+	// 1. Chữ ký Ed25519 hợp lệ (Xác kỉ).
+	// 2. Cảnh báo chưa hết hạn khối (Tránh phát lại cảnh báo cũ đã qua khối hết hạn).
+	// 3. ID cảnh báo mới phải lớn hơn hoặc bằng ID hiện tại đang lưu (Tránh kẻ tấn công phát lại cảnh báo cũ chưa hết hạn).
+	isValid := verifyAlertSignature(&alert, pubKeyAdmin) && alert.ExpirationBlock > currentHeight
+
+	if isValid {
+		if currentAlert == nil || alert.ID >= currentAlert.ID {
+			activeAlertMu.Lock()
+			activeAlert = &alert
+			activeAlertMu.Unlock()
+		}
+	} else {
+		// Chỉ xóa cảnh báo nếu cảnh báo hiện tại đã hết hạn khối thực tế
+		if currentAlert != nil && currentHeight >= currentAlert.ExpirationBlock {
+			activeAlertMu.Lock()
+			activeAlert = nil
+			activeAlertMu.Unlock()
+		}
+	}
+}
+
+func (s *RPCServer) startAlertConsoleLogger() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		activeAlertMu.RLock()
+		alert := activeAlert
+		activeAlertMu.RUnlock()
+
+		currentHeight := s.bridge.GetCurrentVersion()
+
+		if alert != nil && currentHeight < alert.ExpirationBlock {
+			urlInfo := ""
+			if alert.GithubUrl != "" {
+				urlInfo = fmt.Sprintf(" | GitHub Update Link: %s", alert.GithubUrl)
+			}
+			fmt.Printf("\033[31m[EMERGENCY-ALERT] 🚨 %s (Vietnamese: %s) [ID: %d, Expiration Block: #%d]%s\033[0m\n", 
+				alert.MessageEn, alert.MessageVi, alert.ID, alert.ExpirationBlock, urlInfo)
+		}
+	}
+}
+
 func (s *RPCServer) Start() {
 	r := mux.NewRouter()
+
+	go s.startAlertPoller()
+	go s.startAlertConsoleLogger()
 
 	// [V1.1.2] Tự động mở trình duyệt sau khi Server lên đèn
 	go func() {
@@ -2764,6 +2890,13 @@ func (s *RPCServer) Start() {
 	r.HandleFunc("/api/v1/miner/hashrate", s.handleMinerHashrate).Methods("POST")
 	r.HandleFunc("/api/v1/node/mining-device", s.localhostOnly(s.handleMiningDevice)).Methods("POST", "GET")
 
+	// POOL MINING API
+	r.HandleFunc("/api/v1/pool/getwork", s.handlePoolGetWork).Methods("GET")
+	r.HandleFunc("/api/v1/pool/submitwork", s.handlePoolSubmitWork).Methods("POST")
+	r.HandleFunc("/api/v1/pool/status", s.handlePoolStatus).Methods("GET")
+	r.HandleFunc("/api/v1/pool/miner/toggle", s.localhostOnly(s.handlePoolMinerToggle)).Methods("POST")
+	r.HandleFunc("/api/v1/pool/miner/status", s.handlePoolMinerStatus).Methods("GET")
+
 	// [V12.2] REAL-TIME SSE: Stream trạng thái mạng (C#9 TACTICAL)
 	r.HandleFunc("/api/v1/network/watch-status", s.handleWatchStatus).Methods("GET")
 
@@ -2791,8 +2924,12 @@ func (s *RPCServer) Start() {
 	r.Use(s.corsMiddleware)
 
 	// Start HTTP Server
-	// [SECURITY-HARDENING] Chỉ lắng nghe localhost (127.0.0.1) để tắt giao diện Web UI công khai và bảo vệ hệ thống.
-	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
+	// [SECURITY-HARDENING] Chỉ lắng nghe localhost (127.0.0.1) để bảo vệ hệ thống, trừ khi kích hoạt Bể đào (Pool) thì lắng nghe 0.0.0.0 để thợ đào kết nối.
+	host := "127.0.0.1"
+	if s.pool != nil {
+		host = "0.0.0.0"
+	}
+	addr := fmt.Sprintf("%s:%d", host, s.port)
 	log.Printf("[DEBUG-RPC] 📡 Chuẩn bị khởi động HTTP Server tại cổng: %s", addr)
 	go func() {
 		log.Printf("[RPC] 🌐 Web UI & API Server đang lắng nghe tải: http://%s", addr)
@@ -2803,7 +2940,11 @@ func (s *RPCServer) Start() {
 	}()
 
 	// Start GRPC Server
-	grpcAddr := fmt.Sprintf("127.0.0.1:%d", s.port+10000)
+	grpcHost := "127.0.0.1"
+	if s.pool != nil {
+		grpcHost = "0.0.0.0"
+	}
+	grpcAddr := fmt.Sprintf("%s:%d", grpcHost, s.port+10000)
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		log.Printf("[CRITICAL] ❌ gRPC Listener thất bại tại %s: %v", grpcAddr, err)
@@ -5779,7 +5920,24 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		downloading = s.netMgr.SyncEngine.GetDownloadingHeight()
 	}
 
+	activeAlertMu.RLock()
+	alert := activeAlert
+	activeAlertMu.RUnlock()
+
+	currentHeight := s.bridge.GetCurrentVersion()
+	var activeAlertMap interface{}
+	if alert != nil && currentHeight < alert.ExpirationBlock {
+		activeAlertMap = map[string]interface{}{
+			"id":               alert.ID,
+			"message_vi":       alert.MessageVi,
+			"message_en":       alert.MessageEn,
+			"github_url":       alert.GithubUrl,
+			"expiration_block": alert.ExpirationBlock,
+		}
+	}
+
 	resp := map[string]interface{}{
+		"active_alert":           activeAlertMap,
 		"current_height":         height,
 		"target_height":          targetHeight,
 		"sync_state":             syncState,
@@ -5877,6 +6035,17 @@ func (s *RPCServer) PanicRecoveryMiddleware(next http.Handler) http.Handler {
 
 func (s *RPCServer) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/pool/") {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Accept, Origin, Cache-Control, X-Requested-With, X-Wallet-Token")
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			// [SECURITY-HARDENING] Chỉ cho phép CORS từ localhost hoặc 127.0.0.1 để chống tấn công CSRF thông qua trình duyệt
@@ -6524,9 +6693,30 @@ func (s *RPCServer) handleEmergencyReset(w http.ResponseWriter, r *http.Request)
 // Tại sao phải gọi s.bridge.Close(): Giải phóng hoàn toàn các file lock của database RocksDB trong Rust Core và tắt tiến trình con scl_server.exe,
 // tránh hiện tượng lock dữ liệu khi khởi chạy lại.
 func (s *RPCServer) handleNodeShutdown(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Dữ liệu yêu cầu không hợp lệ. Vui lòng nhập 'yes' để xác nhận tắt.",
+		})
+		return
+	}
+
+	if req.Confirm != "yes" {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Yêu cầu tắt bị từ chối. Vui lòng gõ 'yes' để xác nhận.",
+		})
+		return
+	}
+
 	log.Printf("[RPC] 💀 Nhận lệnh TẮT NODE từ giao diện điều khiển. Đang dọn dẹp tài nguyên...")
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Node đang dừng hoạt động... Cửa sổ dòng lệnh sẽ đóng lại sau giây lát.",
@@ -6662,22 +6852,36 @@ func (s *RPCServer) GetBalanceBatchChunked(batchAddrs [][]byte) ([]*pb_block.Bal
 
 // ConnectMiner handles the bidirectional gRPC stream connection from genz_miner.exe.
 func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer) error {
+	var workerAddr string
+	if md, ok := metadata.FromIncomingContext(stream.Context()); ok {
+		if addrs := md.Get("x-wallet-address"); len(addrs) > 0 {
+			workerAddr = addrs[0]
+		}
+	}
+
 	s.minerStreamsMu.Lock()
 	if s.minerStreams == nil {
 		s.minerStreams = make(map[uint64]pb_block.MinerGateway_ConnectMinerServer)
 	}
+	if s.minerAddresses == nil {
+		s.minerAddresses = make(map[uint64]string)
+	}
 	sid := s.nextStreamId
 	s.nextStreamId++
 	s.minerStreams[sid] = stream
+	if workerAddr != "" {
+		s.minerAddresses[sid] = workerAddr
+	}
 	s.minerStreamsMu.Unlock()
 
 	defer func() {
 		s.minerStreamsMu.Lock()
 		delete(s.minerStreams, sid)
 		delete(s.minerHashrates, sid)
+		delete(s.minerAddresses, sid)
 		activeStreams := len(s.minerStreams)
 		s.minerStreamsMu.Unlock()
-		log.Printf("[RPC-GRPC] 🔌 Thợ đào #%d đã ngắt kết nối.", sid)
+		log.Printf("[RPC-GRPC] 🔌 Thợ đào #%d (%s) đã ngắt kết nối.", sid, workerAddr)
 
 		// [BRIDGE-RECOVERY] Tự động hồi sinh thợ đào genz_miner.exe nếu bị rụng kết nối đột ngột khi đang bật đào
 		s.nodeModeMu.RLock()
@@ -6721,6 +6925,9 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 	s.nodeModeMu.RLock()
 	paused := s.nodeMode != "full-mining"
 	s.nodeModeMu.RUnlock()
+	if s.pool != nil {
+		paused = false
+	}
 
 	// Khởi tạo lệnh cấu hình đầu tiên
 	var activeTaskBytes []byte
@@ -6728,9 +6935,21 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 	if s.cliApp != nil {
 		s.cliApp.activeMiningMu.Lock()
 		if len(s.cliApp.activeBodyData) > 0 && s.cliApp.activeBlock != nil {
+			var headerCopy *pb_block.BlockHeader
+			if s.pool != nil {
+				headerCopy = proto.Clone(s.cliApp.activeBlock.Header).(*pb_block.BlockHeader)
+				workerDiff := s.pool.GetWorkerDifficulty(workerAddr)
+				poolDiffBig := big.NewInt(int64(workerDiff))
+				poolDiffBytes := make([]byte, 32)
+				copy(poolDiffBytes, reverseBytes(poolDiffBig.Bytes()))
+				headerCopy.Difficulty = poolDiffBytes
+			} else {
+				headerCopy = s.cliApp.activeBlock.Header
+			}
+
 			// Xây dựng lại MiningTask bytes hiện tại
 			task := &pb_block.MiningTask{
-				Header:    s.cliApp.activeBlock.Header,
+				Header:    headerCopy,
 				Intensity: uint32(intensity),
 				Threads:   uint32(2),
 				SessionId: s.cliApp.activeSessionId,
@@ -6766,7 +6985,12 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 		if msg.CurrentHashrate >= 0 {
 			s.minerStreamsMu.Lock()
 			s.minerHashrates[sid] = msg.CurrentHashrate
+			workerAddr := s.minerAddresses[sid]
 			s.minerStreamsMu.Unlock()
+
+			if s.pool != nil && workerAddr != "" {
+				s.pool.UpdateHashrate(workerAddr, msg.CurrentHashrate)
+			}
 		}
 
 		// Nhận nonce khi thợ đào giải quyết được khối
@@ -6775,9 +6999,60 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 				log.Printf("[RPC-GRPC] ⚠️ Bỏ qua nonce từ thợ đào #%d vì mạng đang offline", sid)
 				continue
 			}
-			log.Printf("[RPC-GRPC] 🏆 Nhận được nonce hợp lệ %d (SID: %d) từ thợ đào #%d", msg.FoundNonce, msg.SessionId, sid)
-			if s.cliApp != nil {
-				s.cliApp.miningResultChan <- msg
+
+			s.minerStreamsMu.RLock()
+			workerAddr := s.minerAddresses[sid]
+			s.minerStreamsMu.RUnlock()
+
+			if s.pool != nil {
+				s.cliApp.activeMiningMu.Lock()
+				activeBlock := s.cliApp.activeBlock
+				s.cliApp.activeMiningMu.Unlock()
+
+				if activeBlock != nil && activeBlock.Header != nil {
+					headerRaw, err := proto.Marshal(activeBlock.Header)
+					if err == nil {
+						headerHash := s.bridge.CalculateBlockHeaderHash(headerRaw)
+						workerDiff := s.pool.GetWorkerDifficulty(workerAddr)
+						
+						// LỚP 2: Khóa và kiểm tra nonce nguyên tử trong stream gRPC
+						if !s.pool.CheckAndRegisterNonce(msg.FoundNonce, activeBlock.Header.Height) {
+							log.Printf("[POOL-WARN] ⚠️ Phát hiện thợ đào #%d nộp trùng nonce %d qua stream (gRPC). Từ chối.", sid, msg.FoundNonce)
+							continue
+						}
+						
+						isPoolShare, isNetworkBlock := s.pool.VerifyShare(headerHash, msg.FoundNonce, activeBlock.Header.Difficulty, activeBlock.Header.Height, workerDiff)
+
+						if isPoolShare {
+							if workerAddr != "" {
+								s.pool.RegisterShare(workerAddr, workerDiff)
+								log.Printf("[POOL] 👍 Ghi nhận share từ CPU thợ đào %s (Nonce: %d, Diff: %d, Stream: #%d)", workerAddr, msg.FoundNonce, workerDiff, sid)
+							} else {
+								log.Printf("[POOL-WARN] ⚠️ Nhận share từ CPU thợ đào không gửi địa chỉ ví (Stream: #%d). Bỏ qua.", sid)
+							}
+						} else {
+							s.pool.UnregisterNonce(msg.FoundNonce) // Giải phóng nonce nếu không hợp lệ
+						}
+
+						if isNetworkBlock {
+							log.Printf("[POOL-WIN] 🏆 CPU thợ đào %s đã giải được một block mạng! Nonce: %d", workerAddr, msg.FoundNonce)
+							if s.cliApp != nil {
+								select {
+								case s.cliApp.miningResultChan <- msg:
+									s.pool.SolvedBlocks++
+									log.Printf("[POOL-WIN] ✅ Đã đẩy Nonce mạng %d vào kênh đề xuất khối (gRPC).", msg.FoundNonce)
+								default:
+									log.Printf("[POOL-ERROR] ⚠️ Kênh đề xuất khối đầy, bỏ qua block solved nonce %d (gRPC)", msg.FoundNonce)
+								}
+							}
+						}
+					}
+				}
+			} else {
+				log.Printf("[RPC-GRPC] 🏆 Nhận được nonce hợp lệ %d (SID: %d) từ thợ đào #%d", msg.FoundNonce, msg.SessionId, sid)
+				if s.cliApp != nil {
+					s.cliApp.miningResultChan <- msg
+				}
 			}
 		}
 	}
@@ -6808,21 +7083,64 @@ func (s *RPCServer) BroadcastMiningTask(taskBytes []byte, sessionID uint64, diff
 	s.nodeModeMu.RLock()
 	paused := s.nodeMode != "full-mining"
 	s.nodeModeMu.RUnlock()
-
-	var targetDiff uint64
-	if len(difficulty) >= 8 {
-		targetDiff = binary.LittleEndian.Uint64(difficulty[:8])
+	if s.pool != nil {
+		paused = false
 	}
 
-	cmd := &pb_block.NodeCommand{
-		IsPaused:         paused,
-		CpuIntensity:     uint32(intensity),
-		BlockTemplate:    taskBytes,
-		TargetDifficulty: targetDiff,
-		SessionId:        sessionID,
-	}
+	s.minerStreamsMu.RLock()
+	defer s.minerStreamsMu.RUnlock()
 
-	s.BroadcastCommand(cmd)
+	for sid, stream := range s.minerStreams {
+		workerAddr := s.minerAddresses[sid]
+		
+		var finalTaskBytes []byte
+		var targetDiff uint64
+		if len(difficulty) >= 8 {
+			targetDiff = binary.LittleEndian.Uint64(difficulty[:8])
+		}
+
+		if s.pool != nil && s.cliApp != nil {
+			s.cliApp.activeMiningMu.Lock()
+			if s.cliApp.activeBlock != nil {
+				headerCopy := proto.Clone(s.cliApp.activeBlock.Header).(*pb_block.BlockHeader)
+				workerDiff := s.pool.GetWorkerDifficulty(workerAddr)
+				poolDiffBig := big.NewInt(int64(workerDiff))
+				poolDiffBytes := make([]byte, 32)
+				copy(poolDiffBytes, reverseBytes(poolDiffBig.Bytes()))
+				headerCopy.Difficulty = poolDiffBytes
+
+				task := &pb_block.MiningTask{
+					Header:    headerCopy,
+					Intensity: uint32(intensity),
+					Threads:   uint32(2),
+					SessionId: sessionID,
+				}
+				if b, err := proto.Marshal(task); err == nil {
+					finalTaskBytes = b
+					if len(poolDiffBytes) >= 8 {
+						targetDiff = binary.LittleEndian.Uint64(poolDiffBytes[:8])
+					}
+				}
+			}
+			s.cliApp.activeMiningMu.Unlock()
+		} else {
+			finalTaskBytes = taskBytes
+		}
+
+		cmd := &pb_block.NodeCommand{
+			IsPaused:         paused,
+			CpuIntensity:     uint32(intensity),
+			BlockTemplate:    finalTaskBytes,
+			TargetDifficulty: targetDiff,
+			SessionId:        sessionID,
+		}
+
+		go func(id uint64, st pb_block.MinerGateway_ConnectMinerServer, c *pb_block.NodeCommand) {
+			if err := st.Send(c); err != nil {
+				log.Printf("[RPC-GRPC] ❌ Không thể gửi lệnh tới thợ đào #%d: %v", id, err)
+			}
+		}(sid, stream, cmd)
+	}
 }
 
 // BroadcastPauseState phát sóng trạng thái pause cập nhật tới toàn bộ thợ đào.
@@ -7425,6 +7743,7 @@ func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	var req struct {
 		Hashrate uint64 `json:"hashrate"`
+		Address  string `json:"address"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
@@ -7434,7 +7753,11 @@ func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) 
 	atomic.StoreUint64(&s.gpuHashrate, req.Hashrate)
 	s.lastGpuHashTime = time.Now()
 	
-	log.Printf("[RPC-UI] ⚡ Nhận báo cáo hashrate từ GPU Miner: %d H/s (%.2f MH/s)", req.Hashrate, float64(req.Hashrate)/1000000.0)
+	if req.Address != "" && s.pool != nil {
+		s.pool.UpdateHashrate(req.Address, req.Hashrate)
+	}
+	
+	log.Printf("[RPC-UI] ⚡ Nhận báo cáo hashrate từ GPU Miner (%s): %d H/s (%.2f MH/s)", req.Address, req.Hashrate, float64(req.Hashrate)/1000000.0)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
 }
@@ -7501,5 +7824,415 @@ func (s *RPCServer) downloadFile(url string, dest string) error {
 	_, err = io.Copy(out, resp.Body)
 	return err
 }
+
+func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.pool == nil {
+		http.Error(w, "Mining Pool is not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	workerAddr := r.URL.Query().Get("address")
+	if workerAddr == "" {
+		http.Error(w, "Missing worker wallet address (?address=0x...)", http.StatusBadRequest)
+		return
+	}
+
+	cleanAddr := strings.TrimPrefix(workerAddr, "0x")
+	if len(cleanAddr) != 64 {
+		http.Error(w, "Invalid wallet address length. Must be 64 hex characters (32 bytes).", http.StatusBadRequest)
+		return
+	}
+
+	s.cliApp.activeMiningMu.Lock()
+	activeBlock := s.cliApp.activeBlock
+	activeSessionId := s.cliApp.activeSessionId
+	s.cliApp.activeMiningMu.Unlock()
+
+	if activeBlock == nil || activeBlock.Header == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	headerRaw, err := proto.Marshal(activeBlock.Header)
+	if err != nil {
+		http.Error(w, "Failed to marshal block header", http.StatusInternalServerError)
+		return
+	}
+	headerHash := s.bridge.CalculateBlockHeaderHash(headerRaw)
+
+	workerDiff := s.pool.GetWorkerDifficulty(workerAddr)
+	maxU256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	shareTarget := maxU256
+	if workerDiff > 1 {
+		shareTarget = new(big.Int).Div(maxU256, big.NewInt(int64(workerDiff)))
+	}
+	targetPadded := make([]byte, 32)
+	shareBytes := shareTarget.Bytes()
+	copy(targetPadded[32-len(shareBytes):], shareBytes)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"header_hash": hex.EncodeToString(headerHash),
+		"target":      hex.EncodeToString(targetPadded),
+		"height":      activeBlock.Header.Height,
+		"session_id":  activeSessionId,
+		"intensity":   100,
+	})
+}
+
+func (s *RPCServer) handlePoolSubmitWork(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.pool == nil {
+		http.Error(w, "Mining Pool is not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Nonce     uint64 `json:"nonce"`
+		SessionId uint64 `json:"session_id"`
+		Address   string `json:"address"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Nonce == 0 || req.Address == "" {
+		http.Error(w, "Invalid request parameters", http.StatusBadRequest)
+		return
+	}
+
+	// LỚP 1: Chống spam request liên tiếp (Rate Limiting)
+	if !s.pool.CheckRateLimit(req.Address) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"status": "reject", "message": "Too many share submissions. Rate limit 200ms."})
+		return
+	}
+
+	s.cliApp.activeMiningMu.Lock()
+	activeBlock := s.cliApp.activeBlock
+	s.cliApp.activeMiningMu.Unlock()
+
+	if activeBlock == nil || activeBlock.Header == nil {
+		http.Error(w, "Active block template not found", http.StatusGone)
+		return
+	}
+
+	// LỚP 2: Khóa và kiểm tra nonce nguyên tử để chống Race Condition
+	if !s.pool.CheckAndRegisterNonce(req.Nonce, activeBlock.Header.Height) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "reject", "message": "Duplicate nonce share submitted"})
+		return
+	}
+
+	headerRaw, err := proto.Marshal(activeBlock.Header)
+	if err != nil {
+		s.pool.UnregisterNonce(req.Nonce) // Giải phóng nonce nếu marshalling lỗi
+		http.Error(w, "Failed to marshal block header", http.StatusInternalServerError)
+		return
+	}
+	headerHash := s.bridge.CalculateBlockHeaderHash(headerRaw)
+
+	workerDiff := s.pool.GetWorkerDifficulty(req.Address)
+	isPoolShare, isNetworkBlock := s.pool.VerifyShare(headerHash, req.Nonce, activeBlock.Header.Difficulty, activeBlock.Header.Height, workerDiff)
+
+	if !isPoolShare {
+		s.pool.UnregisterNonce(req.Nonce) // Giải phóng nonce để thợ đào không bị khóa oan
+		log.Printf("[POOL] ❌ Share reject: Nonce %d từ thợ đào %s không đạt độ khó bể %d.", req.Nonce, req.Address, workerDiff)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "reject", "message": "Share does not meet share difficulty"})
+		return
+	}
+
+	s.pool.RegisterShare(req.Address, workerDiff)
+	log.Printf("[POOL] 👍 Nhận share hợp lệ từ thợ đào %s (Nonce: %d, Diff: %d)", req.Address, req.Nonce, workerDiff)
+
+	if isNetworkBlock {
+		log.Printf("[POOL-WIN] 🏆 Thợ đào %s đã giải được một block mạng! Nonce: %d", req.Address, req.Nonce)
+
+		// Chụp ảnh công sức đóng góp (shares) cho khối hiện tại và reset RAM ngay lập tức
+		s.pool.SnapshotAndReset(activeBlock.Header.Height)
+
+		// Đóng gói block trực tiếp từ activeBlock template đang hoạt động
+		s.cliApp.activeMiningMu.Lock()
+		if s.cliApp.activeBlock != nil {
+			minedBlockBytes, _ := proto.Marshal(s.cliApp.activeBlock)
+			s.cliApp.activeMiningMu.Unlock()
+
+			var minedBlock pb_block.Block
+			proto.Unmarshal(minedBlockBytes, &minedBlock)
+			minedBlock.Header.Nonce = req.Nonce // Gán nonce trúng từ thợ đào
+
+			// Kiểm tra điều kiện cho phép đóng góp khối lên mạng (cho phép nộp kể cả khi node ở verify-only)
+			isOffline := atomic.LoadInt32(&s.internetOffline) == 1
+			isSynced := true
+			if s.netMgr != nil && s.netMgr.SyncEngine != nil {
+				isSynced = s.netMgr.SyncEngine.IsSynced()
+			}
+			if !isOffline && isSynced {
+				finalBlockRaw, _ := proto.Marshal(&minedBlock)
+				log.Printf("[POOL-WIN] ⛓️ Đang gửi khối mới #%d của Pool lên Consensus Engine...", minedBlock.Header.Height)
+
+				resp, err := s.bridge.ProcessChain([][]byte{finalBlockRaw})
+				if err == nil && (resp.Status == 1 || resp.Status == 0) {
+					log.Printf("[POOL-SUCCESS] ✅ Khối đào #%d của Pool đã được Rust SCL chấp nhận. Tiến hành phát sóng...", minedBlock.Header.Height)
+
+					// Ghi nhận khối thành công chính thức
+					s.pool.AddMinedBlock(minedBlock.Header.Height)
+
+					// Phát sóng block qua mạng P2P để các node khác đồng bộ
+					minedHeaderRaw, _ := proto.Marshal(minedBlock.Header)
+					blockHash := s.bridge.CalculateBlockHeaderHash(minedHeaderRaw)
+
+					s.netMgr.BroadcastInventory(minedBlock.Header.Height, blockHash)
+					s.netMgr.BroadcastBlock(minedBlock.Header, minedBlock.Body)
+				} else {
+					log.Printf("[POOL-REJECT] ❌ Lỗi hoặc Rust Core từ chối khối #%d của Pool: status=%d", minedBlock.Header.Height, resp.Status)
+				}
+			} else {
+				log.Printf("[POOL-WARN] ⚠️ Hủy bỏ nộp khối #%d vì Node đang offline (offline=%t) hoặc chưa đồng bộ (synced=%t).", minedBlock.Header.Height, isOffline, isSynced)
+			}
+		} else {
+			s.cliApp.activeMiningMu.Unlock()
+			log.Printf("[POOL-ERROR] ❌ activeBlock bị mất! Không thể nộp khối mạng.")
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func (s *RPCServer) handlePoolStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.pool == nil {
+		http.Error(w, "Mining Pool is not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	s.pool.Mu.RLock()
+	defer s.pool.Mu.RUnlock()
+
+	var totalHashrate uint64
+	var activeWorkers int
+	now := time.Now().Unix()
+
+	workersList := make([]map[string]interface{}, 0)
+	for addr, wInfo := range s.pool.Workers {
+		// Giữ mốc 5 phút (300 giây) để hiển thị trạng thái online/offline của worker
+		isActive := (now - wInfo.LastSeen) < 300
+		if isActive {
+			activeWorkers++
+		}
+
+		// Tự động đưa hashrate hiển thị về 0 nếu quá 45 giây không gửi báo cáo hoặc share
+		var displayHashrate uint64
+		if (now - wInfo.LastSeen) < 45 {
+			displayHashrate = wInfo.Hashrate
+			totalHashrate += wInfo.Hashrate
+		}
+
+		workersList = append(workersList, map[string]interface{}{
+			"address":   addr,
+			"shares":    wInfo.Shares,
+			"hashrate":  displayHashrate, // Trả về 0 ngay nếu thợ đào dừng hoạt động
+			"last_seen": wInfo.LastSeen,
+			"active":    isActive,
+		})
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"pool_address":     s.pool.PoolAddress,
+		"pool_fee":         s.pool.PoolFee,
+		"share_diff_mult":  s.pool.ShareDiffMult,
+		"active_workers":   activeWorkers,
+		"total_hashrate":   totalHashrate,
+		"solved_blocks":    s.pool.SolvedBlocks,
+		"mined_blocks":     s.pool.MinedBlocks,
+		"workers":          workersList,
+	})
+}
+
+func (s *RPCServer) handlePoolMinerStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	s.poolMinerCmdMu.Lock()
+	defer s.poolMinerCmdMu.Unlock()
+
+	// Check if process is still running
+	isRunning := s.isPoolMining
+	if s.poolMinerCmd != nil && s.poolMinerCmd.Process != nil {
+		// Wait for process to exit or check state
+		state := s.poolMinerCmd.ProcessState
+		if state != nil && state.Exited() {
+			isRunning = false
+			s.isPoolMining = false
+			s.poolMinerCmd = nil
+		}
+	} else {
+		isRunning = false
+		s.isPoolMining = false
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "Success",
+		"is_pool_mining":  isRunning,
+		"device":          s.poolMinerDevice,
+	})
+}
+
+func (s *RPCServer) handlePoolMinerToggle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	var req struct {
+		Enabled  bool   `json:"enabled"`
+		Device   string `json:"device"`
+		PoolURL  string `json:"pool_url"`
+		Address  string `json:"address"`
+		Threads  int    `json:"threads"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	s.poolMinerCmdMu.Lock()
+	defer s.poolMinerCmdMu.Unlock()
+
+	// Stop any existing pool miner process if running
+	if s.poolMinerCmd != nil {
+		log.Printf("[POOL-MINER] 🛑 Dừng thợ đào bể cũ đang hoạt động...")
+		if s.poolMinerCmd.Process != nil {
+			_ = s.poolMinerCmd.Process.Kill()
+			_ = s.poolMinerCmd.Wait()
+		}
+		s.poolMinerCmd = nil
+		s.isPoolMining = false
+	}
+
+	if !req.Enabled {
+		// If only disabling, stop local solo miners too for safety
+		s.bridge.StopGenzMiner()
+		s.bridge.StopGpuMiner()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":         "Success",
+			"is_pool_mining": false,
+		})
+		return
+	}
+
+	// 1. Tắt đào solo nếu đang chạy
+	s.nodeModeMu.Lock()
+	s.nodeMode = "verify-only"
+	s.nodeModeMu.Unlock()
+	s.saveNodeConfig()
+	s.bridge.StopGenzMiner()
+	s.bridge.StopGpuMiner()
+
+	// 2. Tìm binary thợ đào thích hợp
+	exePath, _ := os.Executable()
+	searchDir := filepath.Dir(exePath)
+	curr, _ := os.Getwd()
+
+	var minerBin string
+	if strings.ToLower(req.Device) == "gpu" {
+		if runtime.GOOS == "windows" {
+			minerBin = "yona_gpu_miner.exe"
+		} else {
+			minerBin = "yona_gpu_miner"
+		}
+	} else {
+		if runtime.GOOS == "windows" {
+			minerBin = "genz_miner.exe"
+		} else {
+			minerBin = "genz_miner"
+		}
+	}
+
+	paths := []string{
+		filepath.Join(curr, minerBin),
+		filepath.Join(searchDir, minerBin),
+		filepath.Join(searchDir, "bin", minerBin),
+		filepath.Join(searchDir, "bin", "linux", minerBin),
+		filepath.Join(searchDir, "bbuild", minerBin),
+		filepath.Join(curr, "bbuild", minerBin),
+	}
+
+	minerPath := ""
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			minerPath = p
+			break
+		}
+	}
+
+	if minerPath == "" {
+		http.Error(w, fmt.Sprintf("Không tìm thấy tệp thực thi thợ đào %s", minerBin), http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Chuẩn bị đối số khởi chạy
+	var args []string
+	if strings.ToLower(req.Device) == "gpu" {
+		// GPU miner: host port walletAddress
+		host := req.PoolURL
+		port := "8080"
+		if strings.Contains(req.PoolURL, ":") {
+			parts := strings.Split(req.PoolURL, ":")
+			host = parts[0]
+			port = parts[1]
+		}
+		args = []string{host, port, req.Address}
+	} else {
+		// CPU miner: --url http://host:port --threads N --address walletAddress
+		urlVal := req.PoolURL
+		if !strings.HasPrefix(urlVal, "http://") && !strings.HasPrefix(urlVal, "https://") {
+			urlVal = "http://" + urlVal
+		}
+		// CPU pool mining uses gRPC which is pool port + 10000
+		if strings.Contains(urlVal, ":") {
+			parts := strings.Split(urlVal, ":")
+			baseHost := parts[0] + ":" + parts[1]
+			portStr := parts[2]
+			if pVal, err := strconv.Atoi(portStr); err == nil {
+				// If they pass 8080, convert to 18080 for CPU gRPC connection
+				if pVal == 8080 {
+					urlVal = baseHost + ":18080"
+				}
+			}
+		}
+		args = []string{"--url", urlVal, "--address", req.Address}
+		if req.Threads > 0 {
+			args = append(args, "--threads", fmt.Sprintf("%d", req.Threads))
+		}
+	}
+
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(minerPath, 0755)
+	}
+
+	cmd := exec.Command(minerPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), fmt.Sprintf("YONA_LOCAL_RPC_PORT=%d", s.port))
+
+	log.Printf("[POOL-MINER] 🚀 Khởi chạy thợ đào bể (%s): %s %v", req.Device, minerPath, args)
+	if err := cmd.Start(); err != nil {
+		log.Printf("[POOL-MINER] ❌ Lỗi khởi chạy thợ đào bể: %v", err)
+		http.Error(w, fmt.Sprintf("Lỗi khởi chạy tiến trình thợ đào: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	s.poolMinerCmd = cmd
+	s.isPoolMining = true
+	s.poolMinerDevice = req.Device
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "Success",
+		"is_pool_mining": true,
+	})
+}
+
 
 

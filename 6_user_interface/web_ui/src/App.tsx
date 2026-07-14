@@ -13,6 +13,7 @@ import UnifiedWalletPanel from './components/wallet/UnifiedWalletPanel';
 import ExplorerView from './components/explorer/ExplorerView';
 import MinerView from './components/miner/MinerView';
 import MonitorView from './components/node/MonitorView';
+import PoolView from './components/miner/PoolView';
 
 // MODALS
 import WalletRestoreModal from './components/wallet/WalletRestoreModal';
@@ -28,7 +29,7 @@ interface Notification {
   type: 'info' | 'success' | 'error' | 'finality';
 }
 
-type TabType = 'dashboard' | 'wallet' | 'explorer' | 'miner' | 'monitor';
+type TabType = 'dashboard' | 'wallet' | 'explorer' | 'miner' | 'monitor' | 'pool';
 
 function App() {
   const { t } = useLanguage();
@@ -275,7 +276,7 @@ function App() {
   };
 
   const handleTabChange = (tab: string) => {
-      if (['dashboard', 'wallet', 'explorer', 'miner', 'monitor'].includes(tab)) {
+      if (['dashboard', 'wallet', 'explorer', 'miner', 'monitor', 'pool'].includes(tab)) {
           setActiveTab(tab as TabType);
           localStorage.setItem('vanguard_active_tab', tab);
       }
@@ -309,6 +310,45 @@ function App() {
             address={address}
             isOffline={isNodeOffline}
           />
+
+          {/* 🚨 YONA EMERGENCY NETWORK ALERT SYSTEM BANNER */}
+          <AnimatePresence>
+            {status?.active_alert && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="bg-red-950/80 border-b border-red-500/50 p-4 flex flex-col sm:flex-row items-center justify-center gap-3 overflow-hidden text-center shadow-[0_0_30px_rgba(239,68,68,0.2)]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3.5 w-3.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 shadow-[0_0_10px_var(--accent-red)]"></span>
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-red-500 animate-pulse">
+                    {t.network_alert_title}:
+                  </span>
+                </div>
+                <p className="text-[11px] font-black text-red-100 uppercase tracking-widest leading-relaxed max-w-4xl">
+                  {t.lang === 'vi' ? status.active_alert.message_vi : status.active_alert.message_en}
+                </p>
+                {status.active_alert.github_url && (
+                  <a
+                    href={status.active_alert.github_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase rounded transition-all duration-300 pointer-events-auto shadow-[0_0_15px_rgba(239,68,68,0.4)] cursor-pointer"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    {t.lang === 'vi' ? 'TẢI BẢN CẬP NHẬT (GITHUB)' : 'DOWNLOAD UPDATE (GITHUB)'}
+                  </a>
+                )}
+                <span className="text-[9px] font-mono text-red-400/80">
+                  ({t.lang === 'vi' ? `Hết hạn tại khối: #${status.active_alert.expiration_block}` : `Expires at block: #${status.active_alert.expiration_block}`})
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* ⚠️ MINING SECURITY WARNING BAR - [VANGUARD-V5] */}
           <AnimatePresence>
@@ -406,6 +446,13 @@ function App() {
             {activeTab === 'monitor' && (
               <MonitorView
                 status={status}
+              />
+            )}
+
+            {activeTab === 'pool' && (
+              <PoolView
+                status={status}
+                onNotify={addNotification}
               />
             )}
           </main>

@@ -131,7 +131,7 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
          <ExplorerStatBlock 
             title={t.mining_intel || "HASH_RATE"}
             value={formatH(hashrateNum)}
-            label="THROUGHPUT_EFFICIENCY"
+            label={t.throughput_efficiency || "THROUGHPUT_EFFICIENCY"}
             icon={Zap}
             colorClass="text-accent-blue"
             bgClass="bg-accent-blue"
@@ -142,7 +142,7 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
          <ExplorerStatBlock 
             title={t.storage_label || "LEDGER_CIRCULATION"}
             value={supply.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            label="GO_SUPPLY_L0"
+            label={t.go_supply_l0 || "GO_SUPPLY_L0"}
             icon={Database}
             colorClass="text-accent-amber"
             bgClass="bg-accent-amber"
@@ -151,16 +151,16 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
          <ExplorerStatBlock 
             title={t.network_intel || "NODE_CONSENSUS"}
             value={(status?.highest_height === 0 && status?.sync.state !== 'SYNCED' && status?.sync.state !== 'STREAMING') ? 'SCANNING...' : `#${status?.highest_height || 0}/${Math.max(status?.highest_height || 0, status?.sync?.target || 0)}`}
-            label="VERIFIED_BLOCK_STAMP"
+            label={t.verified_block_stamp || "VERIFIED_BLOCK_STAMP"}
             icon={Hexagon}
             colorClass="text-accent-green"
             bgClass="bg-accent-green"
          />
          
          <ExplorerStatBlock 
-            title="NEXT_BLOCK_EST"
+            title={t.next_block_est || "NEXT_BLOCK_EST"}
             value={new Date().toLocaleTimeString()}
-            label="L1_BLOCK_PRODUCTION"
+            label={t.l1_block_production || "L1_BLOCK_PRODUCTION"}
             icon={Activity}
             colorClass="text-purple-400"
             bgClass="bg-purple-500"

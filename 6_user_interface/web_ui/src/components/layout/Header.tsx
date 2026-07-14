@@ -23,6 +23,10 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [purgeCode, setPurgeCode] = useState('');
   const [isPurging, setIsPurging] = useState(false);
+
+  const [showShutdownModal, setShowShutdownModal] = useState(false);
+  const [shutdownConfirmText, setShutdownConfirmText] = useState('');
+  const [isShuttingDown, setIsShuttingDown] = useState(false);
   
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -57,20 +61,24 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
     }
   };
 
-  // [SHUTDOWN-V1.0] Gửi yêu cầu tắt Node đến API localhost
-  const handleShutdown = async () => {
-    const confirmMsg = lang === 'vi' 
-      ? 'Bạn có chắc chắn muốn TẮT NODE và dừng hệ thống không?\nCửa sổ dòng lệnh của Node sẽ đóng lại.'
-      : 'Are you sure you want to SHUTDOWN the node and stop the system?\nThis will close the Node CMD window.';
-      
-    if (window.confirm(confirmMsg)) {
-      try {
-        const response = await api.shutdownNode();
-        alert(response.message || (lang === 'vi' ? 'Node đang tắt...' : 'Node is shutting down...'));
-        setIsDropdownOpen(false);
-      } catch (e: any) {
-        alert(`${lang === 'vi' ? 'Lỗi khi tắt Node' : 'Shutdown error'}: ${e.message}`);
-      }
+  const triggerShutdownModal = () => {
+    setShowShutdownModal(true);
+    setIsDropdownOpen(false);
+  };
+
+  const executeShutdown = async () => {
+    if (shutdownConfirmText !== 'yes') {
+      alert(t.node_shutdown_confirm_error);
+      return;
+    }
+    setIsShuttingDown(true);
+    try {
+      const response = await api.shutdownNode('yes');
+      alert(response.message || (lang === 'vi' ? 'Node đang tắt...' : 'Node is shutting down...'));
+      setShowShutdownModal(false);
+    } catch (e: any) {
+      alert(`${lang === 'vi' ? 'Lỗi khi tắt Node' : 'Shutdown error'}: ${e.message}`);
+      setIsShuttingDown(false);
     }
   };
 
@@ -245,7 +253,7 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                     </button>
                     {/* [SHUTDOWN-V1.0] Nút tắt Node trực quan trên giao diện */}
                     <button 
-                      onClick={handleShutdown}
+                      onClick={triggerShutdownModal}
                       className="w-full px-3 py-2.5 rounded-lg flex items-center gap-2 hover:bg-accent-red/10 text-white/70 hover:text-accent-red text-left transition-all text-[10px] font-black uppercase tracking-wider cursor-pointer border-t border-white/5"
                     >
                       <Power size={12} className="text-white/40" />
@@ -313,6 +321,55 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                     ${isPurging || purgeCode !== '01900' ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-accent-red text-white hover:bg-accent-red/80 shadow-[0_0_15px_var(--accent-red)]'}`}
                 >
                   {isPurging ? (lang === 'vi' ? 'ĐANG XÓA...' : 'PURGING...') : (t.purge_confirm_btn ? t.purge_confirm_btn.toUpperCase() : 'XÓA NGAY')}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showShutdownModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-md vanguard-glass p-6 flex flex-col gap-6 border border-red-500/30 bg-black/95 rounded-2xl"
+          >
+            <div className="flex flex-col gap-2 items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
+                <Power size={32} className="text-red-500 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-black uppercase italic tracking-wider text-red-500">
+                {t.node_shutdown_confirm_title}
+              </h3>
+              <p className="text-xs text-white/60 mt-2 leading-relaxed">
+                {t.node_shutdown_confirm_desc}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <input 
+                type="text" 
+                placeholder={t.node_shutdown_confirm_placeholder}
+                value={shutdownConfirmText}
+                onChange={(e) => setShutdownConfirmText(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-lg px-4 py-3 text-center text-lg font-black tracking-widest text-red-500 focus:border-red-500/50 outline-none"
+              />
+              
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <button 
+                  onClick={() => { setShowShutdownModal(false); setShutdownConfirmText(''); }}
+                  className="py-3 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all text-white cursor-pointer"
+                >
+                  {t.cancel_action ? t.cancel_action.toUpperCase() : 'HỦY BỎ'}
+                </button>
+                <button 
+                  onClick={executeShutdown}
+                  disabled={isShuttingDown || shutdownConfirmText !== 'yes'}
+                  className={`py-3 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer 
+                    ${isShuttingDown || shutdownConfirmText !== 'yes' ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.4)]'}`}
+                >
+                  {isShuttingDown ? (lang === 'vi' ? 'ĐANG TẮT...' : 'SHUTTING DOWN...') : (lang === 'vi' ? 'XÁC NHẬN TẮT' : 'CONFIRM')}
                 </button>
               </div>
             </div>

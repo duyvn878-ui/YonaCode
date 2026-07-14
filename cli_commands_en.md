@@ -324,3 +324,49 @@ For automated background execution, self-healing, and automatic startup during V
    journalctl -u yonacode-node.service -f
    ```
 
+---
+
+## ⛏️ 8. MINING POOL CLI GUIDE
+
+YonaCode supports a complete Mining Pool solution. You can operate your own pool on a VPS server or connect nodes/workers to a pool.
+
+### 📡 Running a Pool Server on a VPS (For Pool Owners)
+To activate the Mining Pool module on your YonaCode Node Server:
+```bash
+./YonaCode node start --pool-enable --pool-address <pool_wallet_address> --pool-key <pool_private_key> --pool-fee 0.01 --pool-diff-mult 100
+```
+* **Pool Command Flags:**
+  * `--pool-enable`: Enables the pool server interface.
+  * `--pool-address`: Wallet address designated to receive the automatic 1% pool operator fee.
+  * `--pool-key`: Private key of the pool wallet to sign automated payout transactions.
+  * `--pool-fee`: Fixed pool fee percentage (e.g. `0.01` for 1%).
+  * `--pool-diff-mult`: Difficulty multiplier discount for pool shares (e.g. `100` times easier than the network).
+
+### ⛏️ Running a Client Miner connected to a Pool (For Workers)
+Workers can connect directly to the Pool VPS using the main CLI:
+```bash
+./YonaCode pool-mine <your_reward_address> [flags]
+```
+> [!NOTE]
+> The mining command will **automatically connect** to the default main Pool IP address of the network (**`110.172.28.103`**) by default. Users do not need to provide the `--url` flag unless they are connecting to a custom/different pool.
+
+* **Miner Command Flags:**
+  * `-d` / `--device`: Mining device to use: `cpu` (default) or `gpu` (NVIDIA CUDA GPU miner).
+  * `-t` / `--threads`: Number of CPU threads to allocate (only applicable for `cpu`).
+  * `-u` / `--url`: Manual Pool URL override (only used when specifying a custom pool instead of the default).
+
+* **Automatic Connection Examples (Recommended):**
+  * Mine with NVIDIA GPU (Automatically connects to your main Pool VPS):
+    ```bash
+    ./YonaCode pool-mine --device gpu 0xYourWalletAddress
+    ```
+  * Mine with CPU using 4 threads (Automatically connects to your main Pool VPS):
+    ```bash
+    ./YonaCode pool-mine --device cpu --threads 4 0xYourWalletAddress
+    ```
+
+* **Manual Custom Pool Connection Example:**
+  ```bash
+  ./YonaCode pool-mine --device gpu --url 192.168.1.100:8080 0xYourWalletAddress
+  ```
+

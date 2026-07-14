@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Wallet, Search, Pickaxe, Shield } from 'lucide-react';
+import { Home, Wallet, Search, Pickaxe, Shield, Network } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../../LanguageContext';
 
@@ -16,6 +16,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
     { id: 'wallet', label: t.vault_wallet, icon: Wallet },
     { id: 'explorer', label: t.explorer, icon: Search },
     { id: 'miner', label: t.sidebar_mining, icon: Pickaxe },
+    { id: 'pool', label: t.sidebar_pool, icon: Network },
     { id: 'monitor', label: t.sidebar_monitor, icon: Shield },
   ];
 

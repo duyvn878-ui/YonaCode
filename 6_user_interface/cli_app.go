@@ -24,6 +24,7 @@ import (
 	"btc_genz/6_user_interface/audit"
 	"btc_genz/6_user_interface/i18n"
 	"btc_genz/6_user_interface/internal"
+	"btc_genz/9_mining_pool"
 
 	"github.com/fatih/color"
 	"github.com/libp2p/go-libp2p"
@@ -85,6 +86,13 @@ type CLIApp struct {
 
 	walletServerEnabled bool
 	walletToken         string
+
+	// Pool configuration
+	poolEnable   bool
+	poolAddress  string
+	poolKey      string
+	poolFee      float64
+	poolDiffMult uint64
 	miningDevice        string // "cpu", "gpu", or "hybrid"
 }
 
@@ -101,6 +109,17 @@ func (c *CLIApp) EnableWalletServer(enabled bool, token string) {
 		log.Printf("[WALLET-SERVER] 🔓 Đã kích hoạt cổng ví. Token bảo mật: %s", token)
 	} else {
 		log.Printf("[WALLET-SERVER] 🔒 Cổng ví bị vô hiệu hóa.")
+	}
+}
+
+func (c *CLIApp) EnablePool(enabled bool, address string, key string, fee float64, diffMult uint64) {
+	c.poolEnable = enabled
+	c.poolAddress = address
+	c.poolKey = key
+	c.poolFee = fee
+	c.poolDiffMult = diffMult
+	if enabled {
+		log.Printf("[POOL-INIT] 🏦 Khởi chạy thiết lập Bể đào (Mining Pool). Địa chỉ ví Pool: %s | Phí: %.2f%% | Bội số độ khó: %d", address, fee*100.0, diffMult)
 	}
 }
 
@@ -209,6 +228,14 @@ func (c *CLIApp) loadPrivateKeyByAddress(addressHex string, pin string) {
 func (c *CLIApp) GetMinerAddress() []byte {
 	c.minerMu.RLock()
 	defer c.minerMu.RUnlock()
+
+	// Nếu chế độ Pool được kích hoạt, tự động gán địa chỉ ví nhận thưởng Coinbase bằng ví của Pool
+	if c.poolEnable && c.poolAddress != "" {
+		addrBytes, err := hex.DecodeString(strings.TrimPrefix(c.poolAddress, "0x"))
+		if err == nil && len(addrBytes) == 32 {
+			return addrBytes
+		}
+	}
 
 	if len(c.minerAddr) != 32 || c.IsZeroAddress(c.minerAddr) {
 		return nil
@@ -572,7 +599,11 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 		if c.rpcSrv != nil {
 			c.rpcSrv.SyncBlockToTracker(height)
 		}
-		// [VANGUARD-FIX-STALL] KHÔNG gọi RefreshMiningTask() ở đây!
+		// [POOL-MINING] Tự động cập nhật template khối cho bể đào khi có khối mới nếu không chạy solo
+		if c.rpcSrv != nil && c.poolEnable && c.nodeMode != "full-mining" {
+			c.RefreshMiningTask()
+		}
+		// [VANGUARD-FIX-STALL] KHÔNG gọi RefreshMiningTask() ở đây nếu chạy solo!
 		// Lý do: Main mining loop (minerLoop) đã tự xử lý chuyển khối rồi.
 		// Gọi RefreshMiningTask tại đây tạo Session ID xung đột → main loop
 		// reject kết quả do SID không khớp → thợ đào đứng hình.
@@ -719,6 +750,14 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 	wm := internal.NewWalletManager(c.dbPath + "/wallets")
 	c.rpcSrv = NewRPCServer(c.bridge, c.netMgr, port, wm, c.minerAddr, c.minerKey, c)
 
+	if c.poolEnable {
+		pool := mining_pool.NewMiningPool(c.poolAddress, c.poolKey, c.poolFee, c.poolDiffMult, c.dbPath)
+		c.rpcSrv.pool = pool
+		pool.StartPayoutEngine(c.bridge, func(txBytes []byte) {
+			c.netMgr.Mempool.PushToTxBus(txBytes, true)
+		})
+	}
+
 	if c.nodeMode == "full-mining" {
 		// [SECURITY LOCK] Ngăn chặn bypass qua cờ CLI nếu chưa có ví
 		if !c.IsValidMinerAddress() {
@@ -733,6 +772,14 @@ func (c *CLIApp) StartNode(port int, p2pPort int, peers []string, minerPIN strin
 	}
 
 	go c.rpcSrv.Start()
+
+	// [POOL-MINING] Khởi tạo template khối đầu tiên cho bể đào
+	if c.poolEnable && c.nodeMode != "full-mining" {
+		go func() {
+			time.Sleep(3 * time.Second) // Chờ P2P và các thành phần khởi tạo xong
+			c.RefreshMiningTask()
+		}()
+	}
 
 	log.Printf("[VANGUARD] ✅ Node đã sẵn sàng tại RPC Port %d | P2P %d", port, p2pPort)
 	log.Printf("[P2P] %s", i18n.T("log_p2p_listening", c.netMgr.GetAddress()))

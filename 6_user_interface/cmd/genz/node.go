@@ -300,6 +300,13 @@ var nodeStartCmd = &cobra.Command{
 		}
 		app.EnableWalletServer(walletServer, walletToken)
 
+		poolEnable, _ := cmd.Flags().GetBool("pool-enable")
+		poolAddress, _ := cmd.Flags().GetString("pool-address")
+		poolKey, _ := cmd.Flags().GetString("pool-key")
+		poolFee, _ := cmd.Flags().GetFloat64("pool-fee")
+		poolDiffMult, _ := cmd.Flags().GetUint64("pool-diff-mult")
+		app.EnablePool(poolEnable, poolAddress, poolKey, poolFee, poolDiffMult)
+
 		// [VANGUARD-CONTROL] Thiết lập chế độ Node dựa trên cờ lệnh
 		if mining {
 			app.SetNodeMode("full-mining")
@@ -683,6 +690,106 @@ var repairResyncCmd = &cobra.Command{
 	},
 }
 
+var poolMineCmd = &cobra.Command{
+	Use:   "pool-mine [wallet_address]",
+	Short: i18n.T("pool_mining_short"),
+	Args:  cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		var address string
+		if len(args) > 0 {
+			address = args[0]
+		}
+		if address == "" {
+			log.Fatal(i18n.T("pool_err_no_address"))
+		}
+
+		device, _ := cmd.Flags().GetString("device")
+		threads, _ := cmd.Flags().GetInt("threads")
+		customURL, _ := cmd.Flags().GetString("url")
+
+		exePath, _ := os.Executable()
+		searchDir := filepath.Dir(exePath)
+		curr, _ := os.Getwd()
+
+		var minerBin string
+		if strings.ToLower(device) == "gpu" {
+			if runtime.GOOS == "windows" {
+				minerBin = "yona_gpu_miner.exe"
+			} else {
+				minerBin = "yona_gpu_miner"
+			}
+		} else {
+			if runtime.GOOS == "windows" {
+				minerBin = "genz_miner.exe"
+			} else {
+				minerBin = "genz_miner"
+			}
+		}
+
+		paths := []string{
+			filepath.Join(curr, minerBin),
+			filepath.Join(searchDir, minerBin),
+			filepath.Join(searchDir, "bin", minerBin),
+			filepath.Join(searchDir, "bbuild", minerBin),
+			filepath.Join(curr, "bbuild", minerBin),
+		}
+
+		minerPath := ""
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				minerPath = p
+				break
+			}
+		}
+
+		if minerPath == "" {
+			log.Fatalf(i18n.T("pool_err_no_miner", minerBin))
+		}
+
+		poolIP := os.Getenv("YONA_POOL_IP")
+		if poolIP == "" {
+			poolIP = "110.172.28.103"
+		}
+
+		var minerCmd *exec.Cmd
+		if strings.ToLower(device) == "gpu" {
+			log.Printf(i18n.T("pool_start_gpu", poolIP))
+			log.Printf(i18n.T("pool_wallet_info", address))
+			if customURL != "" {
+				host := customURL
+				port := "8080"
+				if strings.Contains(customURL, ":") {
+					parts := strings.Split(customURL, ":")
+					host = parts[0]
+					port = parts[1]
+				}
+				minerCmd = exec.Command(minerPath, host, port, address)
+			} else {
+				minerCmd = exec.Command(minerPath, address)
+			}
+		} else {
+			log.Printf(i18n.T("pool_start_cpu", poolIP))
+			log.Printf(i18n.T("pool_wallet_info", address))
+			argsList := []string{"--address", address}
+			if threads > 0 {
+				argsList = append(argsList, "--threads", fmt.Sprintf("%d", threads))
+			}
+			if customURL != "" {
+				argsList = append(argsList, "--url", customURL)
+			}
+			minerCmd = exec.Command(minerPath, argsList...)
+		}
+
+		minerCmd.Stdout = os.Stdout
+		minerCmd.Stderr = os.Stderr
+		minerCmd.Env = os.Environ()
+
+		if err := minerCmd.Run(); err != nil {
+			log.Fatalf(i18n.T("pool_err_run", err))
+		}
+	},
+}
+
 func init() {
 	// 1. Cấu hình cờ riêng cho từng lệnh con của repair
 	repairRollbackCmd.Flags().Uint64("target", 0, "Cao độ đích muốn quay về (Target Height)")
@@ -715,9 +822,22 @@ func init() {
 	nodeStartCmd.Flags().Bool("wallet-server", false, "Kích hoạt cổng kết nối RPC cho ví Yona Wallet")
 	nodeStartCmd.Flags().String("wallet-token", "", "Token bảo mật xác thực kết nối ví")
 
+	// POOL MINING FLAGS
+	nodeStartCmd.Flags().Bool("pool-enable", false, "Kích hoạt Bể đào (Mining Pool)")
+	nodeStartCmd.Flags().String("pool-address", "", "Địa chỉ ví nhận thưởng của Pool (Hex 32 bytes)")
+	nodeStartCmd.Flags().String("pool-key", "", "Khóa riêng tư ví Pool để payout tự động (Hex 32 bytes)")
+	nodeStartCmd.Flags().Float64("pool-fee", 0.01, "Phí Bể đào (ví dụ 0.01 = 1%)")
+	nodeStartCmd.Flags().Uint64("pool-diff-mult", 100, "Bội số giảm độ khó của Bể (ví dụ 100 lần dễ hơn mạng)")
+
 	// Đăng ký các lệnh con vào nodeCmd
 	nodeCmd.AddCommand(nodeStartCmd, nodeStatusCmd, nodeInfoCmd, nodeConnectCmd, nodeRepairCmd)
 
+	// Đăng ký các cờ cho poolMineCmd
+	poolMineCmd.Flags().StringP("device", "d", "cpu", "Thiết bị khai thác: cpu hoặc gpu")
+	poolMineCmd.Flags().IntP("threads", "t", 0, "Số luồng CPU sử dụng (mặc định: tự động)")
+	poolMineCmd.Flags().StringP("url", "u", "", "URL kết nối Bể đào thủ công (nếu muốn thay thế VPS mặc định)")
+
 	// Đăng ký nodeCmd vào rootCmd toàn cục
 	rootCmd.AddCommand(nodeCmd)
+	rootCmd.AddCommand(poolMineCmd)
 }

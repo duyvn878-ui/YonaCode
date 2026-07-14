@@ -60,6 +60,15 @@ var translations = map[string]map[string]string{
 		"log_miner_block_found":     "🎉 CHÚC MỪNG! Đã tìm thấy Khối #%d! Nonce: %d",
 		"log_mempool_spam_rejected": "🛑 Rust Core đã chém %d giao dịch spam.",
 		"log_mempool_eviction":      "🚮 Đã cắt bỏ %d giao dịch 'ngọn' để chống sập RAM.",
+
+		// Nhóm Pool Mining CLI
+		"pool_mining_short":   "⛏️ Khai thác Bể Đào (Pool Mining) kết nối tự động tới VPS mặc định",
+		"pool_err_no_address": "❌ Lỗi: Vui lòng nhập địa chỉ ví của bạn để nhận thưởng. Ví dụ: YonaCode pool-mine 0xYourAddress",
+		"pool_err_no_miner":   "❌ Không tìm thấy Thợ đào độc lập (%s). Vui lòng biên dịch lại dự án bằng build_all.bat trước.",
+		"pool_start_gpu":      "[POOL-MINE] 🚀 Đang khởi chạy Thợ đào GPU kết nối tự động tới Pool VPS mặc định (%s)...",
+		"pool_start_cpu":      "[POOL-MINE] 🚀 Đang khởi chạy Thợ đào CPU (Rust Core) kết nối tới Pool VPS (%s)...",
+		"pool_wallet_info":    "[POOL-MINE] 🏦 Ví thợ đào nhận thưởng: %s",
+		"pool_err_run":        "❌ Lỗi trong quá trình chạy thợ đào: %v",
 	},
 	"eng": {
 		"welcome": "🚀 YonaCode Go Lite v1.0 - Minimalist, Immutable, Ultralight",
@@ -116,6 +125,15 @@ var translations = map[string]map[string]string{
 		"log_miner_block_found":     "🎉 CONGRATULATIONS! Block #%d found! Nonce: %d",
 		"log_mempool_spam_rejected": "🛑 Rust Core rejected %d spam transactions.",
 		"log_mempool_eviction":      "🚮 Evicted %d tail transactions to prevent OOM.",
+
+		// Nhóm Pool Mining CLI
+		"pool_mining_short":   "⛏️ Pool Mining connected to the default VPS",
+		"pool_err_no_address": "❌ Error: Please enter your wallet address to receive rewards. Example: YonaCode pool-mine 0xYourAddress",
+		"pool_err_no_miner":   "❌ Independent miner binary (%s) not found. Please compile the project using build_all.bat first.",
+		"pool_start_gpu":      "[POOL-MINE] 🚀 Launching GPU Miner connected to default Pool VPS (%s)...",
+		"pool_start_cpu":      "[POOL-MINE] 🚀 Launching CPU Miner (Rust Core) connected to Pool VPS (%s)...",
+		"pool_wallet_info":    "[POOL-MINE] 🏦 Reward wallet address: %s",
+		"pool_err_run":        "❌ Error during miner execution: %v",
 	},
 }
 
