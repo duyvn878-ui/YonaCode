@@ -218,6 +218,11 @@ type RPCServer struct {
 	balanceCacheTime map[string]time.Time
 	balanceCacheMu   sync.RWMutex
 
+	// [V8.0 PERFORMANCE] Hashrate & Block Time Cache: Tránh nghẽn I/O đĩa khi truy vấn status
+	avgBlockTimeCache  map[uint64]float64
+	blockHashrateCache map[uint64]uint64
+	hashrateCacheMu    sync.RWMutex
+
 	// [V7.4 PERFORMANCE] Blockchain Status Cache
 	heightCache    uint64
 	hashCache      []byte
@@ -289,9 +294,11 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		dbPath:            filepath.Clean(app.dbPath), // [V1.65 PORTABLE] Chuẩn hóa đường dẫn để hoạt động trên mọi máy
 		rateLimiters:      make(map[string]*tokenBucket),
 		seedCache:         make(map[string][]byte),
-		balanceCache:      make(map[string]uint64),
-		balanceCacheTime:  make(map[string]time.Time),
-		recentBlocksCache: make([]interface{}, 0, 200),
+		balanceCache:       make(map[string]uint64),
+		balanceCacheTime:   make(map[string]time.Time),
+		avgBlockTimeCache:  make(map[uint64]float64),
+		blockHashrateCache: make(map[uint64]uint64),
+		recentBlocksCache:  make([]interface{}, 0, 200),
 		cachedWallets:     make(map[string]bool),
 		lastWalletUpdate:  time.Time{},
 		senderLocks:       make(map[string]*countedMutex),
@@ -5309,8 +5316,25 @@ func (s *RPCServer) getHashrateHistory() []float64 {
 	return result
 }
 
-// calculateAvgBlockTimeAtHeight: Tính toán thời gian tạo khối trung bình thực tế tại một cao độ nhất định
+// calculateAvgBlockTimeAtHeight: Tính toán thời gian tạo khối trung bình thực tế tại một cao độ nhất định (có cache)
 func (s *RPCServer) calculateAvgBlockTimeAtHeight(height uint64) float64 {
+	s.hashrateCacheMu.RLock()
+	if val, ok := s.avgBlockTimeCache[height]; ok {
+		s.hashrateCacheMu.RUnlock()
+		return val
+	}
+	s.hashrateCacheMu.RUnlock()
+
+	val := s.calculateAvgBlockTimeAtHeightInternal(height)
+
+	s.hashrateCacheMu.Lock()
+	s.avgBlockTimeCache[height] = val
+	s.hashrateCacheMu.Unlock()
+	return val
+}
+
+// calculateAvgBlockTimeAtHeightInternal: Thực thi truy vấn DB để tính toán thời gian tạo khối trung bình thực tế
+func (s *RPCServer) calculateAvgBlockTimeAtHeightInternal(height uint64) float64 {
 	if height < 2 {
 		return 75.0
 	}
@@ -5345,7 +5369,40 @@ func (s *RPCServer) calculateAvgBlockTimeAtHeight(height uint64) float64 {
 	return 75.0
 }
 
-// calculateAvgNetworkHashrate: Tính toán tốc độ băm trung bình của mạng lưới trong một cửa sổ khối nhất định
+// getBlockHashrate: Tính toán và cache tốc độ băm của một khối cụ thể
+func (s *RPCServer) getBlockHashrate(height uint64) uint64 {
+	s.hashrateCacheMu.RLock()
+	if val, ok := s.blockHashrateCache[height]; ok {
+		s.hashrateCacheMu.RUnlock()
+		return val
+	}
+	s.hashrateCacheMu.RUnlock()
+
+	hash := s.bridge.GetBlockHash(height)
+	difficulty := big.NewInt(1200000000)
+	if len(hash) > 0 {
+		headerRaw := s.bridge.GetHeaderRaw(hash)
+		if headerRaw != nil {
+			var header pb_block.BlockHeader
+			if err := proto.Unmarshal(headerRaw, &header); err == nil {
+				difficulty = go_bridge.BytesLEToBigInt(header.Difficulty)
+			}
+		}
+	}
+
+	avgTime := s.calculateAvgBlockTimeAtHeight(height)
+	if avgTime <= 0 {
+		avgTime = 75.0
+	}
+	hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(avgTime))).Uint64()
+
+	s.hashrateCacheMu.Lock()
+	s.blockHashrateCache[height] = hashrate
+	s.hashrateCacheMu.Unlock()
+	return hashrate
+}
+
+// calculateAvgNetworkHashrate: Tính toán tốc độ băm trung bình của mạng lưới trong một cửa sổ khối nhất định (dùng cache)
 func (s *RPCServer) calculateAvgNetworkHashrate(window uint64) uint64 {
 	highest := s.bridge.GetCurrentVersion()
 	if highest == 0 {
@@ -5357,25 +5414,7 @@ func (s *RPCServer) calculateAvgNetworkHashrate(window uint64) uint64 {
 	var totalHashrate uint64 = 0
 	var count uint64 = 0
 	for h := highest; h > highest - window; h-- {
-		hash := s.bridge.GetBlockHash(h)
-		if len(hash) == 0 {
-			continue
-		}
-		headerRaw := s.bridge.GetHeaderRaw(hash)
-		if headerRaw == nil {
-			continue
-		}
-		var header pb_block.BlockHeader
-		if err := proto.Unmarshal(headerRaw, &header); err != nil {
-			continue
-		}
-		diff := go_bridge.BytesLEToBigInt(header.Difficulty)
-		avgTime := s.calculateAvgBlockTimeAtHeight(h)
-		if avgTime <= 0 {
-			avgTime = 75.0
-		}
-		blockHashrate := new(big.Int).Div(diff, big.NewInt(int64(avgTime))).Uint64()
-		totalHashrate += blockHashrate
+		totalHashrate += s.getBlockHashrate(h)
 		count++
 	}
 	if count == 0 {
@@ -5384,7 +5423,7 @@ func (s *RPCServer) calculateAvgNetworkHashrate(window uint64) uint64 {
 	return totalHashrate / count
 }
 
-// getNetworkHashrateHistory: Trả về lịch sử hashrate toàn mạng của 20 khối gần nhất
+// getNetworkHashrateHistory: Trả về lịch sử hashrate toàn mạng của 20 khối gần nhất (dùng cache)
 func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
 	highest := s.bridge.GetCurrentVersion()
 	count := uint64(20)
@@ -5396,27 +5435,9 @@ func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
 	}
 
 	result := make([]uint64, count)
-	// Lặp qua 20 khối gần nhất
 	for i := uint64(0); i < count; i++ {
 		h := highest - (count - 1 - i)
-		hash := s.bridge.GetBlockHash(h)
-		difficulty := big.NewInt(1200000000)
-		if len(hash) > 0 {
-			headerRaw := s.bridge.GetHeaderRaw(hash)
-			if headerRaw != nil {
-				var header pb_block.BlockHeader
-				if err := proto.Unmarshal(headerRaw, &header); err == nil {
-					difficulty = go_bridge.BytesLEToBigInt(header.Difficulty)
-				}
-			}
-		}
-
-		localAvg := s.calculateAvgBlockTimeAtHeight(h)
-		if localAvg <= 0 {
-			localAvg = 75.0
-		}
-		hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(localAvg)))
-		result[i] = hashrate.Uint64()
+		result[i] = s.getBlockHashrate(h)
 	}
 	return result
 }
