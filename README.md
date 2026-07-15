@@ -126,7 +126,7 @@ Automatically deletes detailed Block Body data after 48 hours. Only Block Header
 ### 🧬 3. Pure Account Model & JMT
 Eliminates the fragmented UTXO model. Utilizes the **Jellyfish Merkle Tree (JMT)** for state storage. Combined with the Anti-Bloat Shield (charging a 1,000 VNT creation fee for new wallets) to prevent state bloat.
 
-### ⛏️ 4. Yona Hash Algorithm (Upcoming Hard Fork)
+### ⛏️ 4. Yona Hashing Algorithm
 Updated on July 15, 2026: Due to the demand for a proprietary and unique hashing algorithm, we have decided to implement a Hard Fork to transition from Blake3 to **Yona Hash** (customized Mix Function G with $Y_{key} = \text{0x594F4E41}$ and rotation shifts $\{17, 13, 9, 5\}$). This is the final algorithm change from our side, except for the consensus scenarios declared in the Whitepaper regarding MAD immutability violations, and we do not have a policy of new original ASIC-resistance upgrades for Yona Code.
 
 This means the transition to Yona Hash serves only to:
