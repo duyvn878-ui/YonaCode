@@ -25,6 +25,7 @@ type NodeBridge interface {
 	GetBlock(height uint64) []byte
 	GetNonce(ctx interface{}, address []byte) uint64
 	GetBlockHash(height uint64) []byte
+	CalculateBlockRewardBtcZ(height uint64) uint64
 }
 
 func (p *MiningPool) StartPayoutEngine(bridge NodeBridge, pushTx func(txBytes []byte)) {
@@ -33,6 +34,9 @@ func (p *MiningPool) StartPayoutEngine(bridge NodeBridge, pushTx func(txBytes []
 
 func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) {
 	log.Printf("[POOL] 💰 Khởi động Payout Engine tự động cho ví: %s", p.PoolAddress)
+	
+	// Khởi tạo biến theo dõi nonce cục bộ của ví Pool để tránh trùng lặp khi quét nhanh nhiều khối
+	var lastPaidNonce uint64
 	
 	// Giải mã khóa riêng tư ví Pool để ký giao dịch payout
 	privKeyBytes, err := hex.DecodeString(p.PoolKeyHex)
@@ -89,7 +93,17 @@ func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) 
 					expectedPoolHex := strings.TrimPrefix(p.PoolAddress, "0x")
 
 					if strings.ToLower(coinbaseReceiverHex) == strings.ToLower(expectedPoolHex) {
-						log.Printf("[POOL-WIN] 🏆 Phát hiện Pool đã đào thành công khối #%d! Phần thưởng: %.8f GO. Tiến hành chia thưởng...", nextH, float64(coinbaseTx.Amount)/1e8)
+						// Tính tổng phần thưởng thực tế: Block Reward (hỏi Rust qua bridge) + Phí giao dịch (fees)
+						var totalFees uint64
+						if block.Body != nil {
+							for _, tx := range block.Body.Transactions {
+								totalFees += tx.Fee
+							}
+						}
+						blockReward := bridge.CalculateBlockRewardBtcZ(nextH)
+						actualReward := blockReward + totalFees
+
+						log.Printf("[POOL-WIN] 🏆 Phát hiện Pool đã đào thành công khối #%d! Phần thưởng thực tế: %.8f GO (Block: %.8f, Fees: %.8f). Tiến hành chia thưởng...", nextH, float64(actualReward)/1e8, float64(blockReward)/1e8, float64(totalFees)/1e8)
 						
 						// Tìm bản chụp shares cho khối nextH
 						p.Mu.Lock()
@@ -105,8 +119,8 @@ func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) 
 						p.Mu.Unlock()
 
 						if targetShares != nil {
-							// Thực hiện chia thưởng dựa trên bản chụp
-							p.processBlockPayout(coinbaseTx.Amount, nextH, targetShares, poolAddrBytes, privKeyBytes, bridge, pushTx)
+							// Thực hiện chia thưởng dựa trên bản chụp, truyền con trỏ lastPaidNonce
+							p.processBlockPayout(actualReward, nextH, targetShares, poolAddrBytes, privKeyBytes, bridge, pushTx, &lastPaidNonce)
 							
 							// Xóa bản ghi đã payout khỏi danh sách
 							p.Mu.Lock()
@@ -157,7 +171,7 @@ func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) 
 	}
 }
 
-func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, shares map[string]float64, poolAddrBytes []byte, poolPrivKey []byte, bridge NodeBridge, pushTx func(txBytes []byte)) {
+func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, shares map[string]float64, poolAddrBytes []byte, poolPrivKey []byte, bridge NodeBridge, pushTx func(txBytes []byte), lastPaidNonce *uint64) {
 	// 1. Tính tổng shares và đếm số lượng worker hợp lệ
 	var totalShares float64
 	var activeWorkerAddrs []string
@@ -175,8 +189,12 @@ func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, share
 
 	log.Printf("[POOL-PAYOUT] 📊 Thực hiện chia thưởng khối #%d cho thợ đào (Dựa trên bản chụp). Tổng shares: %.2f | Số thợ đào: %d", height, totalShares, len(activeWorkerAddrs))
 
-	// Lấy nonce hiện tại của Pool ví
-	currentNonce := bridge.GetNonce(nil, poolAddrBytes)
+	// Lấy nonce từ Node và đồng bộ với nonce cục bộ của ví Pool
+	nodeNonce := bridge.GetNonce(nil, poolAddrBytes)
+	if nodeNonce > *lastPaidNonce {
+		*lastPaidNonce = nodeNonce
+	}
+	currentNonce := *lastPaidNonce
 	recentBlockHash := bridge.GetBlockHash(height - 1)
 
 	// Trừ phí bể đào (ví dụ 1%)
@@ -248,6 +266,8 @@ func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, share
 			time.Sleep(15 * time.Second)
 		}
 	}
+	// Lưu lại nonce mới nhất sau khi hoàn tất payout khối này cho toàn bộ workers
+	*lastPaidNonce = currentNonce
 }
 
 func (p *MiningPool) loadLastPaidHeight() uint64 {

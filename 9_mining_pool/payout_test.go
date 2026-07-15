@@ -37,6 +37,10 @@ func (m *MockBridge) GetBlockHash(height uint64) []byte {
 	return h
 }
 
+func (m *MockBridge) CalculateBlockRewardBtcZ(height uint64) uint64 {
+	return 125000000 // Giả lập phần thưởng khối cố định là 1.25 GO (125,000,000 VNT)
+}
+
 func TestProcessBlockPayout(t *testing.T) {
 	// Khởi tạo MiningPool giả lập
 	poolAddr := "0x680303fe459c4622e35c279347755db9b1139776fab81f83d8eaa141fa080146"
@@ -83,12 +87,12 @@ func TestProcessBlockPayout(t *testing.T) {
 	}
 	targetShares := p.PendingPayouts[0].Shares
 
-	// Thực hiện chia thưởng dựa trên bản chụp shares
 	privKeyBytes, _ := hex.DecodeString(poolKey)
 	if len(privKeyBytes) == 32 {
 		privKeyBytes = ed25519.NewKeyFromSeed(privKeyBytes)
 	}
-	p.processBlockPayout(totalReward, 100, targetShares, poolAddrBytes, privKeyBytes, mock, pushTxMock)
+	var lastPaidNonce uint64
+	p.processBlockPayout(totalReward, 100, targetShares, poolAddrBytes, privKeyBytes, mock, pushTxMock, &lastPaidNonce)
 
 	// 1. Kiểm toán số lượng giao dịch sinh ra
 	if len(generatedTxs) != 3 {
