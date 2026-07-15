@@ -1,17 +1,17 @@
-# Đặc tả Kỹ thuật: Thuật toán băm Yona (Yona Hash)
+# Technical Specification: Yona Hash Algorithm (Yona Hash)
 
-**Yona Hash** là thuật toán băm mật mã học được tối ưu hóa đặc biệt cho mạng lưới YonaCode. Thuật toán kế thừa cấu trúc cây Merkle siêu nhanh của Blake3 nhưng thay đổi toàn diện hàm trộn lõi $G$ (Mix Function) sang hệ hằng số dịch chuyển mới và chèn thêm khóa nhiễu định danh $Y_{key}$ nhằm vô hiệu hóa hoàn toàn các dòng máy ASIC thương mại có sẵn.
-
----
-
-## 1. Tham số hằng số (Constants)
-*   **Khóa nhiễu (Magic Key):** $Y_{key} = \text{0x594F4E41}$ (Đại diện cho chuỗi ký tự ASCII "YONA").
-*   **Bộ hằng số xoay bit mới (New Rotation Shifts):** $R = \{17, 13, 9, 5\}$ (Thay thế cho bộ $\{16, 12, 8, 7\}$ truyền thống).
+**Yona Hash** is a cryptographic hashing algorithm specifically optimized for the YonaCode network. The algorithm inherits the ultra-fast Merkle tree structure of Blake3 but comprehensively modifies the core mixing function $G$ (Mix Function) to a new shift constant system and inserts an identifying noise key $Y_{key}$ to completely invalidate existing commercial ASIC miners, and we do not intend to fight against ASICs.
 
 ---
 
-## 2. Hàm nén lõi (The Compression G Function)
-Với $A, B, C, D$ là các từ trạng thái 32-bit (32-bit state words), và $X, Y$ là các từ thông điệp đầu vào (message words):
+## 1. Constants
+*   **Magic Key:** $Y_{key} = \text{0x594F4E41}$ (Representing the ASCII string "YONA").
+*   **New Rotation Shifts:** $R = \{17, 13, 9, 5\}$ (Replacing the traditional $\{16, 12, 8, 7\}$ set).
+
+---
+
+## 2. Core Compression Function (The G Function)
+Given $A, B, C, D$ as 32-bit state words, and $X, Y$ as input message words:
 
 $$A = A + B + (X \oplus Y_{key}) \pmod{2^{32}}$$
 
@@ -29,11 +29,11 @@ $$C = C + D \pmod{2^{32}}$$
 
 $$B = (B \oplus C) \ggg 5$$
 
-*(Trong đó $\oplus$ là phép toán XOR logic, $+$ là phép cộng modulo $2^{32}$, và $\ggg$ là phép dịch xoay bit sang phải).*
+*(Where $\oplus$ is the bitwise XOR operation, $+$ is addition modulo $2^{32}$, and $\ggg$ is the bitwise right rotation).*
 
 ---
 
-## 3. Kiến trúc Hàm Nén Yona Compression
-Hàm nén của Yona Hash nhận vào trạng thái chaining value `[u32; 8]`, khối dữ liệu đầu vào `[u32; 16]`, bộ đếm `counter` (u64), độ dài khối `block_len` (u32) và cờ `flags` (u32) để khởi tạo ma trận trạng thái 16 từ `[u32; 16]`. 
+## 3. Compression Architecture
+The compression function of Yona Hash takes a chaining value state `[u32; 8]`, input data block `[u32; 16]`, block counter `counter` (u64), block length `block_len` (u32), and control flags `flags` (u32) to initialize a 16-word state matrix `[u32; 16]`.
 
-Thuật toán thực thi 7 vòng trộn (rounds). Mỗi vòng thực hiện biến đổi hàm $G$ trên các cột và các đường chéo của ma trận, sau đó hoán vị thông điệp theo bảng hoán vị chuẩn của Blake3. Kết quả đầu ra 512-bit (16 từ u32) được XOR giữa trạng thái kết thúc với các trạng thái chaining value ban đầu để đảm bảo tính lan truyền lỗi và bảo mật.
+The algorithm executes 7 mixing rounds. Each round applies the $G$ transformation on the columns and diagonals of the state matrix, followed by message word permutation using Blake3's standard permutation table. The final 512-bit output (16 u32 words) is XORed between the ending state and the initial chaining values to ensure error propagation and security.
