@@ -11,10 +11,6 @@
 
 Author / Founder: **Vo Nhat Thien**
 
-> [!IMPORTANT]
-> **Announcement regarding project status:**  
-> Actually, the features were 100% complete from the day they launched. I am only mentioning it today because I was afraid people would think the project is dead, but in reality, I have been diligently posting. It's just that this group updates information that I haven't finished yet, so I don't know what to do with it. That's why I'm posting this to prevent people from misunderstanding that the project is dead.
-
 > [!TIP]
 > **Pre-packaged Ledger Data:**  
 > The zip file already contains the `node` folder with the ledger data, so you can synchronize extremely quickly without having to download it via p2p.
@@ -131,7 +127,11 @@ Automatically deletes detailed Block Body data after 48 hours. Only Block Header
 Eliminates the fragmented UTXO model. Utilizes the **Jellyfish Merkle Tree (JMT)** for state storage. Combined with the Anti-Bloat Shield (charging a 1,000 VNT creation fee for new wallets) to prevent state bloat.
 
 ### ⛏️ 4. Yona Hash Algorithm (Upcoming Hard Fork)
-Updated on July 15, 2026: Due to the demand for a proprietary and unique hashing algorithm, we have decided to implement a Hard Fork to transition from Blake3 to **Yona Hash** (customized Mix Function G with $Y_{key} = \text{0x594F4E41}$ and rotation shifts $\{17, 13, 9, 5\}$). This is the final algorithm change from our side, except for the consensus cases declared in the Whitepaper regarding MAD immutability violations.
+Updated on July 15, 2026: Due to the demand for a proprietary and unique hashing algorithm, we have decided to implement a Hard Fork to transition from Blake3 to **Yona Hash** (customized Mix Function G with $Y_{key} = \text{0x594F4E41}$ and rotation shifts $\{17, 13, 9, 5\}$). This is the final algorithm change from our side, except for the consensus scenarios declared in the Whitepaper regarding MAD immutability violations, and we do not have a policy of new original ASIC-resistance upgrades for Yona Code.
+
+This means the transition to Yona Hash serves only to:
+* **Disable all existing ASIC miners** on the market (hardware manufactured for standard Blake3 or its older variants).
+* **Create a fair "Day 0" starting line** for GPU/CPU miners to mine efficiently during the initial phase of the project's launch.
 
 ---
 
