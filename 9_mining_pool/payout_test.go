@@ -92,7 +92,7 @@ func TestProcessBlockPayout(t *testing.T) {
 		privKeyBytes = ed25519.NewKeyFromSeed(privKeyBytes)
 	}
 	var lastPaidNonce uint64
-	p.processBlockPayout(totalReward, 100, targetShares, poolAddrBytes, privKeyBytes, mock, pushTxMock, &lastPaidNonce)
+	p.processBlockPayout(totalReward, 100, targetShares, poolAddrBytes, privKeyBytes, mock, pushTxMock, &lastPaidNonce, 100)
 
 	// 1. Kiểm toán số lượng giao dịch sinh ra
 	if len(generatedTxs) != 3 {

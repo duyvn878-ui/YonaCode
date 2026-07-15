@@ -24,14 +24,204 @@ pub const GENESIS_HASH: [u8; 32] = [
 ];
 
 
-pub fn calculate_blake3_hash(data: Vec<u8>, _height: u64) -> [u8; 32] {
-    // [VANGUARD CONSENSUS] Luôn sử dụng băm có Context bảo mật để chống ASIC.
+// Hằng số khởi tạo (Initialization Vector) chuẩn Blake3 cho Yona Hash
+const YONA_IV: [u32; 8] = [
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
+    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
+];
+
+const YONA_CHUNK_START: u32 = 1 << 0;
+const YONA_CHUNK_END: u32 = 1 << 1;
+const YONA_ROOT: u32 = 1 << 3;
+const Y_KEY: u32 = 0x594F4E41; // ASCII "YONA"
+
+macro_rules! yona_g {
+    ($s:expr, $a:expr, $b:expr, $c:expr, $d:expr, $x:expr, $y:expr) => {
+        $s[$a] = $s[$a].wrapping_add($s[$b]).wrapping_add($x ^ Y_KEY);
+        $s[$d] = ($s[$d] ^ $s[$a]).rotate_right(17);
+        $s[$c] = $s[$c].wrapping_add($s[$d]);
+        $s[$b] = ($s[$b] ^ $s[$c]).rotate_right(13);
+        $s[$a] = $s[$a].wrapping_add($s[$b]).wrapping_add($y ^ Y_KEY);
+        $s[$d] = ($s[$d] ^ $s[$a]).rotate_right(9);
+        $s[$c] = $s[$c].wrapping_add($s[$d]);
+        $s[$b] = ($s[$b] ^ $s[$c]).rotate_right(5);
+    };
+}
+
+macro_rules! yona_round {
+    ($s:expr, $m:expr) => {
+        yona_g!($s, 0, 4, 8, 12, $m[0], $m[1]);
+        yona_g!($s, 1, 5, 9, 13, $m[2], $m[3]);
+        yona_g!($s, 2, 6, 10, 14, $m[4], $m[5]);
+        yona_g!($s, 3, 7, 11, 15, $m[6], $m[7]);
+        yona_g!($s, 0, 5, 10, 15, $m[8], $m[9]);
+        yona_g!($s, 1, 6, 11, 12, $m[10], $m[11]);
+        yona_g!($s, 2, 7, 8, 13, $m[12], $m[13]);
+        yona_g!($s, 3, 4, 9, 14, $m[14], $m[15]);
+    };
+}
+
+macro_rules! yona_permute {
+    ($m:expr) => {
+        [
+            $m[2], $m[6], $m[3], $m[10],
+            $m[7], $m[0], $m[4], $m[13],
+            $m[1], $m[11], $m[12], $m[5],
+            $m[9], $m[14], $m[15], $m[8],
+        ]
+    };
+}
+
+#[inline(always)]
+fn yona_compress(
+    cv: &[u32; 8],
+    m: &[u32; 16],
+    counter: u64,
+    block_len: u32,
+    flags: u32,
+) -> [u32; 16] {
+    let mut s: [u32; 16] = [
+        cv[0], cv[1], cv[2], cv[3],
+        cv[4], cv[5], cv[6], cv[7],
+        YONA_IV[0], YONA_IV[1], YONA_IV[2], YONA_IV[3],
+        counter as u32, (counter >> 32) as u32, block_len, flags,
+    ];
+
+    yona_round!(s, m);
+    let m2 = yona_permute!(m);
+    yona_round!(s, m2);
+    let m3 = yona_permute!(m2);
+    yona_round!(s, m3);
+    let m4 = yona_permute!(m3);
+    yona_round!(s, m4);
+    let m5 = yona_permute!(m4);
+    yona_round!(s, m5);
+    let m6 = yona_permute!(m5);
+    yona_round!(s, m6);
+    let m7 = yona_permute!(m6);
+    yona_round!(s, m7);
+
+    [
+        s[0] ^ s[8],  s[1] ^ s[9],  s[2] ^ s[10], s[3] ^ s[11],
+        s[4] ^ s[12], s[5] ^ s[13], s[6] ^ s[14], s[7] ^ s[15],
+        s[8] ^ cv[0], s[9] ^ cv[1], s[10] ^ cv[2], s[11] ^ cv[3],
+        s[12] ^ cv[4], s[13] ^ cv[5], s[14] ^ cv[6], s[15] ^ cv[7],
+    ]
+}
+
+#[inline(always)]
+fn yona_bytes_to_words(bytes: &[u8; 64]) -> [u32; 16] {
+    let mut w = [0u32; 16];
+    for i in 0..16 {
+        let start = i * 4;
+        w[i] = u32::from_le_bytes([
+            bytes[start],
+            bytes[start + 1],
+            bytes[start + 2],
+            bytes[start + 3],
+        ]);
+    }
+    w
+}
+
+#[inline(always)]
+fn yona_words_to_bytes(words: &[u32; 8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for i in 0..8 {
+        let bytes = words[i].to_le_bytes();
+        let start = i * 4;
+        out[start] = bytes[0];
+        out[start + 1] = bytes[1];
+        out[start + 2] = bytes[2];
+        out[start + 3] = bytes[3];
+    }
+    out
+}
+
+#[inline]
+pub fn yona_hash(data: &[u8]) -> [u8; 32] {
+    let len = data.len();
+    let mut cv = YONA_IV;
+
+    if len == 0 {
+        let m = [0u32; 16];
+        let out = yona_compress(&cv, &m, 0, 0, YONA_CHUNK_START | YONA_CHUNK_END | YONA_ROOT);
+        return yona_words_to_bytes(
+            <&[u32; 8]>::try_from(&out[..8]).unwrap()
+        );
+    }
+
+    let total_blocks = (len + 63) / 64;
+    let mut offset = 0usize;
+
+    let mut idx = 0usize;
+    while idx < total_blocks {
+        let is_first = idx == 0;
+        let is_last = idx == total_blocks - 1;
+        let remaining = len - offset;
+        let blen = if remaining >= 64 { 64 } else { remaining };
+
+        let mut block = [0u8; 64];
+        block[..blen].copy_from_slice(&data[offset..offset + blen]);
+        let words = yona_bytes_to_words(&block);
+
+        let mut flags = 0u32;
+        if is_first { flags |= YONA_CHUNK_START; }
+        if is_last { flags |= YONA_CHUNK_END | YONA_ROOT; }
+
+        let out = yona_compress(&cv, &words, 0, blen as u32, flags);
+        cv = [out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7]];
+
+        offset += 64;
+        idx += 1;
+    }
+
+    yona_words_to_bytes(&cv)
+}
+
+#[inline(always)]
+pub fn yona_hash_112(header: &[u8; 112]) -> [u8; 32] {
+    let mut block1 = [0u8; 64];
+    block1.copy_from_slice(&header[0..64]);
+    let w1 = yona_bytes_to_words(&block1);
+    
+    let out1 = yona_compress(&YONA_IV, &w1, 0, 64, YONA_CHUNK_START);
+    let cv = [out1[0], out1[1], out1[2], out1[3], out1[4], out1[5], out1[6], out1[7]];
+
+    let mut block2 = [0u8; 64];
+    block2[0..48].copy_from_slice(&header[64..112]);
+    let w2 = yona_bytes_to_words(&block2);
+
+    let out2 = yona_compress(&cv, &w2, 0, 48, YONA_CHUNK_END | YONA_ROOT);
+    
+    yona_words_to_bytes(
+        <&[u32; 8]>::try_from(&out2[..8]).unwrap()
+    )
+}
+
+pub fn calculate_blake3_hash(data: Vec<u8>, height: u64) -> [u8; 32] {
+    if height >= 38500 {
+        if data.len() == 112 {
+            let arr: &[u8; 112] = <&[u8; 112]>::try_from(&data[..]).unwrap();
+            return yona_hash_112(arr);
+        } else {
+            return yona_hash(&data);
+        }
+    }
     calculate_blake3_hash_vanguard(&data)
 }
 
 /// [V1.3.2 PERF] Phiên bản zero-copy — nhận tham chiếu &[u8] thay vì Vec<u8>.
 #[inline(always)]
-pub fn calculate_blake3_hash_ref(data: &[u8], _height: u64) -> [u8; 32] {
+pub fn calculate_blake3_hash_ref(data: &[u8], height: u64) -> [u8; 32] {
+    if height >= 38500 {
+        if data.len() == 112 {
+            let arr: &[u8; 112] = <&[u8; 112]>::try_from(&data[..]).unwrap();
+            return yona_hash_112(arr);
+        } else {
+            return yona_hash(data);
+        }
+    }
     blake3::derive_key(GENZ_POW_CONTEXT, data)
 }
 
@@ -214,6 +404,77 @@ mod tests {
         let hash = calculate_signing_hash(&tx);
         println!("RUST_TEST_VECTOR_HASH = {}", hex::encode(hash));
         assert_eq!(hex::encode(hash), "c46a079def867e938ead12e558334605437e7e86b46bbbafad04fcaba2c9b9d6");
+    }
+
+    #[test]
+    fn test_yona_hash_fork() {
+        let dummy_data_40 = [0u8; 40];
+        let dummy_data_112 = [0u8; 112];
+
+        // 1. Height below fork (38499) -> must use Blake3
+        let hash_40_pre = calculate_blake3_hash(dummy_data_40.to_vec(), 38499);
+        let hash_112_pre = calculate_blake3_hash(dummy_data_112.to_vec(), 38499);
+        assert_ne!(hash_40_pre, yona_hash(&dummy_data_40));
+        assert_ne!(hash_112_pre, yona_hash_112(&dummy_data_112));
+
+        // 2. Height at fork (38500) -> must use Yona Hash
+        let hash_40_post = calculate_blake3_hash(dummy_data_40.to_vec(), 38500);
+        let hash_112_post = calculate_blake3_hash(dummy_data_112.to_vec(), 38500);
+        assert_eq!(hash_40_post, yona_hash(&dummy_data_40));
+        assert_eq!(hash_112_post, yona_hash_112(&dummy_data_112));
+        
+        println!("Pre-fork hash (40B): {}", hex::encode(hash_40_pre));
+        println!("Post-fork hash (40B): {}", hex::encode(hash_40_post));
+        println!("Pre-fork hash (112B): {}", hex::encode(hash_112_pre));
+        println!("Post-fork hash (112B): {}", hex::encode(hash_112_post));
+    }
+
+    #[test]
+    fn test_mining_and_verification_fork() {
+        use primitive_types::U256;
+        let parent_hash = [0u8; 32];
+        let merkle_root = [0u8; 32];
+        let difficulty = U256::from(200);
+        let mut diff_bytes = [0u8; 32];
+        difficulty.to_little_endian(&mut diff_bytes);
+
+        // 1. Pack header at height = 38500
+        let packed_header = crate::genz_pow::pack_header_v112(
+            38500,
+            &parent_hash,
+            1600000000,
+            &merkle_root,
+            &diff_bytes
+        );
+
+        // 2. Hash the header using the new Yona Hash logic at height = 38500
+        let header_hash = calculate_blake3_hash(packed_header.to_vec(), 38500);
+
+        // 3. Use find_nonce to mine a block at height = 38500
+        let mined_nonce = crate::genz_pow::find_nonce(
+            header_hash.to_vec(),
+            10000,
+            diff_bytes.to_vec(),
+            100000,
+            4,
+            38500
+        );
+
+        assert!(mined_nonce.is_some(), "Mining should easily find a nonce at diff 200");
+        let nonce = mined_nonce.unwrap();
+        println!("Mined Nonce: {}", nonce);
+
+        // 4. Verify PoW using the same logic as verify_pow
+        let mut material = [0u8; 40];
+        material[..32].copy_from_slice(&header_hash);
+        material[32..].copy_from_slice(&nonce.to_le_bytes());
+
+        let hash_result = calculate_blake3_hash(material.to_vec(), 38500);
+        let hash_u256 = U256::from_little_endian(&hash_result);
+        
+        let target = crate::genz_pow::difficulty_to_target(difficulty);
+        assert!(hash_u256 < target, "Mined block must satisfy PoW target criteria");
+        println!("Successfully validated mined Yona block!");
     }
 }
 

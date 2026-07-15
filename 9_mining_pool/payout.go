@@ -120,7 +120,10 @@ func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) 
 
 						if targetShares != nil {
 							// Thực hiện chia thưởng dựa trên bản chụp, truyền con trỏ lastPaidNonce
-							p.processBlockPayout(actualReward, nextH, targetShares, poolAddrBytes, privKeyBytes, bridge, pushTx, &lastPaidNonce)
+							p.processBlockPayout(actualReward, nextH, targetShares, poolAddrBytes, privKeyBytes, bridge, pushTx, &lastPaidNonce, currH)
+							
+							// Nghỉ 50ms giữa các khối chia thưởng để gom lô vào TxBus
+							time.Sleep(50 * time.Millisecond)
 							
 							// Xóa bản ghi đã payout khỏi danh sách
 							p.Mu.Lock()
@@ -171,7 +174,7 @@ func (p *MiningPool) payoutLoop(bridge NodeBridge, pushTx func(txBytes []byte)) 
 	}
 }
 
-func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, shares map[string]float64, poolAddrBytes []byte, poolPrivKey []byte, bridge NodeBridge, pushTx func(txBytes []byte), lastPaidNonce *uint64) {
+func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, shares map[string]float64, poolAddrBytes []byte, poolPrivKey []byte, bridge NodeBridge, pushTx func(txBytes []byte), lastPaidNonce *uint64, currentHeight uint64) {
 	// 1. Tính tổng shares và đếm số lượng worker hợp lệ
 	var totalShares float64
 	var activeWorkerAddrs []string
@@ -190,12 +193,17 @@ func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, share
 	log.Printf("[POOL-PAYOUT] 📊 Thực hiện chia thưởng khối #%d cho thợ đào (Dựa trên bản chụp). Tổng shares: %.2f | Số thợ đào: %d", height, totalShares, len(activeWorkerAddrs))
 
 	// Lấy nonce từ Node và đồng bộ với nonce cục bộ của ví Pool
+	// GetNonce trả về nonce dự kiến tiếp theo trên Ledger.
+	// Tại sao: Không cộng thêm 1 vì GetNonce đã là nonce tiếp theo của ví. Cộng thêm 1 sẽ gây lệch nonce (nonce gap).
 	nodeNonce := bridge.GetNonce(nil, poolAddrBytes)
 	if nodeNonce > *lastPaidNonce {
 		*lastPaidNonce = nodeNonce
 	}
 	currentNonce := *lastPaidNonce
-	recentBlockHash := bridge.GetBlockHash(height - 1)
+	
+	// Sử dụng block hash của chiều cao khối hiện tại để bảo đảm recent_block_hash luôn nằm trong cửa sổ 100 khối của Rust Core.
+	// Tại sao: Nếu sử dụng height - 1 của khối cũ, Rust Core sẽ từ chối giao dịch vì lỗi Outdated/Replay.
+	recentBlockHash := bridge.GetBlockHash(currentHeight)
 
 	// Trừ phí bể đào (ví dụ 1%)
 	poolFeeAmount := uint64(float64(totalReward) * p.PoolFee)
@@ -260,10 +268,10 @@ func (p *MiningPool) processBlockPayout(totalReward uint64, height uint64, share
 		log.Printf("[POOL-PAYOUT] 💸 Payout %.8f GO gửi tới ví thợ đào %s (Shares bản chụp: %.2f, Nonce: %d)", float64(workerPayable)/1e8, addr, shareVal, currentNonce)
 		currentNonce++
 
-		// Tạo độ giãn cách 15 giây giữa các giao dịch payout (ngoại trừ worker cuối cùng)
+		// Tạo độ giãn cách 50ms giữa các giao dịch payout (ngoại trừ worker cuối cùng)
 		if idx < len(activeWorkerAddrs)-1 {
-			log.Printf("[POOL-PAYOUT] ⏳ Nghỉ 15 giây trước khi thực hiện giao dịch tiếp theo...")
-			time.Sleep(15 * time.Second)
+			log.Printf("[POOL-PAYOUT] ⏳ Nghỉ 50ms trước khi thực hiện giao dịch tiếp theo...")
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 	// Lưu lại nonce mới nhất sau khi hoàn tất payout khối này cho toàn bộ workers

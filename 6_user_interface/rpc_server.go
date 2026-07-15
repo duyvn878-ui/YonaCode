@@ -2636,8 +2636,10 @@ type NetworkAlert struct {
 }
 
 var (
-	activeAlert   *NetworkAlert
-	activeAlertMu sync.RWMutex
+	activeAlert      *NetworkAlert
+	activeAlertMu    sync.RWMutex
+	dismissedAlertID int64
+	dismissedAlertMu sync.Mutex
 )
 
 func verifyAlertSignature(alert *NetworkAlert, pubKeyHex string) bool {
@@ -2726,7 +2728,11 @@ func (s *RPCServer) startAlertConsoleLogger() {
 
 		currentHeight := s.bridge.GetCurrentVersion()
 
-		if alert != nil && currentHeight < alert.ExpirationBlock {
+		dismissedAlertMu.Lock()
+		dID := dismissedAlertID
+		dismissedAlertMu.Unlock()
+
+		if alert != nil && currentHeight < alert.ExpirationBlock && alert.ID > dID {
 			urlInfo := ""
 			if alert.GithubUrl != "" {
 				urlInfo = fmt.Sprintf(" | GitHub Update Link: %s", alert.GithubUrl)
@@ -2916,6 +2922,7 @@ func (s *RPCServer) Start() {
 	// Tại sao: Cho phép nhà vận hành Node can thiệp khi xảy ra chia cắt mạng (Network Partition)
 	r.HandleFunc("/api/v1/node/emergency-reset", s.localhostOnly(s.handleEmergencyReset)).Methods("POST")
 	r.HandleFunc("/api/v1/node/shutdown", s.localhostOnly(s.handleNodeShutdown)).Methods("POST")
+	r.HandleFunc("/api/v1/alert/dismiss", s.localhostOnly(s.handleAlertDismiss)).Methods("POST")
 	r.HandleFunc("/api/v1/debug/verify_balances", s.localhostOnly(s.handleDebugVerifyBalances)).Methods("GET")
 
 	// [V11.2] Middleware Kiểm toán & Kết nối
@@ -3606,18 +3613,6 @@ func (s *RPCServer) handleSendTx(w http.ResponseWriter, r *http.Request) {
 
 // handleSendBatchTx: (EBP - Exchange Batch Protocol) API xử lý và đóng gói lô giao dịch tuần tự của Sàn
 func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
-	// ==========================================
-	// [VANGUARD-DISABLED] TẠM THỜI VÔ HIỆU HÓA TXSQ
-	// ==========================================
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "Error",
-		"message": "Tính năng Gửi lô giao dịch (EBP/TXSQ) đang tạm thời bị vô hiệu hóa trên mạng lưới.",
-	})
-	return
-	// ==========================================
-
 	start := time.Now()
 	log.Printf("[RPC-BATCH] 🏁 Bắt đầu xử lý Giao dịch Lô Tuần Tự (EBP) từ %s", r.RemoteAddr)
 
@@ -5314,6 +5309,81 @@ func (s *RPCServer) getHashrateHistory() []float64 {
 	return result
 }
 
+// calculateAvgBlockTimeAtHeight: Tính toán thời gian tạo khối trung bình thực tế tại một cao độ nhất định
+func (s *RPCServer) calculateAvgBlockTimeAtHeight(height uint64) float64 {
+	if height < 2 {
+		return 75.0
+	}
+	count := uint64(10)
+	if height < count {
+		count = height
+	}
+	var totalTime uint64
+	lastTs := uint64(0)
+
+	blockRaw := s.bridge.GetBlock(height)
+	if blockRaw != nil {
+		var block pb_block.Block
+		proto.Unmarshal(blockRaw, &block)
+		if block.Header != nil {
+			lastTs = block.Header.Timestamp
+		}
+	}
+	if lastTs == 0 {
+		return 75.0
+	}
+
+	blockOldRaw := s.bridge.GetBlock(height - count)
+	if blockOldRaw != nil {
+		var blockOld pb_block.Block
+		proto.Unmarshal(blockOldRaw, &blockOld)
+		if blockOld.Header != nil && blockOld.Header.Timestamp > 0 && lastTs > blockOld.Header.Timestamp {
+			totalTime = lastTs - blockOld.Header.Timestamp
+			return float64(totalTime) / float64(count)
+		}
+	}
+	return 75.0
+}
+
+// calculateAvgNetworkHashrate: Tính toán tốc độ băm trung bình của mạng lưới trong một cửa sổ khối nhất định
+func (s *RPCServer) calculateAvgNetworkHashrate(window uint64) uint64 {
+	highest := s.bridge.GetCurrentVersion()
+	if highest == 0 {
+		return 16000000
+	}
+	if highest < window {
+		window = highest
+	}
+	var totalHashrate uint64 = 0
+	var count uint64 = 0
+	for h := highest; h > highest - window; h-- {
+		hash := s.bridge.GetBlockHash(h)
+		if len(hash) == 0 {
+			continue
+		}
+		headerRaw := s.bridge.GetHeaderRaw(hash)
+		if headerRaw == nil {
+			continue
+		}
+		var header pb_block.BlockHeader
+		if err := proto.Unmarshal(headerRaw, &header); err != nil {
+			continue
+		}
+		diff := go_bridge.BytesLEToBigInt(header.Difficulty)
+		avgTime := s.calculateAvgBlockTimeAtHeight(h)
+		if avgTime <= 0 {
+			avgTime = 75.0
+		}
+		blockHashrate := new(big.Int).Div(diff, big.NewInt(int64(avgTime))).Uint64()
+		totalHashrate += blockHashrate
+		count++
+	}
+	if count == 0 {
+		return 16000000
+	}
+	return totalHashrate / count
+}
+
 // getNetworkHashrateHistory: Trả về lịch sử hashrate toàn mạng của 20 khối gần nhất
 func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
 	highest := s.bridge.GetCurrentVersion()
@@ -5326,11 +5396,6 @@ func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
 	}
 
 	result := make([]uint64, count)
-	avgBlockTime := s.calculateAvgBlockTime()
-	if avgBlockTime <= 0 {
-		avgBlockTime = 75.0
-	}
-
 	// Lặp qua 20 khối gần nhất
 	for i := uint64(0); i < count; i++ {
 		h := highest - (count - 1 - i)
@@ -5346,8 +5411,11 @@ func (s *RPCServer) getNetworkHashrateHistory() []uint64 {
 			}
 		}
 
-		// Network Hashrate = Difficulty / AvgBlockTime (hoặc 75 nếu block time lỗi)
-		hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(avgBlockTime)))
+		localAvg := s.calculateAvgBlockTimeAtHeight(h)
+		if localAvg <= 0 {
+			localAvg = 75.0
+		}
+		hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(localAvg)))
 		result[i] = hashrate.Uint64()
 	}
 	return result
@@ -5389,12 +5457,12 @@ func (s *RPCServer) getTopMiners() []MinerStats {
 		return []MinerStats{}
 	}
 
-	networkHashrate := s.calculateNetworkHashrate()
+	avgNetworkHashrate := s.calculateAvgNetworkHashrate(window)
 
 	var stats []MinerStats
 	for addr, count := range minerCounts {
 		percentage := (float64(count) / float64(totalBlocks)) * 100.0
-		hashrateEst := uint64((float64(count) / float64(totalBlocks)) * float64(networkHashrate))
+		hashrateEst := uint64((float64(count) / float64(totalBlocks)) * float64(avgNetworkHashrate))
 		stats = append(stats, MinerStats{
 			Address:     addr,
 			BlocksMined: count,
@@ -5926,7 +5994,12 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 
 	currentHeight := s.bridge.GetCurrentVersion()
 	var activeAlertMap interface{}
-	if alert != nil && currentHeight < alert.ExpirationBlock {
+
+	dismissedAlertMu.Lock()
+	dID := dismissedAlertID
+	dismissedAlertMu.Unlock()
+
+	if alert != nil && currentHeight < alert.ExpirationBlock && alert.ID > dID {
 		activeAlertMap = map[string]interface{}{
 			"id":               alert.ID,
 			"message_vi":       alert.MessageVi,
@@ -5962,6 +6035,8 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 		"node_mode":              currentMode,
 		"cpu_intensity":          currentCpu,
 		"mining_device":          device,
+		"is_pool_mining":         s.isPoolMining,
+		"pool_miner_device":      s.poolMinerDevice,
 		"oldest_height":          s.bridge.GetOldestHeight(),
 		"version":                "YonaCode Go V1.2.1-Ready",
 		"avg_block_time":         s.calculateAvgBlockTime(),
@@ -6693,28 +6768,7 @@ func (s *RPCServer) handleEmergencyReset(w http.ResponseWriter, r *http.Request)
 // Tại sao phải gọi s.bridge.Close(): Giải phóng hoàn toàn các file lock của database RocksDB trong Rust Core và tắt tiến trình con scl_server.exe,
 // tránh hiện tượng lock dữ liệu khi khởi chạy lại.
 func (s *RPCServer) handleNodeShutdown(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Confirm string `json:"confirm"`
-	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "Dữ liệu yêu cầu không hợp lệ. Vui lòng nhập 'yes' để xác nhận tắt.",
-		})
-		return
-	}
-
-	if req.Confirm != "yes" {
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "Yêu cầu tắt bị từ chối. Vui lòng gõ 'yes' để xác nhận.",
-		})
-		return
-	}
-
 	log.Printf("[RPC] 💀 Nhận lệnh TẮT NODE từ giao diện điều khiển. Đang dọn dẹp tài nguyên...")
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6728,6 +6782,52 @@ func (s *RPCServer) handleNodeShutdown(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[RPC] 🏁 Đã dọn dẹp xong. Tiến hành tắt chương trình.")
 		os.Exit(0)
 	}()
+}
+
+// [ALERT-DISMISS] handleAlertDismiss: Xử lý yêu cầu ẩn cảnh báo khẩn cấp cục bộ từ người dùng
+func (s *RPCServer) handleAlertDismiss(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Dữ liệu yêu cầu không hợp lệ. Vui lòng nhập 'yes' để xác nhận tắt cảnh báo.",
+		})
+		return
+	}
+
+	if req.Confirm != "yes" {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Yêu cầu tắt cảnh báo bị từ chối. Vui lòng nhập đúng từ 'yes' để xác nhận.",
+		})
+		return
+	}
+
+	activeAlertMu.RLock()
+	alert := activeAlert
+	activeAlertMu.RUnlock()
+
+	if alert == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Hiện tại không có cảnh báo nào hoạt động để tắt.",
+		})
+		return
+	}
+
+	dismissedAlertMu.Lock()
+	dismissedAlertID = alert.ID
+	dismissedAlertMu.Unlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Đã ẩn thành công cảnh báo ID %d cục bộ.", alert.ID),
+	})
 }
 
 // handleManualSnapshotImport: Xử lý nạp snapshot thủ công.
@@ -7525,12 +7625,23 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 	// Calculates Target U256 (32 bytes) from difficulty
 	targetBytes := difficultyToTarget(activeBlock.Header.Difficulty)
 
+	parentHashHex := ""
+	if activeBlock.Header.ParentHash != nil {
+		parentHashHex = hex.EncodeToString(activeBlock.Header.ParentHash.Value)
+	}
+	txRootHex := ""
+	if activeBlock.Header.TxRoot != nil {
+		txRootHex = hex.EncodeToString(activeBlock.Header.TxRoot.Value)
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"header_hash": hex.EncodeToString(headerHash),
 		"target":      hex.EncodeToString(targetBytes),
 		"height":      activeBlock.Header.Height,
 		"session_id":  activeSessionId,
 		"intensity":   s.GetCpuIntensity(),
+		"parent_hash": parentHashHex,
+		"merkle_root": txRootHex,
 	})
 }
 
@@ -7872,12 +7983,23 @@ func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
 	shareBytes := shareTarget.Bytes()
 	copy(targetPadded[32-len(shareBytes):], shareBytes)
 
+	parentHashHex := ""
+	if activeBlock.Header.ParentHash != nil {
+		parentHashHex = hex.EncodeToString(activeBlock.Header.ParentHash.Value)
+	}
+	txRootHex := ""
+	if activeBlock.Header.TxRoot != nil {
+		txRootHex = hex.EncodeToString(activeBlock.Header.TxRoot.Value)
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"header_hash": hex.EncodeToString(headerHash),
 		"target":      hex.EncodeToString(targetPadded),
 		"height":      activeBlock.Header.Height,
 		"session_id":  activeSessionId,
 		"intensity":   100,
+		"parent_hash": parentHashHex,
+		"merkle_root": txRootHex,
 	})
 }
 

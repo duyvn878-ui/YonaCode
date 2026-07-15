@@ -57,6 +57,10 @@ function App() {
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
 
+  // ALERT DISMISS STATES
+  const [showDismissAlertModal, setShowDismissAlertModal] = useState(false);
+  const [dismissConfirmText, setDismissConfirmText] = useState('');
+
   const addNotification = useCallback((msg: string, type: 'info' | 'success' | 'error' | 'finality' = 'info') => {
     const id = Math.random().toString(36).substring(2, 11) + Date.now();
     setNotifications(prev => [...prev, { id, msg, type }]);
@@ -173,6 +177,22 @@ function App() {
       clearTimeout(timer);
     };
   }, [balance, address, fetchData]);
+
+  const executeDismissAlert = async () => {
+    if (dismissConfirmText !== 'yes') {
+      alert(t.lang === 'vi' ? "Vui lòng nhập đúng từ 'yes' để xác nhận tắt cảnh báo!" : "Please type exactly 'yes' to dismiss the alert!");
+      return;
+    }
+    try {
+      await api.dismissAlert('yes');
+      setShowDismissAlertModal(false);
+      setDismissConfirmText('');
+      addNotification(t.lang === 'vi' ? 'Đã tắt cảnh báo mạng lưới thành công.' : 'Network alert dismissed successfully.', 'success');
+      fetchData();
+    } catch (e: any) {
+      alert(`${t.lang === 'vi' ? 'Lỗi khi tắt cảnh báo' : 'Dismiss alert error'}: ${e.message}`);
+    }
+  };
 
   const [isStopping, setIsStopping] = useState(false);
 
@@ -343,9 +363,15 @@ function App() {
                     {t.lang === 'vi' ? 'TẢI BẢN CẬP NHẬT (GITHUB)' : 'DOWNLOAD UPDATE (GITHUB)'}
                   </a>
                 )}
-                <span className="text-[9px] font-mono text-red-400/80">
+                 <span className="text-[9px] font-mono text-red-400/80">
                   ({t.lang === 'vi' ? `Hết hạn tại khối: #${status.active_alert.expiration_block}` : `Expires at block: #${status.active_alert.expiration_block}`})
                 </span>
+                <button
+                  onClick={() => setShowDismissAlertModal(true)}
+                  className="px-3 py-1.5 bg-white/5 border border-red-500/30 hover:bg-red-500/20 text-red-300 text-[9px] font-black uppercase rounded transition-all duration-300 shadow-[0_0_10px_rgba(239,68,68,0.1)] cursor-pointer ml-2"
+                >
+                  {t.lang === 'vi' ? 'TẮT CẢNH BÁO' : 'DISMISS ALERT'}
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -497,6 +523,55 @@ function App() {
       }} sender={address} balance={balance} />
       <ReceiveModal isOpen={isReceiveModalOpen} onClose={() => setIsReceiveModalOpen(false)} address={address} />
       <TransactionDetailModal tx={selectedTx} onClose={() => setSelectedTx(null)} currentHeight={status?.highest_height || 0} />
+
+      {/* DISMISS ALERT MODAL */}
+      {showDismissAlertModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="w-full max-w-md vanguard-glass p-6 flex flex-col gap-6 border border-red-500/30 bg-black/95 rounded-2xl">
+            <div className="flex flex-col gap-2 items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
+                <AlertTriangle size={32} className="text-red-500 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-black uppercase italic tracking-wider text-red-500">
+                {t.lang === 'vi' ? 'XÁC NHẬN TẮT CẢNH BÁO MẠNG' : 'CONFIRM NETWORK ALERT DISMISS'}
+              </h3>
+              <p className="text-xs text-white/60 mt-2 leading-relaxed">
+                {t.lang === 'vi' 
+                  ? '⚠️ CẢNH BÁO: Việc ẩn cảnh báo này có thể khiến bạn bỏ lỡ các thông tin cập nhật khẩn cấp cực kỳ quan trọng. Vui lòng nhập \'yes\' vào ô bên dưới để xác nhận tắt cảnh báo cục bộ.'
+                  : '⚠️ WARNING: Dismissing this alert might cause you to miss critical emergency network updates. Please type \'yes\' in the box below to confirm local dismissal.'}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <input 
+                type="text" 
+                placeholder={t.lang === 'vi' ? "Nhập 'yes' để xác nhận..." : "Type 'yes' to confirm..."}
+                value={dismissConfirmText}
+                onChange={(e) => setDismissConfirmText(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-lg px-4 py-3 text-center text-lg font-black tracking-widest text-red-500 focus:border-red-500/50 outline-none"
+              />
+              
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <button 
+                  onClick={() => { setShowDismissAlertModal(false); setDismissConfirmText(''); }}
+                  className="py-3 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all text-white cursor-pointer"
+                >
+                  {t.lang === 'vi' ? 'HỦY BỎ' : 'CANCEL'}
+                </button>
+                <button 
+                  onClick={executeDismissAlert}
+                  disabled={dismissConfirmText !== 'yes'}
+                  className={`py-3 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer 
+                    ${dismissConfirmText !== 'yes' ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.4)]'}`}
+                >
+                  {t.lang === 'vi' ? 'XÁC NHẬN TẮT' : 'CONFIRM'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MATRIX GUARDIAN - OFFLINE OVERLAY */}
       <AnimatePresence>
         {isNodeOffline && (

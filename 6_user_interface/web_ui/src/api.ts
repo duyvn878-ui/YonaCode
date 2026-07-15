@@ -47,6 +47,8 @@ export interface NodeStatus {
   node_mode: string;
   cpu_intensity: number;    // [MINER V2] Hiển thị cường độ CPU
   mining_device?: string;   // [MINER GPU/CPU] cpu, gpu, hybrid
+  is_pool_mining?: boolean; // Trạng thái đào bể
+  pool_miner_device?: string; // Thiết bị đào bể
   difficulty: string | number;       // [PHỤ LỤC D] Độ khó hiện tại (Chuỗi BigInt hoặc số)
   avg_block_time: number;   // [PHỤ LỤC D] Thời gian khối trung bình (60s)
   block_reward: number;
@@ -799,14 +801,26 @@ const api = {
   },
 
   // [SHUTDOWN-V1.0] Gửi yêu cầu tắt Node tới backend
-  async shutdownNode(confirm: string): Promise<{ success: boolean; message: string }> {
+  async shutdownNode(): Promise<{ success: boolean; message: string }> {
     const res = await fetch('/api/v1/node/shutdown', {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: 'Không thể gửi yêu cầu tắt Node' }));
+      throw new Error(err.message || 'Lỗi không xác định');
+    }
+    return res.json();
+  },
+
+  // [ALERT-DISMISS] Gửi yêu cầu tắt cảnh báo khẩn cấp cục bộ
+  async dismissAlert(confirm: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch('/api/v1/alert/dismiss', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ confirm })
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: 'Không thể gửi yêu cầu tắt Node' }));
+      const err = await res.json().catch(() => ({ message: 'Không thể tắt cảnh báo' }));
       throw new Error(err.message || 'Lỗi không xác định');
     }
     return res.json();

@@ -213,6 +213,21 @@ func runInteractiveShell(client pb_block.BlockchainServiceClient, dbPath string)
 			showWallets(client, walletManager)
 		case "send":
 			handleGuidedSend(client, walletManager, scanner)
+		case "yes":
+			// Gửi POST request dismiss cảnh báo tới local API
+			url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/alert/dismiss", port)
+			reqBody, _ := json.Marshal(map[string]string{"confirm": "yes"})
+			resp, err := http.Post(url, "application/json", strings.NewReader(string(reqBody)))
+			if err != nil {
+				color.Red("❌ Error dismissing alert: %v", err)
+			} else {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					color.Green("✅ Emergency warning alert dismissed locally.")
+				} else {
+					color.Red("❌ Failed to dismiss warning. Code: %d", resp.StatusCode)
+				}
+			}
 		case "exit", "quit":
 			color.Yellow("🛑 Closing database and disconnecting P2P peers. Please wait...")
 			time.Sleep(1 * time.Second)

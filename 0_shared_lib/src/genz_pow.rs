@@ -92,6 +92,37 @@ pub fn find_nonce(
 
     // [V40.0] Bỏ qua kiểm tra PAUSE_MINING
 
+    if height >= 38500 {
+        let target_u64_last = target.0[3]; // Lấy 64-bit cao nhất để Fast-Reject
+        let found_nonce = (0..iterations).into_par_iter().find_map_any(move |i| {
+            let n = start_nonce.wrapping_add(i as u64);
+            
+            let mut material = [0u8; 40];
+            material[..32].copy_from_slice(&header_hash);
+            material[32..].copy_from_slice(&n.to_le_bytes());
+            
+            let hash_result = crate::crypto_primitives::yona_hash(&material);
+            
+            // Fast Reject: So sánh 64-bit cao nhất trước
+            let h_last = u64::from_le_bytes(hash_result[24..32].try_into().unwrap());
+            if h_last > target_u64_last {
+                if i % 1000 == 0 { HASHRATE_COUNTER.fetch_add(1000, Ordering::Relaxed); }
+                return None;
+            }
+
+            let hash_u256 = U256::from_little_endian(&hash_result);
+            if hash_u256 < target {
+                return Some(n);
+            }
+            
+            if i % 1000 == 0 {
+                HASHRATE_COUNTER.fetch_add(1000, Ordering::Relaxed);
+            }
+            None
+        });
+        return found_nonce;
+    }
+
     // [VANGUARD-UNITY] Luôn sử dụng Vanguard cho mọi chiều cao khối.
     let mut mid_hasher = blake3::Hasher::new_derive_key(crate::crypto_primitives::GENZ_POW_CONTEXT);
     mid_hasher.update(&header_hash);

@@ -1147,7 +1147,6 @@ func (m *Mempool) ClearProjectedNonce(senderHex string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.projectedNonce, senderHex)
-	log.Printf("[MEMPOOL-FIX] 🧹 Đã xóa Projected Nonce cho ví %s để đồng bộ lại.", senderHex[:10])
 }
 
 // getSenderNoncesBatch lấy Nonce hàng loạt cho danh sách địa chỉ gửi để tránh bão gRPC.
@@ -1378,12 +1377,8 @@ func (m *Mempool) StartTxBus(ctx context.Context) {
 	defer ticker.Stop()
 
 	var batch [][]byte
-	// Tăng giới hạn lô gộp từ 1,000 lên 50,000 giao dịch.
-	// Tại sao: Do việc truyền tin giữa Go và Rust Core được thực hiện qua gRPC cục bộ (Local Loopback / Named Pipe), 
-	// việc truyền tải dữ liệu dung lượng lớn cực kỳ nhanh và không bị trễ mạng. 
-	// Việc tăng giới hạn giúp gom tối đa tất cả các giao dịch trong trạm chờ vào duy nhất một lệnh kiểm duyệt của Rust, 
-	// tối ưu hóa hiệu năng xử lý song song bằng Rayon ở phía Rust Engine.
-	const maxBatchSize = 50000
+	// Giới hạn lô gộp tối ưu xuống 200 giao dịch (EBP - Exchange Batch Protocol - TXSQ).
+	const maxBatchSize = 200
 
 	for {
 		select {
@@ -1427,20 +1422,55 @@ func (m *Mempool) StartTxBus(ctx context.Context) {
 
 // processBusBatch gửi loạt giao dịch xuống Rust Core qua gRPC và nạp các giao dịch hợp lệ.
 func (m *Mempool) processBusBatch(batch [][]byte) {
-	log.Printf("[MEMPOOL-BUS] 🚌 Xe buýt xuất phát! Gom được %d giao dịch, đang tách cờ và gọi gRPC xuống Rust...", len(batch))
+	log.Printf("[MEMPOOL-BUS] 🚌 Xe buýt xuất phát! Gom được %d giao dịch, đang SẮP XẾP và gọi gRPC xuống Rust...", len(batch))
 	start := time.Now()
 
-	cleanBatch := make([][]byte, len(batch))
-	isLocalFlags := make([]bool, len(batch))
-	for i, entry := range batch {
-		if len(entry) > 0 {
-			isLocalFlags[i] = entry[0] == 1
-			cleanBatch[i] = entry[1:]
-		} else {
-			cleanBatch[i] = entry
-		}
+	// [KIẾN TRÚC CHUẨN] 1. Giải mã thô để lấy Sender và Nonce
+	type busItem struct {
+		isLocal bool
+		raw     []byte
+		tx      *pb_tx.Transaction
 	}
 
+	var items []busItem
+	for _, entry := range batch {
+		if len(entry) == 0 {
+			continue
+		}
+		isLocal := entry[0] == 1
+		
+		// Copy raw bytes to be 100% safe from channel slice reuse
+		raw := make([]byte, len(entry)-1)
+		copy(raw, entry[1:])
+
+		tx := new(pb_tx.Transaction)
+		if err := proto.Unmarshal(raw, tx); err != nil {
+			continue // Bỏ qua gói tin rác không parse được
+		}
+		items = append(items, busItem{isLocal: isLocal, raw: raw, tx: tx})
+	}
+
+	// [KIẾN TRÚC CHUẨN] 2. SẮP XẾP TUẦN TỰ TRƯỚC KHI ĐƯA XUỐNG RUST
+	// Đảm bảo các giao dịch của cùng 1 ví phải được xếp theo Nonce tăng dần.
+	// Nếu người dùng gửi Nonce 2 rồi mới tới Nonce 1 vào channel, bước này sẽ nắn lại.
+	sort.Slice(items, func(i, j int) bool {
+		sI := string(items[i].tx.Sender.Value)
+		sJ := string(items[j].tx.Sender.Value)
+		if sI == sJ {
+			return items[i].tx.Nonce < items[j].tx.Nonce
+		}
+		return sI < sJ
+	})
+
+	// 3. Tái tạo lại mảng byte chuẩn ĐÃ ĐƯỢC SẮP XẾP để gửi cho Rust
+	cleanBatch := make([][]byte, len(items))
+	isLocalFlags := make([]bool, len(items))
+	for i, item := range items {
+		cleanBatch[i] = item.raw
+		isLocalFlags[i] = item.isLocal
+	}
+
+	// 4. Bàn giao cho Rust Core (Lúc này mảng đã tuần tự tuyệt đối, Rust sẽ không chém oan 106)
 	resp, err := m.bridge.ValidateTransactionBatch(cleanBatch)
 	if err != nil {
 		log.Printf("[MEMPOOL-BUS] ❌ Gọi gRPC ValidateTransactionBatch thất bại: %v", err)
@@ -1489,15 +1519,15 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 	for i, result := range resp.Results {
 		txBytes := cleanBatch[i]
 		isLocal := isLocalFlags[i]
-		var tx pb_tx.Transaction
-		if err := proto.Unmarshal(txBytes, &tx); err != nil {
+		tx := new(pb_tx.Transaction)
+		if err := proto.Unmarshal(txBytes, tx); err != nil {
 			log.Printf("[MEMPOOL-BUS] ❌ Unmarshal transaction index %d thất bại", i)
 			continue
 		}
 
 		txHashStr := hex.EncodeToString(result.TxHash)
 		tempInfos[i] = tempTxInfo{
-			tx:         &tx,
+			tx:         tx,
 			txHashStr:  txHashStr,
 			isValid:    result.IsValid,
 			statusCode: result.StatusCode,
@@ -1540,6 +1570,8 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 	// Tại sao thiết kế như vậy: Việc ghi log chi tiết cho từng giao dịch bị từ chối trong một batch lớn (hàng chục ngàn giao dịch rác)
 	// sẽ tạo ra lượng I/O đĩa khổng lồ, làm nghẽn luồng Mempool và Miner. Gom lại thành một biến đếm giúp tối ưu hiệu năng đáng kể.
 	spamRejected := 0
+	// [KHỬ TRÙNG LẶP LOG] Map theo dõi các sender đã bị từ chối - chỉ in log 1 lần cho mỗi sender
+	rejectedSenderLogged := make(map[string]bool)
 
 	// Lock mempool 1 lần duy nhất cho toàn bộ quá trình nạp batch giao dịch hợp lệ.
 	// Tại sao thiết kế như vậy: Tránh việc gọi Lock/Unlock hàng chục ngàn lần cho từng giao dịch riêng lẻ,
@@ -1547,11 +1579,21 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 	// nhằm triệt tiêu hoàn toàn lỗi Catastrophic Eviction Loop làm đơ CPU.
 	m.mu.Lock()
 	for i, info := range tempInfos {
-		if info.tx == nil || !tempInfos[i].isValid {
+		if info.tx == nil {
 			continue
 		}
 
 		senderHex := hex.EncodeToString(info.tx.Sender.Value)
+
+		if !tempInfos[i].isValid {
+			// Chỉ in log lỗi 1 lần duy nhất cho mỗi sender để tránh bão log
+			if !rejectedSenderLogged[senderHex] {
+				log.Printf("[MEMPOOL-DEBUG] ❌ TX %s từ ví %s bị từ chối: Code %d, Lỗi: %s", info.txHashStr[:10], senderHex[:10], tempInfos[i].statusCode, tempInfos[i].errorMsg)
+				rejectedSenderLogged[senderHex] = true
+			}
+			continue
+		}
+
 		creationFee := uint64(0)
 		if info.tx.Receiver != nil {
 			recState := walletStateMap[string(info.tx.Receiver.Value)]
@@ -1573,6 +1615,9 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 	}
 	m.mu.Unlock()
 
+	// [FIX BÃO LOG & RACE CONDITION] Khử trùng lặp việc reset Projected Nonce - chỉ gọi 1 lần/sender
+	clearedSenders := make(map[string]bool)
+
 	// Duyệt lại toàn bộ để cập nhật projected nonce cho giao dịch lỗi và gom validatedResults
 	for i, info := range tempInfos {
 		if info.tx == nil {
@@ -1581,7 +1626,11 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 
 		senderHex := hex.EncodeToString(info.tx.Sender.Value)
 		if !tempInfos[i].isValid {
-			m.ClearProjectedNonce(senderHex)
+			if !clearedSenders[senderHex] {
+				m.ClearProjectedNonce(senderHex)
+				log.Printf("[MEMPOOL-FIX] 🧹 Đã xóa Projected Nonce cho ví %s để đồng bộ lại.", senderHex[:10])
+				clearedSenders[senderHex] = true
+			}
 			spamRejected++
 		}
 

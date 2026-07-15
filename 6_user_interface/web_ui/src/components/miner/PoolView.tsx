@@ -42,7 +42,7 @@ const PoolView: React.FC<PoolViewProps> = ({ status, onNotify }) => {
   });
   const [intensity, setIntensity] = useState(status?.cpu_intensity || 50);
   const [deviceMode, setDeviceMode] = useState<'cpu' | 'gpu'>(() => {
-    return (localStorage.getItem('mining_device') as 'cpu' | 'gpu') || 'cpu';
+    return (localStorage.getItem('pool_mining_device') as 'cpu' | 'gpu') || 'cpu';
   });
   const [isMining, setIsMining] = useState(status?.node_mode === "full-mining");
   const [isPoolMiningActive, setIsPoolMiningActive] = useState(false);
@@ -73,21 +73,10 @@ const PoolView: React.FC<PoolViewProps> = ({ status, onNotify }) => {
     }
   };
 
-  const fetchPoolMinerStatus = async () => {
-    try {
-      const data = await api.getPoolMinerStatus();
-      setIsPoolMiningActive(data.is_pool_mining);
-    } catch (err) {
-      console.warn("Failed to fetch pool miner status:", err);
-    }
-  };
-
   useEffect(() => {
     fetchPoolStatus();
-    fetchPoolMinerStatus();
     const interval = setInterval(() => {
       fetchPoolStatus();
-      fetchPoolMinerStatus();
     }, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -97,7 +86,17 @@ const PoolView: React.FC<PoolViewProps> = ({ status, onNotify }) => {
     if (status?.cpu_intensity) {
       setIntensity(status.cpu_intensity);
     }
-  }, [status?.node_mode, status?.cpu_intensity]);
+    if (status?.is_pool_mining !== undefined) {
+      setIsPoolMiningActive(status.is_pool_mining);
+    }
+    if (status?.pool_miner_device && (status.pool_miner_device === 'cpu' || status.pool_miner_device === 'gpu')) {
+      if (!hasInitialized || status.is_pool_mining) {
+        setDeviceMode(status.pool_miner_device as 'cpu' | 'gpu');
+        localStorage.setItem('pool_mining_device', status.pool_miner_device);
+        setHasInitialized(true);
+      }
+    }
+  }, [status?.node_mode, status?.cpu_intensity, status?.is_pool_mining, status?.pool_miner_device, hasInitialized]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -118,7 +117,7 @@ const PoolView: React.FC<PoolViewProps> = ({ status, onNotify }) => {
 
   const handleDeviceChange = async (device: 'cpu' | 'gpu') => {
     setDeviceMode(device);
-    localStorage.setItem('mining_device', device);
+    localStorage.setItem('pool_mining_device', device);
     try {
       await api.setMiningDevice(device);
       onNotify(`Switched target device to ${device.toUpperCase()}`, 'success');
@@ -128,6 +127,7 @@ const PoolView: React.FC<PoolViewProps> = ({ status, onNotify }) => {
   };
 
   const handleToggleMiner = async () => {
+
     if (!walletAddress || walletAddress.trim().length < 10) {
       onNotify("Please enter a valid wallet address first!", "error");
       return;

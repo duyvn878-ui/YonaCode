@@ -25,7 +25,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
   const { t } = useLanguage();
   const [intensity, setIntensity] = useState(status?.cpu_intensity || 50);
   const [deviceMode, setDeviceMode] = useState<string>(() => {
-    return localStorage.getItem('mining_device') || status?.mining_device || 'cpu';
+    return localStorage.getItem('solo_mining_device') || status?.mining_device || 'cpu';
   });
 
   const [hasInitializedDevice, setHasInitializedDevice] = useState(false);
@@ -38,13 +38,13 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
   useEffect(() => {
     if (status?.mining_device && !hasInitializedDevice) {
-      const savedDevice = localStorage.getItem('mining_device');
+      const savedDevice = localStorage.getItem('solo_mining_device');
       if (savedDevice && (savedDevice === 'cpu' || savedDevice === 'gpu' || savedDevice === 'hybrid') && savedDevice !== status.mining_device) {
         setDeviceMode(savedDevice);
         api.setMiningDevice(savedDevice).catch(console.warn);
       } else {
         setDeviceMode(status.mining_device);
-        localStorage.setItem('mining_device', status.mining_device);
+        localStorage.setItem('solo_mining_device', status.mining_device);
       }
       setHasInitializedDevice(true);
     }
@@ -67,17 +67,17 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
   const handleDeviceChange = async (device: string) => {
     // Cập nhật giao diện lập tức
     setDeviceMode(device);
-    localStorage.setItem('mining_device', device);
+    localStorage.setItem('solo_mining_device', device);
     try {
       const res = await api.setMiningDevice(device);
       if (res.mining_device !== device) {
         setDeviceMode(res.mining_device);
-        localStorage.setItem('mining_device', res.mining_device);
+        localStorage.setItem('solo_mining_device', res.mining_device);
       }
       onNotify(`⚡ Đã chuyển sang thiết bị khai thác: ${device.toUpperCase()}`, 'success');
     } catch (e) {
       // Khôi phục giá trị cũ nếu lỗi
-      const saved = localStorage.getItem('mining_device') || 'cpu';
+      const saved = localStorage.getItem('solo_mining_device') || 'cpu';
       setDeviceMode(saved);
       onNotify(`❌ Lỗi: ${(e as Error).message}`, 'error');
     }
