@@ -472,6 +472,48 @@ pub fn process_chain(req: SyncChainRequest, is_syncing: bool, deadline: u64) -> 
         if new_segment_weight >= required_weight {
             // KỊCH BẢN 4.1: Bàn tay vô hình kích hoạt (Chuỗi chính cứu hộ)
             log::warn!("[INVISIBLE-HAND] ✋ BÀN TAY VÔ HÌNH KÍCH HOẠT: Mở khóa tường lửa bất biến tại #{}! Năng lượng chuỗi mới áp đảo (>= 10x) chuỗi kẹt cục bộ.", finalized_h);
+
+            // [VANGUARD-REORG-BACKUP] Trước khi thực hiện rẽ nhánh sâu hợp lệ (đáp ứng điều kiện >= 10x),
+            // lưu lại toàn bộ các khối hiện tại (nhánh cũ sắp bị đảo ngược) vào thư mục an toàn
+            // để cộng đồng có thể tái sử dụng nếu quyết định fork/khôi phục chuỗi này sau này.
+            let backup_dir = std::path::Path::new("data").join("mad_reorg_backup");
+            if !backup_dir.exists() {
+                let _ = std::fs::create_dir_all(&backup_dir);
+            }
+            for h in (fork_point_height + 1)..=current_tip_h {
+                if let Some(raw) = mgr.get_block_raw_by_height(h) {
+                    if let Ok(b) = Block::decode(&raw[..]) {
+                        if let Some(hdr) = b.header.as_ref() {
+                            let header_hash = crate::crypto_primitives::calculate_blake3_hash(
+                                crate::genz_pow::pack_header_v112(
+                                    hdr.height, &hdr.parent_hash.as_ref().unwrap().value, hdr.timestamp, 
+                                    &hdr.tx_root.as_ref().unwrap().value, &hdr.difficulty
+                                ).to_vec(), 
+                                hdr.height
+                            );
+                            let filename = format!("block_{}_{}.bin", hdr.height, hex::encode(&header_hash));
+                            let filepath = backup_dir.join(filename);
+                            let _ = std::fs::write(filepath, &raw);
+                        }
+                    }
+                }
+            }
+            // Tự động dọn dẹp các tệp tin backup cũ hơn 24 giờ
+            if let Ok(entries) = std::fs::read_dir(&backup_dir) {
+                let now = std::time::SystemTime::now();
+                for entry in entries.flatten() {
+                    if let Ok(metadata) = entry.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            if let Ok(duration) = now.duration_since(modified) {
+                                if duration.as_secs() > 86400 {
+                                    let _ = std::fs::remove_file(entry.path());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             mgr.force_set_finalized_height(fork_point_height);
             finalized_h = fork_point_height;
         } else if new_segment_weight >= local_segment_weight {
