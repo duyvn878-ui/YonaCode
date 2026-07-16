@@ -287,7 +287,7 @@ const MonitorView: React.FC<MonitorViewProps> = ({ status }) => {
         <MonitorStatCard 
           icon={Activity}
           label="ĐỘ KHÓ MẠNG LƯỚI"
-          value={status.difficulty.toLocaleString()}
+          value={status.difficulty ? Number(status.difficulty).toLocaleString() : "0"}
           subValue="DAA_LWMA"
           colorClass="text-accent-amber"
           bgClass="bg-accent-amber"

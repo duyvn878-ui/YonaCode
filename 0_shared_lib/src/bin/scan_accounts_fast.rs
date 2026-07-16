@@ -135,7 +135,7 @@ fn main() {
     println!("🔑 Tổng số Keys duyệt qua: {}", total_keys);
     println!("👥 Tổng số ví thực tế (Address): {}", address_count);
     println!("🏷️ Tổng số JMT KeyHash cache: {}", keyhash_count);
-    println!("💰 Tổng số dư tất cả ví: {:.8} BTC_Z", total_balance as f64 / 1e8);
+    println!("💰 Tổng số dư tất cả ví: {:.8}", total_balance as f64 / 1e8);
     println!("📈 Số lượng ví hoạt động (Số dư > 0 hoặc Nonce > 0): {}", active_accounts.len());
     println!("--------------------------------------------------");
     

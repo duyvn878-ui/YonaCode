@@ -304,7 +304,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                  <div className="flex flex-col items-center">
                     <span className="text-[10px] text-white/30 font-black tracking-[0.25em] mb-2 uppercase">NETWORK_DIFFICULTY</span>
                     <span className="text-[20px] text-accent-green font-black italic shadow-text">
-                      {status?.difficulty?.toLocaleString() || "..."}
+                      {status?.difficulty ? Number(status.difficulty).toLocaleString() : "..."}
                     </span>
                  </div>
               </div>
