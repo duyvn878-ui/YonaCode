@@ -194,27 +194,6 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
               </button>
             </div>
 
-            {/* AI Assistant links */}
-            <div className="flex bg-white/[0.02] border border-white/[0.05] rounded-2xl p-1 gap-1 h-11 items-center">
-              <span className="text-[7px] text-white/30 font-black px-2 uppercase tracking-widest">AI</span>
-              <a 
-                href="https://gemini.google.com/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="px-3 h-9 text-[9px] font-black uppercase flex items-center text-center text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-white/5 transition-all"
-              >
-                Gemini
-              </a>
-              <a 
-                href="https://chatgpt.com/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="px-3 h-9 text-[9px] font-black uppercase flex items-center text-center text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-white/5 transition-all"
-              >
-                ChatGPT
-              </a>
-            </div>
-
             <button className="w-11 h-11 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center text-text-secondary hover:text-white hover:bg-white/[0.08] transition-all hover:scale-110 active:scale-90 shadow-lg">
               <Bell size={20} />
             </button>
