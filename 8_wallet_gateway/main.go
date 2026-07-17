@@ -53,7 +53,8 @@ type GatewayTx struct {
 type MemoryDB struct {
 	mu           sync.RWMutex
 	LastHeight   uint64                `json:"last_height"`
-	Transactions map[string]*GatewayTx `json:"transactions"` // key: txid
+	Transactions map[string]*GatewayTx `json:"transactions"`  // key: txid
+	AddressIndex map[string][]string   `json:"-"`             // key: address (clean), value: txids
 	FilePath     string                `json:"-"`
 }
 
@@ -172,7 +173,19 @@ func runBlockIndexer() {
 		lastIndexed := db.LastHeight
 		db.mu.Unlock()
 
-		if currentHeight > lastIndexed {
+		if currentHeight < lastIndexed {
+			log.Printf("⚠️ Reorg detected! Node height: %d | Local index: %d. Rolling back...", currentHeight, lastIndexed)
+			db.mu.Lock()
+			for txid, tx := range db.Transactions {
+				if tx.BlockHeight > currentHeight {
+					delete(db.Transactions, txid)
+				}
+			}
+			db.LastHeight = currentHeight
+			db.rebuildAddressIndex()
+			db.mu.Unlock()
+			db.save()
+		} else if currentHeight > lastIndexed {
 			log.Printf("📈 Node height: %d | Local index: %d. Syncing new blocks...", currentHeight, lastIndexed)
 			for h := lastIndexed + 1; h <= currentHeight; h++ {
 				ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -275,11 +288,16 @@ func handleAddressHistory(w http.ResponseWriter, r *http.Request) {
 	defer db.mu.RUnlock()
 
 	var history []GatewayTx
-	for _, tx := range db.Transactions {
-		cleanSender := strings.ToLower(strings.TrimPrefix(tx.Sender, "0x"))
-		cleanReceiver := strings.ToLower(strings.TrimPrefix(tx.Receiver, "0x"))
-		if cleanSender == addrStr || cleanReceiver == addrStr {
+	txids := db.AddressIndex[addrStr]
+	
+	// Fetch transaction details (limit to latest 100 entries to prevent DDoS payload overload)
+	limit := 100
+	count := 0
+	for i := len(txids) - 1; i >= 0 && count < limit; i-- {
+		txid := txids[i]
+		if tx, exists := db.Transactions[txid]; exists {
 			history = append(history, *tx)
+			count++
 		}
 	}
 
@@ -346,11 +364,12 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 	}
 
 	txidHex := hex.EncodeToString(hashRes.Value)
+	txidWithPrefix := "0x" + txidHex
 
 	// Save to local index as pending
 	db.mu.Lock()
-	db.Transactions[txidHex] = &GatewayTx{
-		TxID:          txidHex,
+	newTx := &GatewayTx{
+		TxID:          txidWithPrefix,
 		Sender:        "0x" + hex.EncodeToString(tx.Sender.Value),
 		Receiver:      "0x" + hex.EncodeToString(tx.Receiver.Value),
 		Amount:        tx.Amount,
@@ -360,13 +379,15 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		Status:        99, // Pending in Mempool
 		Confirmations: 0,
 	}
+	db.Transactions[txidHex] = newTx
+	db.addTxToAddressIndex(newTx)
 	db.mu.Unlock()
 	db.save()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"txid":    "0x" + txidHex,
+		"txid":    txidWithPrefix,
 	})
 }
 
@@ -380,6 +401,7 @@ func (db *MemoryDB) load() {
 
 	data, err := os.ReadFile(db.FilePath)
 	if err != nil {
+		db.AddressIndex = make(map[string][]string)
 		return
 	}
 
@@ -387,6 +409,7 @@ func (db *MemoryDB) load() {
 	if db.Transactions == nil {
 		db.Transactions = make(map[string]*GatewayTx)
 	}
+	db.rebuildAddressIndex()
 }
 
 func (db *MemoryDB) save() {
@@ -408,7 +431,7 @@ func (db *MemoryDB) indexBlock(block *pb_block.Block, height uint64, tip uint64)
 
 	for _, tx := range block.Body.Transactions {
 		txid := hex.EncodeToString(GetSigningHashNative(tx))
-		db.Transactions[txid] = &GatewayTx{
+		newTx := &GatewayTx{
 			TxID:          "0x" + txid,
 			Sender:        "0x" + hex.EncodeToString(tx.Sender.Value),
 			Receiver:      "0x" + hex.EncodeToString(tx.Receiver.Value),
@@ -420,12 +443,42 @@ func (db *MemoryDB) indexBlock(block *pb_block.Block, height uint64, tip uint64)
 			BlockHeight:   height,
 			Confirmations: tip - height + 1,
 		}
+		db.Transactions[txid] = newTx
+		db.addTxToAddressIndex(newTx)
 	}
 
 	db.LastHeight = height
-	// Unlock before save to avoid deadlock, or simply defer save at caller.
-	// We save right after indexing in calling thread
 	go db.save()
+}
+
+// Rebuild address index from transactions map
+func (db *MemoryDB) rebuildAddressIndex() {
+	db.AddressIndex = make(map[string][]string)
+	for _, tx := range db.Transactions {
+		db.addTxToAddressIndex(tx)
+	}
+}
+
+// Add a transaction to the address index maps
+func (db *MemoryDB) addTxToAddressIndex(tx *GatewayTx) {
+	if db.AddressIndex == nil {
+		db.AddressIndex = make(map[string][]string)
+	}
+	sender := strings.ToLower(strings.TrimPrefix(tx.Sender, "0x"))
+	receiver := strings.ToLower(strings.TrimPrefix(tx.Receiver, "0x"))
+
+	appendUnique := func(addr, txid string) {
+		list := db.AddressIndex[addr]
+		for _, id := range list {
+			if id == txid {
+				return
+			}
+		}
+		db.AddressIndex[addr] = append(list, txid)
+	}
+
+	appendUnique(sender, tx.TxID)
+	appendUnique(receiver, tx.TxID)
 }
 
 // Calculate signing hash of transaction natively in Go
