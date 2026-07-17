@@ -66,6 +66,9 @@ var (
 
 	grpcClient pb_block.BlockchainServiceClient
 	db         *MemoryDB
+
+	sseClients []chan string
+	sseMu      sync.Mutex
 )
 
 func main() {
@@ -136,6 +139,7 @@ func main() {
 	r.HandleFunc("/api/v1/address/{address}/history", handleAddressHistory).Methods("GET")
 	r.HandleFunc("/api/v1/tx/{txid}", handleGetTxDetail).Methods("GET")
 	r.HandleFunc("/api/v1/send_raw_tx", handleSendRawTx).Methods("POST")
+	r.HandleFunc("/api/v1/network/watch-status", handleWatchStatus).Methods("GET")
 
 	srv := &http.Server{
 		Handler:      r,
@@ -200,6 +204,7 @@ func runBlockIndexer() {
 					db.indexBlock(blockRes.Block, h, currentHeight)
 				}
 			}
+			broadcastSSE("update")
 		} else {
 			// Update confirmations for existing non-finalized transactions
 			db.mu.Lock()
@@ -389,6 +394,9 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"txid":    txidWithPrefix,
 	})
+	
+	// Trigger instant local watch refresh
+	broadcastSSE("update")
 }
 
 // ==========================================
@@ -410,6 +418,57 @@ func (db *MemoryDB) load() {
 		db.Transactions = make(map[string]*GatewayTx)
 	}
 	db.rebuildAddressIndex()
+}
+
+func handleWatchStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	ch := make(chan string, 10)
+	sseMu.Lock()
+	sseClients = append(sseClients, ch)
+	sseMu.Unlock()
+
+	// Send initial event
+	fmt.Fprintf(w, "data: init\n\n")
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			sseMu.Lock()
+			for i, c := range sseClients {
+				if c == ch {
+					sseClients = append(sseClients[:i], sseClients[i+1:]...)
+					break
+				}
+			}
+			sseMu.Unlock()
+			return
+		case msg := <-ch:
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			flusher.Flush()
+		}
+	}
+}
+
+func broadcastSSE(msg string) {
+	sseMu.Lock()
+	defer sseMu.Unlock()
+	for _, ch := range sseClients {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
 }
 
 func (db *MemoryDB) save() {
