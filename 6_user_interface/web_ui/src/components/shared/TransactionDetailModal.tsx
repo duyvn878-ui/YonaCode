@@ -386,7 +386,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
               ) : (
                 <div className="p-4 bg-white/5 border border-white/10 rounded-xl flex-1">
                   <span className="tactical-label text-[8px] block mb-1 opacity-40 uppercase font-black">NONCE</span>
-                  <span className="text-sm font-black text-white italic">{tx.nonce}</span>
+                  <span className="text-sm font-black text-white italic">#{tx.nonce ?? 0}</span>
                 </div>
               )}
             </div>
@@ -395,7 +395,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
               <div className="vanguard-flex-v vanguard-gap-tiny mt-2">
                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
                     <span className="tactical-label text-[8px] block mb-1 opacity-40 uppercase font-black">NONCE</span>
-                    <span className="text-sm font-black text-white italic">{tx.nonce}</span>
+                    <span className="text-sm font-black text-white italic">#{tx.nonce ?? 0}</span>
                   </div>
               </div>
             )}

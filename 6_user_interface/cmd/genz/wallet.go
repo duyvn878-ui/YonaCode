@@ -216,7 +216,7 @@ var walletSendCmd = &cobra.Command{
 		}
 
 		// 2. Ký với cơ chế Vanguard (Bất biến cao độ)
-		signingHash := node_p2p.GetSigningHash(tx)
+		signingHash := node_p2p.GetSigningHashNative(tx)
 		signature := ed25519.Sign(privKey, signingHash)
 		tx.Signature = &pb_block.Signature{Value: signature}
 

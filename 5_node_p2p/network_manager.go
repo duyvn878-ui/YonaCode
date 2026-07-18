@@ -901,8 +901,6 @@ func (n *NetworkManager) StartBlockInbox() {
 				}
 
 				// [EBP-SEQUENTIAL-BATCH-PROCESSING] Kiểm tra định dạng TXSQ của Sàn trước tiên
-				// TẠM THỜI VÔ HIỆU HÓA
-				/*
 				if len(msg.Data) >= 64 && string(msg.Data[0:4]) == "TXSQ" {
 					exchangeAddr, batchId, startNonce, endNonce, txsBytes, err := UnpackSequentialBatch(msg.Data)
 					if err == nil {
@@ -915,12 +913,14 @@ func (n *NetworkManager) StartBlockInbox() {
 						continue // Đã xử lý qua EBP Transport, bỏ qua luồng thường
 					}
 				}
-				*/
 
 				// Giải nén gói giao dịch (hỗ trợ cả gói gộp Magic TXBT và giao dịch đơn lẻ)
 				txsBytes := UnpackTransactions(msg.Data)
 
 				for _, txData := range txsBytes {
+					if n.isStaleTransaction(txData) {
+						continue // Bỏ qua giao dịch stale
+					}
 					n.Mempool.PushToTxBus(txData, false)
 				}
 			}
@@ -2275,21 +2275,39 @@ func UnpackTransactions(data []byte) [][]byte {
 	if len(data) < 8 {
 		return [][]byte{data} // Gói quá ngắn, trả về dữ liệu thô ban đầu
 	}
-	// TẠM THỜI VÔ HIỆU HÓA TXSQ
-	/*
+	// Kích hoạt giải nén TXSQ của Sàn
 	if string(data[0:4]) == "TXSQ" {
 		_, _, _, _, txsBytes, err := UnpackSequentialBatch(data)
 		if err == nil {
 			return txsBytes
 		}
 	}
-	*/
 	return [][]byte{data} // Mặc định là giao dịch đơn lẻ
+}
+
+// isStaleTransaction kiểm tra xem giao dịch có bị lỗi nonce thấp hơn Ledger hay không
+func (n *NetworkManager) isStaleTransaction(txData []byte) bool {
+	var tx pb_block.Transaction
+	if err := proto.Unmarshal(txData, &tx); err == nil && tx.Sender != nil {
+		senderHex := hex.EncodeToString(tx.Sender.Value)
+		ledgerNonce := n.Bridge.GetNonce(nil, tx.Sender.Value)
+		expectedNonce := ledgerNonce
+		if n.Mempool != nil {
+			expectedNonce = n.Mempool.GetExpectedNonce(senderHex, ledgerNonce)
+		}
+		if tx.Nonce < expectedNonce {
+			return true
+		}
+	}
+	return false
 }
 
 // processSingleTransaction xử lý và nạp một giao dịch đơn lẻ nhận qua P2P vào mempool
 func (n *NetworkManager) processSingleTransaction(txData []byte, from peer.ID) {
 	if n.Mempool != nil {
+		if n.isStaleTransaction(txData) {
+			return // Bỏ qua giao dịch stale
+		}
 		n.Mempool.PushToTxBus(txData, false)
 		log.Printf("[P2P-TX] 📥 Nhận giao dịch từ Peer %s và đẩy vào TxBus", from.String()[:12])
 	}

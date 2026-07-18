@@ -67,12 +67,10 @@ func TestEbpPackUnpack(t *testing.T) {
 	// 6. Kiểm tra giải nén đa hình bằng UnpackTransactions (TẠM THỜI VÔ HIỆU HÓA CHO DAY-1 LAUNCH)
 	// Việc tắt EBP/TXSQ trong UnpackTransactions khiến hàm này coi gói TXSQ là 1 cục transaction thô (chờ Validator loại bỏ).
 	// Do đó, kiểm thử đa hình này tạm thời được comment lại để đảm bảo test suite chạy qua bình thường.
-	/*
 	unpackedPolymorphic := UnpackTransactions(packedData)
 	if len(unpackedPolymorphic) != len(txsBytes) {
 		t.Errorf("UnpackTransactions đa hình sai số lượng: có %d, mong muốn %d", len(unpackedPolymorphic), len(txsBytes))
 	}
-	*/
 
 	t.Log("✅ Thành công: Định dạng nhị phân TXSQ mang đầy đủ 4 metadata hoạt động hoàn toàn chính xác theo nguyên tắc vận chuyển.")
 }

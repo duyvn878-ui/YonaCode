@@ -293,8 +293,12 @@ var nodeStartCmd = &cobra.Command{
 		app := user_interface.NewCLIApp(dbPath, rewardAddr, minerKey, sclPort)
 		if miningDevice != "" {
 			miningDevice = strings.ToLower(strings.TrimSpace(miningDevice))
-			if miningDevice != "cpu" && miningDevice != "gpu" && miningDevice != "hybrid" {
-				log.Fatalf("❌ Lỗi: Thiết bị đào không hợp lệ '%s'. Chỉ chấp nhận: cpu, gpu, hybrid", miningDevice)
+			if miningDevice == "cpu" || miningDevice == "hybrid" {
+				log.Printf("[SECURITY-MINER] 🚫 Thiết bị đào '%s' đã bị vô hiệu hóa trên dòng lệnh CLI. Ép buộc chuyển sang: gpu", miningDevice)
+				miningDevice = "gpu"
+			}
+			if miningDevice != "gpu" {
+				log.Fatalf("❌ Lỗi: Thiết bị đào không hợp lệ '%s'. Chỉ chấp nhận: gpu", miningDevice)
 			}
 			app.SetMiningDevice(miningDevice)
 		}
@@ -704,6 +708,10 @@ var poolMineCmd = &cobra.Command{
 		}
 
 		device, _ := cmd.Flags().GetString("device")
+		if strings.ToLower(device) != "gpu" {
+			log.Printf("[SECURITY-MINER] 🚫 Chặn yêu cầu đào bể (pool) bằng CPU qua CLI. Chỉ hỗ trợ thiết bị: gpu")
+			device = "gpu"
+		}
 		threads, _ := cmd.Flags().GetInt("threads")
 		customURL, _ := cmd.Flags().GetString("url")
 

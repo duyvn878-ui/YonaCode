@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import api, { type NodeStatus } from '../../api';
+import { formatDifficulty } from '../../utils';
 
 interface MonitorViewProps {
   status: NodeStatus | null;
@@ -287,7 +288,7 @@ const MonitorView: React.FC<MonitorViewProps> = ({ status }) => {
         <MonitorStatCard 
           icon={Activity}
           label="ĐỘ KHÓ MẠNG LƯỚI"
-          value={status.difficulty ? Number(status.difficulty).toLocaleString() : "0"}
+          value={status.difficulty ? formatDifficulty(status.difficulty) : "0"}
           subValue="DAA_LWMA"
           colorClass="text-accent-amber"
           bgClass="bg-accent-amber"

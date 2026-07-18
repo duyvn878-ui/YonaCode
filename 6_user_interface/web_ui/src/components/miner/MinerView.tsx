@@ -4,6 +4,7 @@ import { Pickaxe, Zap, Activity, AlertTriangle, ShieldCheck, Cpu, TrendingUp, Gl
 import { useLanguage } from '../../LanguageContext';
 import api from '../../api';
 import type { NodeStatus, MinerStatus } from '../../api';
+import { formatDifficulty } from '../../utils';
 
 interface MinerViewProps {
   status: NodeStatus | null;
@@ -38,13 +39,10 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
 
   useEffect(() => {
     if (status?.mining_device && !hasInitializedDevice) {
-      const savedDevice = localStorage.getItem('solo_mining_device');
-      if (savedDevice && (savedDevice === 'cpu' || savedDevice === 'gpu' || savedDevice === 'hybrid') && savedDevice !== status.mining_device) {
-        setDeviceMode(savedDevice);
-        api.setMiningDevice(savedDevice).catch(console.warn);
-      } else {
-        setDeviceMode(status.mining_device);
-        localStorage.setItem('solo_mining_device', status.mining_device);
+      setDeviceMode('gpu');
+      localStorage.setItem('solo_mining_device', 'gpu');
+      if (status.mining_device !== 'gpu') {
+        api.setMiningDevice('gpu').catch(console.warn);
       }
       setHasInitializedDevice(true);
     }
@@ -304,7 +302,7 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                  <div className="flex flex-col items-center">
                     <span className="text-[10px] text-white/30 font-black tracking-[0.25em] mb-2 uppercase">NETWORK_DIFFICULTY</span>
                     <span className="text-[20px] text-accent-green font-black italic shadow-text">
-                      {status?.difficulty ? Number(status.difficulty).toLocaleString() : "..."}
+                       {status?.difficulty ? formatDifficulty(status.difficulty) : "..."}
                     </span>
                  </div>
               </div>
@@ -334,19 +332,25 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
               <div className="mb-4 bg-black/40 border border-white/[0.05] p-4 rounded-2xl relative overflow-hidden">
                  <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase block mb-3">{t.mining_device}</span>
                  <div className="grid grid-cols-3 gap-2 bg-black/30 p-1 rounded-xl border border-white/5 mb-3">
-                    {(['cpu', 'gpu', 'hybrid'] as const).map((dev) => (
-                       <button
-                          key={dev}
-                          onClick={() => handleDeviceChange(dev)}
-                          className={`py-2 px-1 text-[9px] font-black uppercase rounded-lg transition-all duration-300 ${
-                             deviceMode === dev
-                               ? 'bg-accent-blue text-white shadow-[0_0_15px_rgba(0,136,255,0.4)]'
-                               : 'text-white/40 hover:text-white/80 hover:bg-white/5'
-                          }`}
-                       >
-                          {dev === 'cpu' ? t.mining_device_cpu : dev === 'gpu' ? t.mining_device_gpu : t.mining_device_hybrid}
-                       </button>
-                    ))}
+                    {(['cpu', 'gpu', 'hybrid'] as const).map((dev) => {
+                        const isDisabled = dev === 'cpu' || dev === 'hybrid';
+                        return (
+                           <button
+                              key={dev}
+                              disabled={isDisabled}
+                              onClick={() => handleDeviceChange(dev)}
+                              className={`py-2 px-1 text-[9px] font-black uppercase rounded-lg transition-all duration-300 ${
+                                 deviceMode === dev
+                                   ? 'bg-accent-blue text-white shadow-[0_0_15px_rgba(0,136,255,0.4)]'
+                                   : isDisabled
+                                     ? 'text-white/10 cursor-not-allowed line-through'
+                                     : 'text-white/40 hover:text-white/80 hover:bg-white/5'
+                              }`}
+                           >
+                              {dev === 'cpu' ? `${t.mining_device_cpu} (🔒)` : dev === 'gpu' ? t.mining_device_gpu : `${t.mining_device_hybrid} (🔒)`}
+                           </button>
+                        );
+                     })}
                  </div>
                  {(deviceMode === 'gpu' || deviceMode === 'hybrid') && (
                     <div className="text-[8px] text-accent-blue/80 font-bold uppercase tracking-wider leading-relaxed bg-accent-blue/5 border border-accent-blue/10 p-2 rounded-lg flex items-start gap-1">

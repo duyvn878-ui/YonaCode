@@ -17,7 +17,7 @@ import type { NodeStatus, BlockHeader, Transaction } from '../../api';
 import BlockDetailPage from './BlockDetailPage';
 import AddressDetailPage from './AddressDetailPage';
 import { useLanguage } from '../../LanguageContext';
-import { formatBtcZ } from '../../utils';
+import { formatBtcZ, formatDifficulty } from '../../utils';
 
 interface ExplorerViewProps {
   status: NodeStatus | null;
@@ -135,7 +135,7 @@ const ExplorerView: React.FC<ExplorerViewProps> = ({ status, blocks, transaction
         </div>
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
           <span className="tactical-label text-[8px] block mb-1">{t.difficulty_label}</span>
-          <span className="text-lg font-black text-accent-amber italic">{status?.difficulty ? Number(status.difficulty).toLocaleString() : 0}</span>
+          <span className="text-lg font-black text-accent-amber italic">{status?.difficulty ? formatDifficulty(status.difficulty) : 0}</span>
         </div>
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
           <span className="tactical-label text-[8px] block mb-1">{t.block_time_label}</span>

@@ -15,7 +15,7 @@ import { ArrowLeft, Copy, Check, Shield, Clock, Lock, Layers, Cpu, Fingerprint }
 import api from '../../api';
 import type { BlockDetail, Transaction } from '../../api';
 import { useLanguage } from '../../LanguageContext';
-import { formatBtcZ } from '../../utils';
+import { formatBtcZ, formatDifficulty } from '../../utils';
 
 interface BlockDetailPageProps {
   height: number;
@@ -73,7 +73,7 @@ const BlockDetailPage: React.FC<BlockDetailPageProps> = ({ height, onBack, onTxC
     { label: 'Parent Hash', value: block.parent_hash, copyable: true },
     { label: 'Timestamp', value: block.timestamp > 0 ? new Date(block.timestamp * 1000).toLocaleString(getLocale()) : 'Genesis' },
     { label: 'Nonce', value: block.nonce.toString() },
-    { label: 'Difficulty', value: Number(block.difficulty).toLocaleString(), icon: <Cpu size={14} /> },
+    { label: 'Difficulty', value: formatDifficulty(block.difficulty), icon: <Cpu size={14} /> },
     { label: 'State Root', value: block.state_root, copyable: true },
     { label: 'Tx Root', value: block.tx_root, copyable: true },
     { label: t.col_miner, value: block.miner, copyable: true, clickable: true },

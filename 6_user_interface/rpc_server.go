@@ -305,7 +305,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		minerStreams:      make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
 		minerHashrates:    make(map[uint64]uint64),
 		minerAddresses:    make(map[uint64]string),
-		miningDevice:      "cpu",
+		miningDevice:      "gpu",
 		lastRejectLogTime:  time.Time{},
 	}
 
@@ -358,11 +358,10 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 				}
 
 				if res.IsValid {
+					log.Printf("🎉 [MEMPOOL-SUCCESS] ✅ Giao dịch %s (Ví: %s... Nonce: %d) đã xác thực THÀNH CÔNG và nạp vào Mempool!", res.TxHash[:10], senderHex[:10], res.Tx.Nonce)
 					// [VANGUARD-OPTIMIZATION] Sử dụng updateTxTrackerWithCachedData kết hợp số dư đã cache sẵn để tránh bão gRPC GetBalance đơn lẻ.
 					s.updateTxTrackerWithCachedData(res.TxHash, senderHex, receiverHex, res.Tx.Amount, res.Tx.Fee, res.Tx.Nonce, 0, time.Now().Unix(), "", res.SenderBalance, userAddrs)
 					// [BUS-STATUS-FIX] Xóa trạng thái tạm WAITING_FOR_BUS (99) khi giao dịch đã được Rust Core xác thực thành công.
-					// Tại sao: Nếu không xóa, ErrorMessage "Đang chờ xe buýt" sẽ tồn tại vĩnh viễn khiến Frontend
-					// hiển thị sai trạng thái "BỊ TỪ CHỐI" do logic isRejected dựa trên error_message.
 					s.txTrackerMu.Lock()
 					if tracked, exists := s.txTracker[res.TxHash]; exists && tracked.Status == 99 {
 						tracked.Status = 0
@@ -371,6 +370,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 					s.txTrackerMu.Unlock()
 					txsBySender[senderHex] = append(txsBySender[senderHex], res)
 				} else {
+					log.Printf("❌ [MEMPOOL-REJECT] Giao dịch %s (Ví: %s...) bị BÁO LỖI: Code %d — %s", res.TxHash[:10], senderHex[:10], res.StatusCode, res.ErrorMsg)
 					invalidResults = append(invalidResults, res)
 				}
 			}
@@ -1093,12 +1093,8 @@ func (s *RPCServer) syncBlockFromRustCore(height uint64) {
 func (s *RPCServer) loadNodeConfig() {
 	log.Printf("[CONFIG-V1.60] 📥 Đang nạp cấu hình từ Rust Core...")
 
-	// Khởi tạo mặc định và ưu tiên áp dụng cờ CLI ngay từ đầu
-	s.miningDevice = "cpu"
-	if s.cliApp != nil && s.cliApp.miningDevice != "" {
-		s.miningDevice = s.cliApp.miningDevice
-		log.Printf("[CONFIG] 🛡️ Thiết lập thiết bị đào từ cờ CLI: %s", s.miningDevice)
-	}
+	// Ép buộc thiết bị đào là GPU do CPU mining đã bị vô hiệu hóa
+	s.miningDevice = "gpu"
 
 	data, err := s.bridge.GetNodeConfig()
 	if err != nil || len(data) == 0 {
@@ -1126,12 +1122,16 @@ func (s *RPCServer) loadNodeConfig() {
 	}
 	s.cpuIntensity = cfg.CpuIntensity
 
-	// Nếu cờ CLI được chỉ định, ưu tiên ghi đè cấu hình đã lưu
+	// Nếu cờ CLI được chỉ định hoặc cấu hình lưu trữ khác gpu, tự động chuyển về gpu
 	if s.cliApp != nil && s.cliApp.miningDevice != "" {
 		s.miningDevice = s.cliApp.miningDevice
-		log.Printf("[CONFIG] 🛡️ Ghi đè thiết bị đào từ cờ CLI: %s", s.miningDevice)
 	} else if cfg.MiningDevice != "" {
 		s.miningDevice = cfg.MiningDevice
+	}
+	
+	if s.miningDevice != "gpu" {
+		log.Printf("[CONFIG] ⚠️ Thiết bị đào '%s' đã bị vô hiệu hóa (Chỉ hỗ trợ đào bằng GPU). Tự động chuyển sang: gpu", s.miningDevice)
+		s.miningDevice = "gpu"
 	}
 	s.updateGpuEnvCheck()
 
@@ -1274,6 +1274,7 @@ func (s *RPCServer) StartConfiguredMiners() {
 		} else {
 			// Nếu chỉ chọn GPU, dừng CPU miner cũ nếu đang chạy
 			s.bridge.StopGenzMiner()
+			log.Printf("[SECURITY-MINER] 🚫 Đã chặn tự động khởi chạy CPU miner (genz_miner). Chỉ đào bằng GPU.")
 		}
 
 		if device == "gpu" || device == "hybrid" {
@@ -1467,7 +1468,7 @@ func (s *RPCServer) loadHistory() {
 		zombieCleanupCount := 0
 		for _, txid := range s.txOrder {
 			tx := s.txTracker[txid]
-			if tx.BlockHeight == 0 && tx.Status == 0 && !pendingHashes[txid] {
+			if tx.BlockHeight == 0 && (tx.Status == 0 || tx.Status == 99 || tx.Status == 9) && !pendingHashes[txid] {
 				delete(s.txTracker, txid)
 				zombieCleanupCount++
 			} else {
@@ -3081,9 +3082,6 @@ func (s *RPCServer) handleGetBlock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ZK-Proof status (Deprecated in V1.0 Minimalist)
-	zkStatus := "Chưa có ZK-Proof"
-
 	// Parent hash
 	parentHash := "0000000000000000"
 	if height > 0 {
@@ -3103,7 +3101,6 @@ func (s *RPCServer) handleGetBlock(w http.ResponseWriter, r *http.Request) {
 		"state_root":      hex.EncodeToString(block.Header.StateRoot.GetValue()),
 		"tx_root":         hex.EncodeToString(block.Header.TxRoot.GetValue()),
 		"miner":           hex.EncodeToString(block.Header.MinerAddress.GetValue()),
-		"zk_proof_status": zkStatus,
 		"tx_count":        len(txList),
 		"transactions":    txList,
 	}
@@ -4111,11 +4108,16 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 
 	// Trả về kết quả cho client
 	w.Header().Set("Content-Type", "application/json")
+	var signedTxsHex []string
+	for _, b := range validTxsBytes {
+		signedTxsHex = append(signedTxsHex, hex.EncodeToString(b))
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":      "Success",
 		"sequence":    req.SeqNum,
 		"tx_count":    len(txsBytes),
 		"tx_hashes":   txHashes,
+		"signed_txs":  signedTxsHex,
 		"audit_logs":  auditLogs,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
@@ -5824,6 +5826,7 @@ func (s *RPCServer) StartMining(ctx context.Context, req *pb_block.StartMiningRe
 		return nil, err
 	}
 	log.Printf("[RPC-GRPC] ⛏️ Nhận lệnh KHỞI HỎA từ CLI: Address=%s, Threads=%d", req.MinerAddress, req.Threads)
+	log.Printf("[SECURITY-MINER] 🚫 Đã chặn yêu cầu kích hoạt đào bằng CPU từ CLI. Hệ thống tự động chuyển sang đào bằng GPU.")
 
 	addr, err := hex.DecodeString(strings.TrimPrefix(req.MinerAddress, "0x"))
 	if err != nil || len(addr) != 32 {
@@ -7763,8 +7766,9 @@ func (s *RPCServer) handleMiningDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Device != "cpu" && req.Device != "gpu" && req.Device != "hybrid" {
-		http.Error(w, "Thiết bị không hợp lệ. Chấp nhận: cpu, gpu, hybrid", http.StatusBadRequest)
+	if req.Device != "gpu" {
+		log.Printf("[SECURITY-MINER] 🚫 Chặn yêu cầu đổi sang thiết bị đào CPU/Hybrid từ Web UI: %s", req.Device)
+		http.Error(w, "Chức năng đào bằng CPU đã bị vô hiệu hóa. Chỉ hỗ trợ thiết bị: gpu", http.StatusBadRequest)
 		return
 	}
 
@@ -8237,6 +8241,12 @@ func (s *RPCServer) handlePoolMinerToggle(w http.ResponseWriter, r *http.Request
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	if req.Enabled && strings.ToLower(req.Device) != "gpu" {
+		log.Printf("[SECURITY-MINER] 🚫 Chặn yêu cầu đào bể (pool) bằng CPU từ Web UI: Address=%s", req.Address)
+		http.Error(w, "Chức năng đào bằng CPU đã bị vô hiệu hóa. Chỉ hỗ trợ thiết bị: gpu", http.StatusBadRequest)
 		return
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,7 +39,11 @@ var miningStartCmd = &cobra.Command{
 		// Đồng bộ thiết bị đào (mining-device) tới Node qua HTTP API
 		if device != "" {
 			device = strings.ToLower(strings.TrimSpace(device))
-			if device == "cpu" || device == "gpu" || device == "hybrid" {
+			if device == "cpu" || device == "hybrid" {
+				log.Printf("[SECURITY-MINER] 🚫 Thiết bị đào '%s' đã bị vô hiệu hóa trên dòng lệnh CLI (genz miner start). Ép buộc chuyển sang: gpu", device)
+				device = "gpu"
+			}
+			if device == "gpu" {
 				parts := strings.Split(nodeAddr, ":")
 				host := "127.0.0.1"
 				grpcPort := 18080
@@ -90,6 +95,16 @@ var miningStopCmd = &cobra.Command{
 	Short: "Dừng khai thác",
 	Run: func(cmd *cobra.Command, args []string) {
 		color.Yellow("🛑 " + i18n.T("mining_stop"))
+		if client == nil {
+			color.Red("❌ Error: Không thể kết nối tới Node gRPC (Client nil)")
+			return
+		}
+		_, err := client.StopMining(cmd.Context(), &pb_block.StopMiningRequest{})
+		if err != nil {
+			color.Red("❌ Error: %v", err)
+			return
+		}
+		color.Cyan("🚀 Lệnh ngừng khai hỏa đã được gửi tới SCL Core thành công!")
 	},
 }
 
