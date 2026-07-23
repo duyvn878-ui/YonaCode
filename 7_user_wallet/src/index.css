@@ -1,0 +1,359 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --bg-page: #f1f5f9;
+  --card-bg: #ffffff;
+  --border-light: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: 'Space Grotesk', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Ambient Subtle Radial Glow */
+body::before {
+  content: '';
+  position: absolute;
+  width: 650px;
+  height: 650px;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.07) 0%, transparent 70%);
+  top: -15%;
+  left: 20%;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: absolute;
+  width: 650px;
+  height: 650px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.05) 0%, transparent 70%);
+  bottom: -15%;
+  right: 20%;
+  pointer-events: none;
+}
+
+/* Clean Mobile Wallet Container (Centered on PC, 100% on Mobile) */
+#root {
+  width: 100%;
+  max-width: 480px;
+  height: 840px;
+  max-height: 92vh;
+  background: #ffffff;
+  border-radius: 32px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 30px 70px -15px rgba(15, 23, 42, 0.18);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+}
+
+@media (max-width: 480px) {
+  #root {
+    max-width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+/* Bento Grid Layout Utility */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.bento-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 16px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bento-card:hover {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05);
+}
+
+/* Liquid Glass Card */
+.liquid-glass-card {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.liquid-glass-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.15), transparent 60%);
+  pointer-events: none;
+}
+
+/* Tactile Pill Buttons */
+.pill-btn {
+  border-radius: 9999px;
+  min-height: 48px;
+  padding: 12px 24px;
+  font-weight: 700;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  border: none;
+}
+
+.pill-btn:active {
+  transform: scale(0.96);
+}
+
+.pill-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+.pill-btn-primary:hover {
+  background: #1d4ed8;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+}
+
+.pill-btn-secondary {
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+
+.pill-btn-secondary:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+/* Tasteful Card Styling */
+.glass-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 20px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  border-color: #e2e8f0;
+  box-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.08);
+}
+
+/* Form Controls with High Contrast */
+.form-input {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  color: #0f172a;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  width: 100%;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.form-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.form-input:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+/* Bottom Nav bar */
+.bottom-nav {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: #ffffff;
+  border-top: 1px solid #f1f5f9;
+  padding: 12px 16px 22px 16px;
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  flex: 1;
+}
+
+.nav-item.active {
+  color: #2563eb;
+}
+
+.nav-item:hover {
+  color: #0f172a;
+}
+
+/* PIN Keyboard */
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  width: 100%;
+  max-width: 270px;
+  margin: 0 auto;
+}
+
+.pin-btn {
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  color: #0f172a;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.pin-btn:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.pin-btn:active {
+  transform: scale(0.93);
+}
+
+.pin-btn.empty {
+  background: transparent;
+  border: none;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pin-dots {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.pin-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  transition: all 0.2s ease;
+}
+
+.pin-dot.filled {
+  background-color: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+  transform: scale(1.15);
+}
+
+/* Confetti Animations */
+.confetti-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 99;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  top: -10px;
+  border-radius: 2px;
+  animation: confettiFall 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+@keyframes confettiFall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(850px) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* Animations & Scrollbar */
+.fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
