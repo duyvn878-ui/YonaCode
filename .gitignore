@@ -1,0 +1,27 @@
+# Ignore build scripts from git tracking
+build_all.bat
+build_and_package_all.bat
+build_and_run.bat
+build_linux.bat
+build_linux.sh
+build_macos.bat
+build_tmp.bat
+build_win_only.bat
+
+# Ignore build target directories
+/0_shared_lib/target_linux/
+/0_shared_lib/target_test/
+/0_shared_lib/target_win/
+/node/
+/target/
+
+# Ignore compiled binaries and temporary folders
+/bbuild/
+/bin/
+/data/
+/dist/
+/zip/
+/scratch/
+/8_miner_gpu/build/
+/8_miner_gpu/build_linux/
+/android-sdk-local/
