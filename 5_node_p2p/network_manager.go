@@ -456,7 +456,11 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	// 💡 BẰNG CHỨNG THỰC NGHIỆM KHẲNG ĐỊNH TƯỜNG LỬA NĂNG LƯỢNG X10 GẦN NHƯ BẤT KHẢ XÂM PHẠM:
 	// Dù thợ đào trung thực bị tạm dừng ở #31.577 (chấp kẻ tấn công 2 tiếng cày đơn độc đào vượt xa đỉnh trung thực #31.577
 	// lên tận khối #31.655 - tổng cộng 390 khối từ mốc rẽ nhánh #31.265), các Node kẻ tấn công VẪN KHÔNG THỂ BẺ GÃY HOẶC VƯỢT QUA TƯỜNG LỬA NĂNG LƯỢNG X10 của VNT Consensus 2.0.
-	// Toàn bộ các khối rẽ nhánh sâu bơm về từ Đỉnh kẻ tấn công #31.655 (như chuỗi log DAA #31430 -> #31570+) đều bị Rust Core (VNT-CONSENSUS) phát hiện, cô lập và CHẶN ĐỨNG HOÀN TOÀN.
+	//
+	// 📜 BẰNG CHỨNG TRÍCH XUẤT TỪ NGUYÊN BẢN LOG RUST CORE (VNT-CONSENSUS LỚP 1):
+	// [DAA] H#31655 | Next: 717229571984 | Last: 714476192023
+	// [2026-07-24T17:29:54Z INFO  btc_genz_scl] [VNT-CONSENSUS] ⚖️ Phân đoạn rẽ nhánh sâu (Header): Cục bộ = 353428468335707, Mạng = 413629563521274, Yêu cầu x10 = 3534284683357070
+	// [2026-07-24T17:29:54Z WARN  btc_genz_scl] [VNT-CONSENSUS] ⚠️ Chuỗi rẽ nhánh sâu có năng lượng cao nhưng chưa đủ ngưỡng x10. Bỏ qua, không phạt.
 	//
 	// BẰNG CHỨNG ĐỊNH LƯỢNG KHÔNG THỂ CHỐI CÃI:
 	// 1. Độ sâu lịch sử bị đòi ghi đè:
