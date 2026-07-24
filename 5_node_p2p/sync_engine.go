@@ -743,13 +743,16 @@ func (s *SyncEngine) syncLoop() {
 							}
 						}
 					} else {
+						headerHash := s.netManager.CalculateHeaderHashDeterministic(&tempHeader)
 						if strings.Contains(evalResp.ErrorMsg, "ERR_IMMUTABLE_FIREWALL_VIOLATION") || strings.Contains(evalResp.ErrorMsg, "vi phạm") || strings.Contains(evalResp.ErrorMsg, "FIREWALL") {
-							audit.AuditLog("FIREWALL_VIOLATION", s.shortID(targetPeer), fmt.Sprintf("Tiêu đề khối #%d vi phạm tường lửa bất biến: %s", nextHeight, evalResp.ErrorMsg))
-							s.netManager.punishPeer(targetPeer, "VI PHẠM TƯỜNG LỬA BẤT BIẾN: "+evalResp.ErrorMsg)
+							evidenceMsg := fmt.Sprintf("Khối đối phương #%d | Hash: %x | Độ khó: %x | Lỗi: %s", nextHeight, headerHash, tempHeader.Difficulty, evalResp.ErrorMsg)
+							log.Printf("[EVIDENTIARY-AUDIT] 🚨 [GHI NHẬN BẰNG CHỨNG ĐỐI PHƯƠNG] Peer: %s | %s", targetPeer.String(), evidenceMsg)
+							audit.AuditLog("FIREWALL_VIOLATION_EVIDENCE", s.shortID(targetPeer), fmt.Sprintf("Peer %s vi phạm tường lửa tại khối #%d: %s", targetPeer.String(), nextHeight, evidenceMsg))
+							s.netManager.punishPeer(targetPeer, "VI PHẠM TƯỜNG LỬA X10: "+evidenceMsg)
 							s.netManager.Host.Network().ClosePeer(targetPeer)
 						} else {
-							audit.AuditLog("HEADER_REJECTED", s.shortID(targetPeer), fmt.Sprintf("Tiêu đề khối #%d bị Rust Core từ chối: %s", nextHeight, evalResp.ErrorMsg))
-							s.netManager.punishPeer(targetPeer, "Header rejected by Rust Core: "+evalResp.ErrorMsg)
+							audit.AuditLog("HEADER_REJECTED", s.shortID(targetPeer), fmt.Sprintf("Tiêu đề khối #%d (Hash: %x, Độ khó: %x) bị Rust Core từ chối: %s", nextHeight, headerHash, tempHeader.Difficulty, evalResp.ErrorMsg))
+							s.netManager.punishPeer(targetPeer, fmt.Sprintf("Header rejected by Rust Core [Khối #%d, Hash: %x, Độ khó: %x]: %s", nextHeight, headerHash, tempHeader.Difficulty, evalResp.ErrorMsg))
 						}
 					}
 					time.Sleep(1 * time.Second)
@@ -2216,7 +2219,25 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 			s.syncFailures++
 			s.mu.Unlock()
 			if evalResp.Status != 0 {
-				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Malicious 51% deep reorg attempt: "+evalResp.ErrorMsg)
+				var firstH, lastH uint64
+				var firstHash, lastHash []byte
+				var firstDiff string
+				if len(hBatch) > 0 {
+					var firstHdr, lastHdr pb_block.BlockHeader
+					if err := proto.Unmarshal(hBatch[0], &firstHdr); err == nil {
+						firstH = firstHdr.Height
+						firstDiff = hex.EncodeToString(firstHdr.Difficulty)
+						firstHash = s.netManager.CalculateHeaderHashDeterministic(&firstHdr)
+					}
+					if err := proto.Unmarshal(hBatch[len(hBatch)-1], &lastHdr); err == nil {
+						lastH = lastHdr.Height
+						lastHash = s.netManager.CalculateHeaderHashDeterministic(&lastHdr)
+					}
+				}
+				evidenceMsg := fmt.Sprintf("Dải khối đối phương #%d (Hash: %x, Độ khó: %s) -> #%d (Hash: %x) | Lỗi: %s", firstH, firstHash, firstDiff, lastH, lastHash, evalResp.ErrorMsg)
+				log.Printf("[EVIDENTIARY-AUDIT] 🚨 [GHI NHẬN BẰNG CHỨNG ĐỐI PHƯƠNG] Peer: %s | %s", targetPeer.String(), evidenceMsg)
+				audit.AuditLog("FIREWALL_VIOLATION_EVIDENCE", s.shortID(targetPeer), fmt.Sprintf("Bằng chứng vi phạm tường lửa x10 từ Peer %s: %s", targetPeer.String(), evidenceMsg))
+				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: [Chi tiết bằng chứng: "+evidenceMsg+"]")
 				s.netManager.Host.Network().ClosePeer(targetPeer)
 			}
 			return
