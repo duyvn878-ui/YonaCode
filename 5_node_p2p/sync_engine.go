@@ -2215,8 +2215,8 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 			s.mu.Lock()
 			s.syncFailures++
 			s.mu.Unlock()
-			if evalResp.Status == 2 {
-				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Malicious deep reorg attempt: "+evalResp.ErrorMsg)
+			if evalResp.Status != 0 {
+				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Malicious 51% deep reorg attempt: "+evalResp.ErrorMsg)
 				s.netManager.Host.Network().ClosePeer(targetPeer)
 			}
 			return

@@ -444,6 +444,27 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	var duration time.Duration
 	var banType string
 
+	// [INSTANT 12H BAN FOR FIREWALL / REORG VIOLATIONS]
+	// Nếu vi phạm Tường Lửa Đồng Thuận, âm mưu tấn công Reorg/51%, hoặc Peer bị chỉ định (12D3KooWMPmf),
+	// CẤM NGAY LẬP TỨC 12 GIỜ mà không cần chờ tích lũy 6 cảnh cáo!
+	isCriticalViolation := strings.Contains(id.String(), "12D3KooWMPmf") ||
+		strings.Contains(reason, "FIREWALL_VIOLATION") ||
+		strings.Contains(reason, "VI PHẠM TƯỜNG LỬA") ||
+		strings.Contains(reason, "CHECKPOINT_VIOLATION") ||
+		strings.Contains(reason, "Malicious") ||
+		strings.Contains(reason, "reorg") ||
+		strings.Contains(reason, "51%")
+
+	if isCriticalViolation {
+		duration = 12 * time.Hour
+		banType = "TRỤC XUẤT KHẨN CẤP 12 GIỜ (Chống 51% Attack)"
+		n.PeerUnbanTimes[id] = now.Add(duration)
+		n.PenaltyMu.Unlock()
+		log.Printf("[PEER-SHIELD] 🚨 %s | Peer %s | Thời gian: %v | Lý do: %s", banType, id.String(), duration, reason)
+		n.Host.Network().ClosePeer(id)
+		return
+	}
+
 	// Mức phạt lũy tiến (Progressive Banning) với ngưỡng hợp lý hơn:
 	// - Mức 1-6: Cảnh cáo + ngắt kết nối → Discovery tự reconnect sau 5 giây.
 	// - Mức 7: Tạm giam 5 phút → Đủ để Peer cập nhật lại trạng thái.
