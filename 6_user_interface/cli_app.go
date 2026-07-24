@@ -848,10 +848,7 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 			// Miner không tự ý dừng đào chỉ vì thấy số chiều cao lớn hơn.
 			// Miner chỉ dừng đào khi chưa hoàn thành đồng bộ ban đầu (Initial Sync) 
 			// HOẶC khi SyncEngine đang thực hiện Snapshot Sync nhảy vọt (Bootstrapping).
-			_, _, syncState := app.syncEngine.GetSyncProgress()
-			// Tại sao: Nếu trạng thái đã là Synced, ta tự động đánh dấu hoàn thành đồng bộ khởi đầu để mở khóa cho miner,
-			// tránh việc miner bị kẹt vĩnh viễn ở trạng thái chờ [MINER-WAIT] do điều kiện kiểm tra lặp chéo.
-			if syncState == "Synced" && !app.initialSyncComplete {
+			if !app.initialSyncComplete {
 				app.initialSyncComplete = true
 				color.Green("[STAGE-2] 🚀 ĐỒNG BỘ KHỞI ĐẦU HOÀN TẤT. Hệ thống chuyển sang chế độ vận hành Live.")
 			}
