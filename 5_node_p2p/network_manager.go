@@ -457,10 +457,10 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 
 	if isCriticalViolation {
 		duration = 12 * time.Hour
-		banType = "TRỤC XUẤT KHẨN CẤP 12 GIỜ (Chống 51% Attack)"
+		banType = "TRỤC XUẤT KHẨN CẤP 12 GIỜ (Chống vi phạm Bất biến / 51% Attack)"
 		n.PeerUnbanTimes[id] = now.Add(duration)
 		n.PenaltyMu.Unlock()
-		log.Printf("[PEER-SHIELD] 🚨 %s | Peer %s | Thời gian: %v | Lý do: %s", banType, id.String(), duration, reason)
+		log.Printf("[PEER-SHIELD] 🚨 [XÁC NHẬN BAN 12 GIỜ] Peer %s | Thời gian: %v | BẰNG CHỨNG: Vi phạm quy tắc Bất biến mạng lưới (%s)", id.String(), duration, reason)
 		n.Host.Network().ClosePeer(id)
 		return
 	}
