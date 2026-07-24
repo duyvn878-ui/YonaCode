@@ -71,151 +71,11 @@ Fill in the fields exactly as follows:
 
 ---
 
-## 💾 4. MINER SCRIPT FILE DETAILS
+## 🚦 4. VERIFY OPERATION
 
-### 1. `h-manifest.conf`
-```bash
-# Custom miner identifier
-CUSTOM_NAME=yona_gpu_miner
+Since all integration scripts (`h-manifest.conf`, `h-run.sh`, `h-stats.sh`) and the miner binary are pre-packaged at the root of the official `YonaCode_Linux.zip` archive, HiveOS will automatically download, extract, and configure the custom miner to the path `/hive/miners/custom/yona_gpu_miner/` upon applying the Flight Sheet. No manual shell setup is required.
 
-# Miner release version
-CUSTOM_VERSION=1.0.0
-
-# Base path for miner logs
-CUSTOM_LOG_BASENAME=/var/log/miner/custom/$CUSTOM_NAME
-```
-
-### 2. `h-run.sh`
-```bash
-#!/usr/bin/env bash
-
-# Load variables
-. h-manifest.conf
-. colors
-
-# Navigate to miner directory
-cd $MINER_DIR
-
-# Parse IP and Port from the Pool URL ($CUSTOM_URL)
-if [[ "$CUSTOM_URL" == *":"* ]]; then
-  POOL_IP=$(echo "$CUSTOM_URL" | cut -d':' -f1)
-  POOL_PORT=$(echo "$CUSTOM_URL" | cut -d':' -f2)
-else
-  POOL_IP="$CUSTOM_URL"
-  POOL_PORT="8080"
-fi
-
-# Apply fallback defaults if empty
-POOL_IP=${POOL_IP:-"110.172.28.103"}
-POOL_PORT=${POOL_PORT:-"8080"}
-
-# Execute miner in Solo Mining mode (no wallet parameter passed)
-./yona_gpu_miner $POOL_IP $POOL_PORT > $CUSTOM_LOG_BASENAME.log 2>&1
-```
-
-### 3. `h-stats.sh`
-```bash
-#!/usr/bin/env bash
-
-. h-manifest.conf
-
-LOG_FILE="${CUSTOM_LOG_BASENAME}.log"
-
-if [ ! -f "$LOG_FILE" ]; then
-  echo "khs=0"
-  echo "stats=\"\""
-  exit 0
-fi
-
-# Extract the hashrate (MH/s) from the log file
-hashrate_mhs=$(tail -n 100 "$LOG_FILE" | grep "Hashrate:" | tail -n 1 | awk '{print $4}')
-
-if [ -z "$hashrate_mhs" ]; then
-  khs=0
-else
-  # Convert MH/s to KH/s for HiveOS telemetry format
-  khs=$(echo "$hashrate_mhs" | awk '{print $1 * 1000}')
-fi
-
-# Query temperature and fan speeds for NVIDIA and AMD GPUs
-nvidia_temps=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | tr '\n' ' ' | sed 's/ $//' | sed 's/ /,/g')
-nvidia_fans=$(nvidia-smi --query-gpu=fan.speed --format=csv,noheader,nounits 2>/dev/null | tr '\n' ' ' | sed 's/ $//' | sed 's/ /,/g')
-
-amd_temps=""
-amd_fans=""
-if which rocm-smi >/dev/null 2>&1; then
-  amd_temps=$(rocm-smi --showtemp 2>/dev/null | grep -E "Temp" | awk '{print $2}' | tr -d 'C' | tr '\n' ' ' | sed 's/ $//' | sed 's/ /,/g')
-  amd_fans=$(rocm-smi --showfan 2>/dev/null | grep -E "Fan" | awk '{print $2}' | tr -d '%' | tr '\n' ' ' | sed 's/ $//' | sed 's/ /,/g')
-fi
-
-# Merge telemetry metrics
-all_temps=""
-all_fans=""
-if [ ! -z "$nvidia_temps" ] && [ ! -z "$amd_temps" ]; then
-  all_temps="${nvidia_temps},${amd_temps}"
-  all_fans="${nvidia_fans},${amd_fans}"
-elif [ ! -z "$nvidia_temps" ]; then
-  all_temps="$nvidia_temps"
-  all_fans="$nvidia_fans"
-else
-  all_temps="$amd_temps"
-  all_fans="$amd_fans"
-fi
-
-# Form the hashrate array for HiveOS dashboard
-gpu_count=$(echo "$all_temps" | tr ',' '\n' | grep -v "^$" | wc -l)
-if [ "$gpu_count" -le 0 ]; then
-  gpu_count=1
-fi
-
-hs_array=""
-for ((i=0; i<gpu_count; i++)); do
-  if [ $i -eq 0 ]; then
-    hs_array="$khs"
-  else
-    hs_array="${hs_array},0"
-  fi
-done
-
-# Output stats JSON to stdout
-if [ -z "$all_temps" ]; then
-  stats="{\"hs\": [$hs_array], \"temp\": [], \"fan\": [], \"uptime\": $uptime}"
-else
-  stats="{\"hs\": [$hs_array], \"temp\": [$all_temps], \"fan\": [$all_fans], \"uptime\": $uptime}"
-fi
-
-echo "khs=$khs"
-echo "stats='$stats'"
-```
-
----
-
-## 💻 5. CLI MANIFEST SETUP & TESTING (HIVE SHELL / SSH)
-To setup the miner manually on the rig using CLI:
-
-### Step 1: Extract GPU Miner
-Run this command from your project directory to extract only the GPU miner executable:
-```bash
-# Create HiveOS Custom Miner directory
-mkdir -p /hive/miners/custom/yona_gpu_miner
-
-# Extract the miner binary directly from the project ZIP
-unzip -o zip/YonaCode_Linux.zip yona_gpu_miner -d /hive/miners/custom/yona_gpu_miner/
-
-# Make the miner executable
-chmod +x /hive/miners/custom/yona_gpu_miner/yona_gpu_miner
-```
-*(Afterwards, create `h-manifest.conf`, `h-run.sh`, and `h-stats.sh` files inside `/hive/miners/custom/yona_gpu_miner/` as described in **Section 4**).*
-
-### Step 2: Run Manual Solo Test
-Verify connection and bhashrate directly on the command line:
-```bash
-/hive/miners/custom/yona_gpu_miner/yona_gpu_miner 110.172.28.103 8080
-```
-
----
-
-## 🚦 6. VERIFY OPERATION
+To verify operation on your rig:
 1. Apply the Flight Sheet to your rig by clicking the **Rocket** icon 🚀.
 2. Watch the live console output on your worker:
    ```bash
@@ -224,3 +84,4 @@ Verify connection and bhashrate directly on the command line:
 3. If you see block templates loading correctly:
    `[GPU-MINER] 🔨 Mining Block #...`
    Your Solo Mining is fully working!
+
