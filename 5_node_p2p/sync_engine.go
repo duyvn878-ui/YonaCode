@@ -1668,18 +1668,9 @@ func (s *SyncEngine) GetSyncFailures() int {
 }
 
 func (s *SyncEngine) IsSynced() bool {
-	s.mu.RLock()
-	state := s.state
-	s.mu.RUnlock()
-
-	// [ZERO-DDoS-PROTECTION] Loại bỏ hoàn toàn cơ chế tạm dừng đào khi khởi động hoặc khi đồng bộ.
-	// Cho phép đào trực tiếp trên đỉnh chuỗi hợp lệ hiện tại của Rust Core trong mọi thời điểm
-	// (kể cả khi mới khởi động lại Node), loại bỏ triệt để lỗ hổng tấn công DDoS làm đứt quãng tiến trình khai thác.
-	// Chỉ tạm dừng khi hệ thống thực sự đang nạp/tẩy rửa CSDL bằng Snapshot (Bootstrapping).
-	if state == Bootstrapping {
-		return false
-	}
-
+	// [ZERO-DDoS-ABSOLUTE] Loại bỏ hoàn toàn 100% tất cả các chốt chặn tạm dừng đào.
+	// IsSynced() luôn trả về true để đảm bảo thợ đào tuyệt đối không bao giờ bị dừng hoặc gián đoạn
+	// bởi bất kỳ trạng thái P2P, đồng bộ hay Snapshot nào từ phía mạng lưới.
 	return true
 }
 
