@@ -1707,16 +1707,20 @@ func (s *SyncEngine) IsSynced() bool {
 	}
 	s.netManager.PeerMutex.RUnlock()
 
-	// [VANGUARD-SYNC-STRICT] Phân biệt rõ chế độ Khởi chạy và chế độ Đang đào (Live)
+	// [VANGUARD-SYNC-STRICT] Phân biệt rõ chế độ Khởi chạy (Boot) và chế độ Đang đào (Live Runtime)
 	s.mu.RLock()
 	isDone := s.initialSyncDone
 	state := s.state
 	s.mu.RUnlock()
 
 	if isDone {
-		// [LIVE-MODE] Chỉ tạm dừng đào khi thực sự đang đồng bộ thường (Syncing) hoặc snapshot (Bootstrapping).
-		// (Lưu ý: Nếu bị kẹt khối lỗi dẫn đến failures >= 3, hàm đã được giải phóng trả về true từ phía trên).
-		if state == Syncing || state == Bootstrapping {
+		// [LIVE-MODE] Khi Node đã qua bước đồng bộ khởi đầu (Initial Sync Done) và đang vận hành thực tế:
+		// 1. Chỉ tạm dừng đào khi thực sự đang nạp snapshot (Bootstrapping).
+		// 2. Việc phân xử/tải các khối rẽ nhánh mới diễn ra song song ở tầng mạng P2P.
+		//    Node VẪN PHẢI CHO PHÉP ĐÀO tiếp tục trên đỉnh chuỗi hợp lệ hiện tại của Rust Core.
+		//    Chỉ khi nào Rust Core xác minh và commit thành công chuỗi rẽ nhánh mới vào database,
+		//    block template của Miner mới tự động chuyển sang khối mới.
+		if state == Bootstrapping {
 			return false
 		}
 		return true
@@ -2122,12 +2126,35 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 	}
 	defer atomic.StoreInt32(&s.catchUpRunning, 0) // Giải phóng flag khi hoàn tất hoặc lỗi
 
-	// [SELF-HEAL-HEIGHT] Tự chữa lành chiều cao Go Sync Engine
-	// Tại sao: Khi CatchUpSync thoát (dù thành công, thất bại, hoặc bị timeout giữa chừng), việc dùng defer khôi phục hoặc cập nhật lại Go currentHeight theo đúng chiều cao sổ cái thực tế của Rust Core giúp tránh tình trạng lệch pha tiến trình hiển thị UI (ví dụ: bị hiển thị ảo 100.01% khi SyncEngine tự tính toán sai) và loại bỏ nguy cơ syncLoop hiểu lầm là đã bắt kịp mạng và dừng đồng bộ vĩnh viễn.
+	// [SELF-HEAL-HEIGHT] Tự chữa lành chiều cao & Trạng thái Go Sync Engine khi CatchUpSync kết thúc
+	// Tại sao: Khi CatchUpSync thoát (dù thành công, thất bại, bị từ chối do fork < 10x, hoặc bị timeout giữa chừng), 
+	// việc khôi phục currentHeight & targetHeight thực tế và trả lại trạng thái Synced (khi initialSyncDone == true) 
+	// sẽ giải phóng đứt gãy miner getwork, giúp miner tiếp tục khai thác mượt mà không bị kẹt ở trạng thái Syncing ảo.
 	defer func() {
+		actualH := s.netManager.Bridge.GetCurrentVersion()
 		s.mu.Lock()
-		s.currentHeight = s.netManager.Bridge.GetCurrentVersion()
+		s.currentHeight = actualH
 		s.downloadingHeight = 0
+		if s.initialSyncDone {
+			maxPeerH := actualH
+			if s.netManager != nil && s.netManager.Host != nil {
+				peers := s.netManager.Host.Network().Peers()
+				s.netManager.PeerMutex.RLock()
+				for _, p := range peers {
+					if cooldown, ok := s.sidechainPeers[p]; ok && time.Now().Before(cooldown) {
+						continue
+					}
+					if h := s.netManager.PeerHeights[p]; h > maxPeerH {
+						maxPeerH = h
+					}
+				}
+				s.netManager.PeerMutex.RUnlock()
+			}
+			s.targetHeight = maxPeerH
+			if s.currentHeight >= s.targetHeight {
+				s.state = Synced
+			}
+		}
 		s.mu.Unlock()
 	}()
 
