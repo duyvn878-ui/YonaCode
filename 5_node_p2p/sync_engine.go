@@ -1669,69 +1669,14 @@ func (s *SyncEngine) GetSyncFailures() int {
 
 func (s *SyncEngine) IsSynced() bool {
 	s.mu.RLock()
-	startT := s.startupTime
-	s.mu.RUnlock()
-
-	// [CHỐT CHẶN] Grace Period: Chờ ít nhất 30 giây để P2P Discovery tìm thấy Peer.
-	if time.Since(startT) < SYNC_GRACE_PERIOD {
-		if time.Now().Unix()%10 == 0 {
-			log.Printf("[SYNC] ⏳ Đang trong Grace Period (%v). Thợ đào tạm nghỉ để đợi P2P ổn định...", SYNC_GRACE_PERIOD-time.Since(startT).Round(time.Second))
-		}
-		return false
-	}
-
-	peers := s.netManager.Host.Network().Peers()
-	if len(peers) == 0 {
-		return true
-	}
-
-	// [STARTUP-AUTONOMY] Nếu xác minh/đồng bộ chuỗi đỉnh mạng thất bại LẦN ĐẦU (failures >= 1),
-	// Node lập tức giải phóng chốt chặn đồng bộ, đánh dấu initialSyncDone = true
-	// để CHO PHÉP người dùng bật đào (hoặc nếu đã bật đào từ trước thì hệ thống tự động chạy tiếp mà không cần gõ lệnh lại).
-	s.mu.RLock()
-	failures := s.syncFailures
-	s.mu.RUnlock()
-
-	if failures >= 1 {
-		s.mu.Lock()
-		s.initialSyncDone = true
-		s.mu.Unlock()
-		return true
-	}
-
-	// [VANGUARD-FRESH-HEIGHT] Luôn lấy cao độ mới nhất từ Rust Core
-	actualH := s.netManager.Bridge.GetCurrentVersion()
-
-	maxPeerHeight := uint64(0)
-	s.netManager.PeerMutex.RLock()
-	for _, p := range peers {
-		if h := s.netManager.PeerHeights[p]; h > maxPeerHeight {
-			maxPeerHeight = h
-		}
-	}
-	s.netManager.PeerMutex.RUnlock()
-
-	// [VANGUARD-SYNC-STRICT] Phân biệt rõ chế độ Khởi chạy (Boot) và chế độ Đang đào (Live Runtime)
-	s.mu.RLock()
-	isDone := s.initialSyncDone
 	state := s.state
 	s.mu.RUnlock()
 
-	if isDone {
-		// [LIVE-MODE] Khi Node đã qua bước đồng bộ khởi đầu (Initial Sync Done) và đang vận hành thực tế:
-		// 1. Chỉ tạm dừng đào khi thực sự đang nạp snapshot (Bootstrapping).
-		// 2. Việc phân xử/tải các khối rẽ nhánh mới diễn ra song song ở tầng mạng P2P.
-		//    Node VẪN PHẢI CHO PHÉP ĐÀO tiếp tục trên đỉnh chuỗi hợp lệ hiện tại của Rust Core.
-		//    Chỉ khi nào Rust Core xác minh và commit thành công chuỗi rẽ nhánh mới vào database,
-		//    block template của Miner mới tự động chuyển sang khối mới.
-		if state == Bootstrapping {
-			return false
-		}
-		return true
-	}
-
-	// [STARTUP-MODE] Khi mới khởi chạy Node, thử đồng bộ lần 1 với đỉnh mạng lưới.
-	if maxPeerHeight > actualH {
+	// [ZERO-DDoS-PROTECTION] Loại bỏ hoàn toàn cơ chế tạm dừng đào khi khởi động hoặc khi đồng bộ.
+	// Cho phép đào trực tiếp trên đỉnh chuỗi hợp lệ hiện tại của Rust Core trong mọi thời điểm
+	// (kể cả khi mới khởi động lại Node), loại bỏ triệt để lỗ hổng tấn công DDoS làm đứt quãng tiến trình khai thác.
+	// Chỉ tạm dừng khi hệ thống thực sự đang nạp/tẩy rửa CSDL bằng Snapshot (Bootstrapping).
+	if state == Bootstrapping {
 		return false
 	}
 
