@@ -844,20 +844,16 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 					h, target, peers, hashrateMH, state)
 			}
 
-			// [VANGUARD-DISCIPLINE] Radar Scan Guard
-			// Miner không tự ý dừng đào chỉ vì thấy số chiều cao lớn hơn.
-			// Miner chỉ dừng đào khi chưa hoàn thành đồng bộ ban đầu (Initial Sync) 
-			// HOẶC khi SyncEngine đang thực hiện Snapshot Sync nhảy vọt (Bootstrapping).
+			// [ZERO-DDoS-PROTECTION] Đánh dấu sẵn sàng vận hành Live cho miner
 			if !app.initialSyncComplete {
 				app.initialSyncComplete = true
-				color.Green("[STAGE-2] 🚀 ĐỒNG BỘ KHỞI ĐẦU HOÀN TẤT. Hệ thống chuyển sang chế độ vận hành Live.")
+				color.Green("[STAGE-2] 🚀 Hệ thống chuyển sang chế độ vận hành Live.")
 			}
 
-			// [VANGUARD-SYNC-BLOCK] Chốt chặn an toàn: Chặn tuyệt đối không cho phép thợ đào chạy nếu chưa đồng bộ xong
 			if app.syncEngine != nil && !app.syncEngine.IsSynced() {
 				if time.Now().Second()%10 == 0 {
 					h, target, state := app.syncEngine.GetSyncProgress()
-					log.Printf("[MINER-WAIT] ⏳ Mạng chưa đồng bộ xong (#%d/%d, Trạng thái: %s). Tạm dừng khai thác để tránh phân nhánh (Fork)...", h, target, state)
+					log.Printf("[MINER-WAIT] ⏳ Mạng chưa đồng bộ xong (#%d/%d, Trạng thái: %s).", h, target, state)
 				}
 				time.Sleep(2 * time.Second)
 				continue
