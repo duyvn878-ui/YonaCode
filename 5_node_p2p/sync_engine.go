@@ -1685,13 +1685,17 @@ func (s *SyncEngine) IsSynced() bool {
 		return true
 	}
 
-	// [VANGUARD-SMART-AUTONOMY] Logic: Thử 3 lần mới phá rào
-	// Nếu kẹt sync (failures >= 3), cho phép đào để giải tỏa bế tắc.
+	// [STARTUP-AUTONOMY] Nếu xác minh/đồng bộ chuỗi đỉnh mạng thất bại LẦN ĐẦU (failures >= 1),
+	// Node lập tức giải phóng chốt chặn đồng bộ, đánh dấu initialSyncDone = true
+	// để CHO PHÉP người dùng bật đào (hoặc nếu đã bật đào từ trước thì hệ thống tự động chạy tiếp mà không cần gõ lệnh lại).
 	s.mu.RLock()
 	failures := s.syncFailures
 	s.mu.RUnlock()
 
-	if failures >= 3 {
+	if failures >= 1 {
+		s.mu.Lock()
+		s.initialSyncDone = true
+		s.mu.Unlock()
 		return true
 	}
 
@@ -1726,7 +1730,7 @@ func (s *SyncEngine) IsSynced() bool {
 		return true
 	}
 
-	// [STARTUP-MODE] Khi mới khởi chạy Node, buộc phải đồng bộ đạt tới đỉnh mạng lưới trước khi đào.
+	// [STARTUP-MODE] Khi mới khởi chạy Node, thử đồng bộ lần 1 với đỉnh mạng lưới.
 	if maxPeerHeight > actualH {
 		return false
 	}
@@ -2230,6 +2234,9 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 				log.Printf("[SYNC-LOCATOR] 🛑 Peer %s gửi dữ liệu rác. Đánh 1 Strike. Lỗi: %v", s.shortID(targetPeer), err)
 				s.netManager.punishPeer(targetPeer, fmt.Sprintf("Lỗi tải Header Batch (Dữ liệu rác/hỏng): %v", err))
 			}
+			s.mu.Lock()
+			s.syncFailures++
+			s.mu.Unlock()
 			return
 		}
 
@@ -2237,6 +2244,9 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 		var bridgeErr error
 		evalResp, bridgeErr = s.netManager.Bridge.EvaluateHeaderChain(hBatch)
 		if bridgeErr != nil || evalResp == nil {
+			s.mu.Lock()
+			s.syncFailures++
+			s.mu.Unlock()
 			return
 		}
 
@@ -2266,6 +2276,9 @@ func (s *SyncEngine) CatchUpSync(targetPeer peer.ID) {
 
 			// Từ chối do lỗi khác
 			log.Printf("[SYNC-REJECT] ⚠️ Rust từ chối chuỗi Header từ %s: Mã lỗi %d - %s", s.shortID(targetPeer), evalResp.Status, evalResp.ErrorMsg)
+			s.mu.Lock()
+			s.syncFailures++
+			s.mu.Unlock()
 			if evalResp.Status == 2 {
 				s.netManager.punishPeer(targetPeer, "FIREWALL_VIOLATION: Malicious deep reorg attempt: "+evalResp.ErrorMsg)
 				s.netManager.Host.Network().ClosePeer(targetPeer)
