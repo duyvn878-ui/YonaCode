@@ -455,7 +455,7 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	// 
 	// 💡 BẰNG CHỨNG THỰC NGHIỆM KHẲNG ĐỊNH TƯỜNG LỬA NĂNG LƯỢNG X10 GẦN NHƯ BẤT KHẢ XÂM PHẠM:
 	// Dù thợ đào trung thực bị tạm dừng ở #31.577 (chấp kẻ tấn công 2 tiếng cày đơn độc đào vượt xa đỉnh trung thực #31.577
-	// lên tận khối #31.655 - tổng cộng 390 khối từ mốc rẽ nhánh #31.265), các Node kẻ tấn công VẪN KHÔNG THỂ BẺ GÃY HOẶC VƯỢT QUA TƯỜNG LỬA NĂNG LƯỢNG X10 của VNT Consensus 2.0.
+	// lên tận khối #31.655 - đào thêm 390 khoảng block từ mốc rẽ nhánh #31.265), các Node kẻ tấn công VẪN KHÔNG THỂ BẺ GÃY HOẶC VƯỢT QUA TƯỜNG LỬA NĂNG LƯỢNG X10 của VNT Consensus 2.0.
 	//
 	// 📜 BẰNG CHỨNG TRÍCH XUẤT TỪ NGUYÊN BẢN LOG RUST CORE (VNT-CONSENSUS LỚP 1):
 	// [DAA] H#31655 | Next: 717229571984 | Last: 714476192023
@@ -470,7 +470,7 @@ func (n *NetworkManager) punishPeer(id peer.ID, reason string) {
 	//    - Số khối hợp lệ bị kẻ tấn công đòi xóa bỏ: 31.577 - 31.265 + 1 = 313 khối.
 	//
 	// 2. Toán học Hashrate của Kẻ tấn công:
-	//    - Trong cùng thời gian mạng công khai cày 312 khối (đạt 353.4T Work), kẻ tấn công cày ngầm 390 khối (#31.265 -> #31.655, đạt 413.6T Work).
+	//    - Trước khi bị gián đoạn tại #31.577, chuỗi trung thực đã tích lũy 353.4T Work; trong khi đó chuỗi tấn công tiếp tục tích lũy 413.6T Work đến #31.655.
 	//    - Tỷ lệ Hashrate Kẻ tấn công: 413.6T / (353.4T + 413.6T) ≈ 53.9% (Vượt ngưỡng 50% Hashrate toàn mạng).
 	//
 	// 3. Giải Pháp Đặc Trị Kiến Trúc Triệt Để (Chống DDoS & Khóa Bất Biến MAD Lớp 2):
