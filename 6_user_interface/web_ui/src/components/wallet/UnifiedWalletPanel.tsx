@@ -111,20 +111,30 @@ const UnifiedWalletPanel: React.FC<UnifiedWalletPanelProps> = ({
             if (rawBills) {
                 const localBills = JSON.parse(rawBills) as Transaction[];
                 
-                // Loại bỏ những bill đã có trong API
                 const apiTxIds = new Set(apiHistory.map((tx: any) => tx.id));
                 const remainingBills = localBills.filter(bill => !apiTxIds.has(bill.id));
+
+                // Nếu bill không có trong API (kể cả khối và mempool), cập nhật trạng thái bị từ chối nếu vẫn đang là 0
+                const updatedBills = remainingBills.map(bill => {
+                    if (bill.status_code === 0) {
+                        return {
+                            ...bill,
+                            status_code: 9,
+                            status: "Bị từ chối (Node từ chối hoặc không có trong Mempool)",
+                            error_message: "Giao dịch không tồn tại trên Mempool của Node và đã bị từ chối."
+                        };
+                    }
+                    return bill;
+                });
                 
-                // Cập nhật lại localStorage nếu có bill đã được đưa vào khối
-                if (remainingBills.length !== localBills.length) {
-                    localStorage.setItem('vanguard_local_bills', JSON.stringify(remainingBills));
-                }
+                // Cập nhật lại localStorage nếu có thay đổi
+                localStorage.setItem('vanguard_local_bills', JSON.stringify(updatedBills));
                 
                 // Lọc bill theo địa chỉ hiện tại và tab (in/out)
                 const normalize = (addr: string) => addr ? addr.toLowerCase().trim().replace(/^0x/, '') : "";
                 const currentAddrNorm = normalize(address);
                 
-                const relevantBills = remainingBills.filter(bill => {
+                const relevantBills = updatedBills.filter(bill => {
                     const isSent = normalize(bill.sender) === currentAddrNorm;
                     const isReceived = normalize(bill.receiver) === currentAddrNorm;
                     if (!isSent && !isReceived) return false;
@@ -139,6 +149,13 @@ const UnifiedWalletPanel: React.FC<UnifiedWalletPanelProps> = ({
         } catch (e) {
             console.error("Error processing local bills:", e);
         }
+
+        // Sắp xếp toàn bộ lịch sử theo timestamp giảm dần (mới nhất lên đầu)
+        apiHistory.sort((a: any, b: any) => {
+            const timeA = Number(a.timestamp) || 0;
+            const timeB = Number(b.timestamp) || 0;
+            return timeB - timeA;
+        });
 
         setLocalTransactions(apiHistory);
       } catch (e) {

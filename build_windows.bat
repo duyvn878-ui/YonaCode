@@ -53,6 +53,17 @@ if %ERRORLEVEL% neq 0 (
 copy /Y bin\yona_wallet_server.exe bbuild\yona_wallet_server.exe
 
 echo ===================================================
+echo [BUILD-WIN] 4.5. Compiling Go GPU Setup Tool (yona_gpu_setup)...
+echo ===================================================
+go build -o bin/yona_gpu_setup.exe ./6_user_interface/cmd/gpu_installer
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Go GPU Setup Tool compilation failed!
+    exit /b %ERRORLEVEL%
+)
+copy /Y bin\yona_gpu_setup.exe bbuild\yona_gpu_setup.exe
+
+
+echo ===================================================
 echo [BUILD-WIN] 5. Compiling Windows GPU Miner (CMake)...
 echo ===================================================
 if not exist 8_miner_gpu\build mkdir 8_miner_gpu\build

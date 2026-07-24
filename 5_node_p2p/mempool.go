@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"sync"
 	"time"
@@ -200,15 +201,52 @@ func (m *Mempool) flushRemoveBatch(batch []mempoolPersistOp) {
 	}
 }
 
-// StartMonitor giám sát và in thống kê mempool định kỳ.
+// StartMonitor giám sát và dọn dẹp các giao dịch quá hạn (>100 khối) định kỳ.
 func (m *Mempool) StartMonitor() {
 	ticker := time.NewTicker(10 * time.Second)
 	for range ticker.C {
+		if m.bridge == nil {
+			continue
+		}
+
+		currentHeight := m.bridge.GetCurrentVersion()
+		if currentHeight < 100 {
+			continue
+		}
+
+		startH := currentHeight - 100
+		recentHashes := make(map[string]bool)
+		for h := startH; h <= currentHeight; h++ {
+			bHash := m.bridge.GetBlockHash(h)
+			if len(bHash) > 0 {
+				recentHashes[hex.EncodeToString(bHash)] = true
+			}
+		}
+
+		if len(recentHashes) == 0 {
+			continue
+		}
+
 		m.mu.RLock()
+		var expiredHashes []string
+		for hash, item := range m.txItems {
+			if item == nil || len(item.recentBlockHash) == 0 {
+				continue
+			}
+			rbhHex := hex.EncodeToString([]byte(item.recentBlockHash))
+			if !recentHashes[rbhHex] {
+				expiredHashes = append(expiredHashes, hash)
+			}
+		}
 		count := len(m.pendingTxs)
 		senderCount := len(m.txBySender)
 		m.mu.RUnlock()
-		
+
+		if len(expiredHashes) > 0 {
+			P2PLog("[MEMPOOL-TAPOS] 🧹 Phát hiện %d giao dịch có recent_block_hash trôi quá 100 khối (Chiêu cao #%d). Xóa vĩnh viễn khỏi Mempool!", len(expiredHashes), currentHeight)
+			m.RemoveTransactions(expiredHashes)
+		}
+
 		if count > 0 {
 			P2PLog("[MEMPOOL-STATS] 📊 Đang giữ %d giao dịch từ %d địa chỉ người gửi.", count, senderCount)
 		}
@@ -314,13 +352,7 @@ func (m *Mempool) getNextNonceLocked(senderHex string, currentNonce uint64) uint
 func (m *Mempool) GetNextNonce(senderHex string, currentNonce uint64) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	nextNonce := m.getNextNonceLocked(senderHex, currentNonce)
-	pNonce, exists := m.projectedNonce[senderHex]
-	if exists && pNonce > nextNonce {
-		nextNonce = pNonce
-	}
-	m.projectedNonce[senderHex] = nextNonce + 1
-	return nextNonce
+	return m.getNextNonceLocked(senderHex, currentNonce)
 }
 
 func (m *Mempool) GetAndReserveNonces(senderHex string, currentNonce uint64, count uint64) uint64 {
@@ -338,12 +370,7 @@ func (m *Mempool) GetAndReserveNonces(senderHex string, currentNonce uint64, cou
 func (m *Mempool) GetExpectedNonce(senderHex string, currentNonce uint64) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	nextNonce := m.getNextNonceLocked(senderHex, currentNonce)
-	pNonce, exists := m.projectedNonce[senderHex]
-	if exists && pNonce > nextNonce {
-		return pNonce
-	}
-	return nextNonce
+	return m.getNextNonceLocked(senderHex, currentNonce)
 }
 
 // GetPendingTxList: Trả về danh sách giao dịch pending cho RPC Tx Tracker
@@ -1469,7 +1496,7 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 		if item.tx == nil || item.tx.Sender == nil {
 			continue
 		}
-		senderHex := hex.EncodeToString(item.tx.Sender.Value)
+		senderHex := "0x" + strings.TrimPrefix(strings.ToLower(hex.EncodeToString(item.tx.Sender.Value)), "0x")
 		if _, ok := ledgerNonces[senderHex]; !ok {
 			var currentNonce uint64
 			if m.bridge != nil {
@@ -1486,7 +1513,7 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 		if item.tx == nil || item.tx.Sender == nil {
 			continue
 		}
-		senderHex := hex.EncodeToString(item.tx.Sender.Value)
+		senderHex := "0x" + strings.TrimPrefix(strings.ToLower(hex.EncodeToString(item.tx.Sender.Value)), "0x")
 		ledgerNonce := ledgerNonces[senderHex]
 		if item.tx.Nonce < ledgerNonce {
 			txHash := GetSigningHashNative(item.tx)
@@ -1647,7 +1674,7 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 			continue
 		}
 
-		senderHex := hex.EncodeToString(info.tx.Sender.Value)
+		senderHex := "0x" + strings.TrimPrefix(strings.ToLower(hex.EncodeToString(info.tx.Sender.Value)), "0x")
 
 		if !tempInfos[i].isValid {
 			// Chỉ in log lỗi 1 lần duy nhất cho mỗi sender để tránh bão log

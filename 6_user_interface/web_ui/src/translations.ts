@@ -86,8 +86,10 @@ export const translations = {
     mining_device_gpu: "Chỉ GPU",
     mining_device_hybrid: "Hỗn hợp",
     cpu_mining_disabled: "CPU Miner đã tắt. Hiệu năng ưu tiên cho GPU.",
-    gpu_nvidia_only: "Lưu ý: Khai thác GPU chỉ hỗ trợ card đồ họa NVIDIA (CUDA).",
+    gpu_nvidia_only: "⚠️ Cảnh báo: Khai thác bằng CPU hiện đã bị vô hiệu hóa. Hệ thống hiện tại chỉ hỗ trợ khai thác bằng GPU (Yêu cầu Card đồ họa NVIDIA CUDA).",
+    cpu_locked_tooltip: "Tính năng đào bằng CPU đang tạm khóa",
     blocks_found: "Khối đã giải",
+
     est_next_block: "Dự kiến khối kế",
     mining_logs: "Nhật ký PoW",
     mining_start_btn: "BẮT ĐẦU ĐÀO",
@@ -116,7 +118,9 @@ export const translations = {
     sync_wait_hint: "Số dư sẽ được chốt sau khi hoàn tất đồng bộ mạng lưới.",
     balance_recovered: "🛡️ QUÉT SỔ CÁI THÀNH CÔNG",
     storage_label: "SỔ CÁI LƯU TRỮ",
+    go_supply_l0: "TỔNG CUNG GO L0",
     mining_intel: "TỐC ĐỘ BĂM TOÀN MẠNG",
+
     network_intel: "THÀNH PHẦN MẠNG LƯỚI",
     network_hashrate_history_title: "LỊCH SỬ TỐC ĐỘ BĂM TOÀN MẠNG (20 KHỐI GẦN NHẤT)",
     top_miners_title: "THỢ ĐÀO NỔI BẬT NHẤT (100 KHỐI GẦN NHẤT)",

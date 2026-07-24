@@ -45,65 +45,67 @@ export const formatDate = (ts: number): string => {
 };
 
 /**
+ * formatBigIntWithCommas: Định dạng BigInt hoặc chuỗi số thành số nguyên đầy đủ có dấu phẩy phân cách (ví dụ 2,146,578,328,639)
+ * Tuyệt đối không dùng ký hiệu khoa học (e+52) và không viết tắt T / G / M / K.
+ */
+export const formatBigIntWithCommas = (val: bigint | string | number): string => {
+  try {
+    let str = "";
+    if (typeof val === "bigint") {
+      str = val.toString();
+    } else {
+      const s = val.toString().trim();
+      if (s.includes("e") || s.includes("E")) {
+        const n = Number(s);
+        if (!isNaN(n) && isFinite(n)) {
+          str = BigInt(Math.round(n)).toString();
+        } else {
+          str = s;
+        }
+      } else {
+        str = BigInt(s).toString();
+      }
+    }
+    return str.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  } catch (e) {
+    const num = Number(val);
+    if (!isNaN(num)) {
+      return Math.round(num).toLocaleString('en-US');
+    }
+    return val.toString();
+  }
+};
+
+/**
  * formatDifficulty: Định dạng Độ khó mục tiêu (U256 Target) hoặc độ khó thường
- * thành chuỗi rút gọn dễ đọc dạng tài chính Terahash (T), Gigahash (G), Megahash (M)...
+ * thành con số nguyên chính xác đầy đủ có dấu phân cách hàng ngàn (en-US format).
  */
 export const formatDifficulty = (diff: string | number): string => {
+  if (diff === undefined || diff === null || diff === "") return "0";
   const diffStr = diff.toString().trim();
-  if (diffStr.length > 15) {
-    try {
-      let target: bigint;
-      // Kiểm tra xem có phải định dạng Target Hex (256-bit Little-Endian) không
-      const cleanHex = diffStr.replace(/^0x/, "");
-      const isHex = /^[0-9a-fA-F]+$/.test(cleanHex);
-      if (isHex && (diffStr.startsWith("0x") || diffStr.length === 64)) {
-        // Đảo ngược byte từ Little-Endian sang Big-Endian
-        const bytes = cleanHex.match(/.{1,2}/g);
-        const targetHex = bytes ? bytes.reverse().join("") : cleanHex;
-        target = BigInt("0x" + targetHex);
-      } else {
-        target = BigInt(diffStr);
-      }
+
+  try {
+    const cleanHex = diffStr.replace(/^0x/, "");
+    const isHex = /^[0-9a-fA-F]+$/.test(cleanHex);
+
+    if (isHex && (diffStr.startsWith("0x") || diffStr.length === 64)) {
+      // Định dạng Target Hex (256-bit Little-Endian)
+      const bytes = cleanHex.match(/.{1,2}/g);
+      const targetHex = bytes ? bytes.reverse().join("") : cleanHex;
+      const target = BigInt("0x" + targetHex);
 
       if (target === 0n) return "0";
-      // MaxTarget = 2^256 - 1
       const maxTarget = (1n << 256n) - 1n;
       const actualDiff = maxTarget / target;
-      
-      const num = Number(actualDiff);
-      if (num >= 1e12) {
-        return `${(num / 1e12).toFixed(2)} T`;
-      }
-      if (num >= 1e9) {
-        return `${(num / 1e9).toFixed(2)} G`;
-      }
-      if (num >= 1e6) {
-        return `${(num / 1e6).toFixed(2)} M`;
-      }
-      if (num >= 1e3) {
-        return `${(num / 1e3).toFixed(2)} K`;
-      }
-      return num.toLocaleString('en-US');
-    } catch (e) {
-      return diffStr;
+
+      return formatBigIntWithCommas(actualDiff);
     }
+
+    // Định dạng chuỗi số hoặc number nguyên bản
+    return formatBigIntWithCommas(diffStr);
+  } catch (e) {
+    return formatBigIntWithCommas(diffStr);
   }
-  
-  const num = Number(diff);
-  if (isNaN(num)) return diffStr;
-  if (num >= 1e12) {
-    return `${(num / 1e12).toFixed(2)} T`;
-  }
-  if (num >= 1e9) {
-    return `${(num / 1e9).toFixed(2)} G`;
-  }
-  if (num >= 1e6) {
-    return `${(num / 1e6).toFixed(2)} M`;
-  }
-  if (num >= 1e3) {
-    return `${(num / 1e3).toFixed(2)} K`;
-  }
-  return num.toLocaleString('en-US');
 };
 
 

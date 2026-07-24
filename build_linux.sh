@@ -38,6 +38,13 @@ go build -o bin/yona_wallet_server ./8_wallet_gateway
 cp bin/yona_wallet_server bbuild/yona_wallet_server
 
 echo "==================================================="
+echo "[BUILD-LINUX] 4.5. Compiling Go GPU Setup Tool (yona_gpu_setup)..."
+echo "==================================================="
+go build -o bin/yona_gpu_setup ./6_user_interface/cmd/gpu_installer
+cp bin/yona_gpu_setup bbuild/yona_gpu_setup
+
+
+echo "==================================================="
 echo "[BUILD-LINUX] 5. Compiling Linux GPU Miner (CMake)..."
 echo "==================================================="
 mkdir -p 8_miner_gpu/build
@@ -45,6 +52,21 @@ if cmake -S 8_miner_gpu -B 8_miner_gpu/build -DCMAKE_BUILD_TYPE=Release; then
     if cmake --build 8_miner_gpu/build --config Release; then
         cp 8_miner_gpu/build/yona_gpu_miner bin/yona_gpu_miner
         echo "[SUCCESS] Linux GPU Miner compiled successfully!"
+        
+        # Package HiveOS Custom Miner ZIP
+        echo "[BUILD-LINUX] Packaging HiveOS Custom Miner ZIP..."
+        mkdir -p bbuild/yona_gpu_miner_hiveos
+        cp bin/yona_gpu_miner bbuild/yona_gpu_miner_hiveos/
+        cp 10_miner_hiveos/h-manifest.conf bbuild/yona_gpu_miner_hiveos/
+        cp 10_miner_hiveos/h-run.sh bbuild/yona_gpu_miner_hiveos/
+        cp 10_miner_hiveos/h-stats.sh bbuild/yona_gpu_miner_hiveos/
+        
+        # Nén gói cài đặt và dọn dẹp thư mục tạm
+        cd bbuild
+        zip -r ../zip/yona_gpu_miner_hiveos.zip yona_gpu_miner_hiveos
+        rm -rf yona_gpu_miner_hiveos
+        cd ..
+        echo "[SUCCESS] HiveOS Custom Miner package zip/yona_gpu_miner_hiveos.zip created!"
     else
         echo "[WARN] Linux GPU Miner compilation failed!"
     fi

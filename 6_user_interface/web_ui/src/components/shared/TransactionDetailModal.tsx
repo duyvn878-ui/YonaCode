@@ -264,8 +264,8 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({ tx, onC
                       {isRejected ? (t.status_rejected || 'Bị từ chối') : (isFinalized ? t.finality_locked : t.confirming)}
                     </span>
                     <span className="text-[9px] font-bold text-text-muted">
-                      {isRejected 
-                        ? 'Giao dịch không hợp lệ và bị loại bỏ khỏi blockchain.'
+                      {isRejected
+                        ? (tx?.error_message || tx?.status || 'Giao dịch không hợp lệ và bị loại bỏ khỏi blockchain.')
                         : isFinalized
                           ? t.data_sealed_forever
                           : `Khối đè lên: ${overlayBlocksDone}/${OVERLAY_BLOCKS_NEEDED} · Còn ${blocksRemaining} khối · ${formatEstimate(estimatedSeconds)}`

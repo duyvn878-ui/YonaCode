@@ -338,12 +338,13 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                            <button
                               key={dev}
                               disabled={isDisabled}
+                              title={isDisabled ? (t.cpu_locked_tooltip || "Tính năng đào bằng CPU đang tạm khóa") : ""}
                               onClick={() => handleDeviceChange(dev)}
                               className={`py-2 px-1 text-[9px] font-black uppercase rounded-lg transition-all duration-300 ${
                                  deviceMode === dev
                                    ? 'bg-accent-blue text-white shadow-[0_0_15px_rgba(0,136,255,0.4)]'
                                    : isDisabled
-                                     ? 'text-white/10 cursor-not-allowed line-through'
+                                     ? 'text-white/20 cursor-not-allowed line-through hover:border-amber-500/30'
                                      : 'text-white/40 hover:text-white/80 hover:bg-white/5'
                               }`}
                            >
@@ -352,12 +353,10 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                         );
                      })}
                  </div>
-                 {(deviceMode === 'gpu' || deviceMode === 'hybrid') && (
-                    <div className="text-[8px] text-accent-blue/80 font-bold uppercase tracking-wider leading-relaxed bg-accent-blue/5 border border-accent-blue/10 p-2 rounded-lg flex items-start gap-1">
-                       <span>ℹ️</span>
-                       <span>{t.gpu_nvidia_only}</span>
-                    </div>
-                 )}
+                 <div className="text-[10px] text-amber-300/90 font-semibold tracking-normal leading-relaxed bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl flex items-start gap-2">
+                    <span className="shrink-0 text-xs">👉</span>
+                    <span>{t.gpu_nvidia_only}</span>
+                 </div>
               </div>
 
               <div className="vanguard-stats-card p-5 bg-black/60 border border-white/[0.05] rounded-2xl relative overflow-hidden shadow-2xl transition-all duration-500">
@@ -374,11 +373,12 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                        <div className="w-1 h-3 bg-accent-amber/40 rounded-full" />
                     </div>
                  </div>
-                 <div className="flex items-center gap-3 mt-4 p-3 bg-accent-amber/5 rounded-xl border border-accent-amber/10 text-[10px] text-accent-amber/80 italic font-bold">
-                    <AlertTriangle size={14} />
-                    <span className="uppercase tracking-widest leading-relaxed">{t.thermal_warning}</span>
+                 <div className="flex items-center gap-3 mt-4 p-3 bg-amber-500/10 rounded-xl border border-amber-500/20 text-xs text-amber-300 font-medium not-italic">
+                    <AlertTriangle size={16} className="text-amber-400 shrink-0" />
+                    <span className="normal-case tracking-normal leading-relaxed">{t.thermal_warning}</span>
                  </div>
               </div>
+
 
               {deviceMode === 'gpu' && (
                  <motion.div 

@@ -1294,17 +1294,13 @@ func (c *CLIApp) buildAndSubmitTemplate(nextHeight uint64, txs []*pb_block.Trans
 			if tx.Sender == nil { // Bỏ qua Coinbase
 				continue
 			}
-			txData, _ := proto.Marshal(tx)
-			// [VANGUARD-OPTIMIZATION] Tính TxID cục bộ bằng Go Native để tránh gRPC storm GetCanonicalTxHash.
-			h := node_p2p.GetTxIDNative(txData)
+			h := node_p2p.GetSigningHashNative(tx)
 			packedHashes[hex.EncodeToString(h)] = true
 		}
 
 		var removedHashes []string
 		for _, tx := range txs {
-			txData, _ := proto.Marshal(tx)
-			// [VANGUARD-OPTIMIZATION] Tính TxID cục bộ bằng Go Native để tránh gRPC storm GetCanonicalTxHash.
-			h := node_p2p.GetTxIDNative(txData)
+			h := node_p2p.GetSigningHashNative(tx)
 			hStr := hex.EncodeToString(h)
 			if !packedHashes[hStr] {
 				removedHashes = append(removedHashes, hStr)

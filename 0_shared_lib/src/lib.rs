@@ -1796,7 +1796,7 @@ pub fn verify_pow(
     // để xác thực. Việc kiểm soát độ khó DAA ở đây giúp triệt tiêu hoàn toàn các khối rác độ khó thấp (DoS)
     // từ peer độc hại trước khi chúng đi sâu vào hệ thống.
     // Thiết kế: Chỉ chạy kiểm tra khi khối cha đã được lưu trong database. Nếu là khối mồ côi (chưa có cha),
-    // ta chấp nhận bypass kiểm tra độ khó này để Go có thể nhận làm khối mồ côi nhằm kích hoạt cơ chế đồng bộ lùi.
+    // ta chấp nhận  kiểm tra độ khó này để Go có thể nhận làm khối mồ côi nhằm kích hoạt cơ chế đồng bộ lùi.
     if height > 0 {
         if let Some(mgr) = mgr {
             let mut parent_hash = [0u8; 32];
@@ -1876,7 +1876,7 @@ pub fn verify_pow(
                 // [VANGUARD-FIX] Đưa tường lửa LWMA DAA vào khóa chết cửa ngõ của go.
                 // Cơ chế Fail-Closed: Nếu chiều cao khối yêu cầu lịch sử DAA mà DB không trả về đủ
                 // (ví dụ: DB bận, nghẽn I/O hoặc dữ liệu bị thiếu), ta phải báo lỗi và từ chối khối (Fail-Closed).
-                // Không được tự ý bypass hoặc kích hoạt bootstrap guard trả về độ khó cũ.
+               
                 let expected_history_len = height.min(n + 1) as usize;
                 if history_ts.len() < expected_history_len {
                     log::error!(

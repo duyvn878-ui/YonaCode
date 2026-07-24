@@ -18,10 +18,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 	"lukechampine.com/blake3"
 )
 
@@ -53,8 +56,8 @@ type GatewayTx struct {
 type MemoryDB struct {
 	mu           sync.RWMutex
 	LastHeight   uint64                `json:"last_height"`
-	Transactions map[string]*GatewayTx `json:"transactions"`  // khóa: txid
-	AddressIndex map[string][]string   `json:"-"`             // khóa: địa chỉ (đã làm sạch), giá trị: danh sách txids
+	Transactions map[string]*GatewayTx `json:"transactions"` // khóa: txid
+	AddressIndex map[string][]string   `json:"-"`            // khóa: địa chỉ (đã làm sạch), giá trị: danh sách txids
 	FilePath     string                `json:"-"`
 }
 
@@ -139,6 +142,7 @@ func main() {
 	r.HandleFunc("/api/v1/balance/{address}", handleGetBalance).Methods("GET")
 	r.HandleFunc("/api/v1/address/{address}/history", handleAddressHistory).Methods("GET")
 	r.HandleFunc("/api/v1/tx/{txid}", handleGetTxDetail).Methods("GET")
+	r.HandleFunc("/api/v1/prepare_tx", handlePrepareTx).Methods("POST")
 	r.HandleFunc("/api/v1/send_raw_tx", handleSendRawTx).Methods("POST")
 	r.HandleFunc("/api/v1/network/watch-status", handleWatchStatus).Methods("GET")
 
@@ -230,9 +234,8 @@ func runBlockIndexer() {
 		if len(pendingTxs) > 0 {
 			dbUpdated := false
 			for _, tx := range pendingTxs {
-				senderStr := strings.TrimPrefix(tx.Sender, "0x")
-				senderBytes, err := hex.DecodeString(senderStr)
-				if err != nil {
+				senderBytes, err := parseAddressBytes(tx.Sender)
+				if err != nil || len(senderBytes) != 32 {
 					continue
 				}
 				ctxAcc, cancelAcc := context.WithTimeout(context.Background(), 2*time.Second)
@@ -250,13 +253,13 @@ func runBlockIndexer() {
 						db.mu.Unlock()
 						dbUpdated = true
 					} else {
-						// 2. Kiểm tra nếu giao dịch đã chờ quá lâu (ví dụ > 5 phút)
-						// thì tự động đánh dấu thất bại/hết hạn để giải phóng ví cho người dùng gửi lại.
+						// 2. Kiểm tra nếu giao dịch đã chờ quá 600 giây (10 phút) mà chưa được đào vào khối
+						// thì mới đánh dấu hết hạn để giải phóng nonce cho người dùng gửi lại.
 						nowUnix := uint64(time.Now().Unix())
-						if nowUnix > tx.Timestamp && nowUnix-tx.Timestamp > 300 {
+						if nowUnix > tx.Timestamp && nowUnix-tx.Timestamp > 600 {
 							db.mu.Lock()
 							tx.Status = 1 // Thất bại
-							log.Printf("[GATEWAY-CLEANUP] ⏳ Giao dịch %s bị hủy: Hết hạn chờ trong mempool (> 5 phút)", tx.TxID[:10])
+							log.Printf("[GATEWAY-CLEANUP] ⏳ Giao dịch %s bị hủy: Hết hạn chờ trong mempool (> 10 phút)", tx.TxID[:10])
 							db.mu.Unlock()
 							dbUpdated = true
 						}
@@ -285,6 +288,22 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tipHashHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	blockHeight := status.CurrentHeight
+	if blockHeight > 0 {
+		blockHeight--
+	}
+	blockResp, err2 := grpcClient.GetBlock(ctx, &pb_block.GetBlockRequest{Height: blockHeight})
+	if err2 == nil && blockResp.Found {
+		headerBytes, errMarshal := proto.Marshal(blockResp.Block.Header)
+		if errMarshal == nil {
+			hashResp, errHash := grpcClient.CalculateBlockHeaderHash(ctx, &pb_block.RawBytes{Data: headerBytes})
+			if errHash == nil {
+				tipHashHex = hex.EncodeToString(hashResp.Value)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"current_height":   status.CurrentHeight,
@@ -295,14 +314,38 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		"is_mining":        status.IsMining,
 		"hashrate":         status.Hashrate,
 		"sync_progress":    100, // Gateway mặc định là đã đồng bộ hóa hoàn toàn khi có kết quả trả về
+		"tip_hash":         tipHashHex,
 	})
+}
+
+func parseAddressBytes(addrStr string) ([]byte, error) {
+	clean := strings.ToLower(strings.TrimPrefix(addrStr, "0x"))
+	if len(clean)%2 != 0 {
+		clean = "0" + clean
+	}
+	addrBytes, err := hex.DecodeString(clean)
+	if err != nil {
+		return nil, err
+	}
+	if len(addrBytes) == 33 {
+		return addrBytes[1:], nil
+	}
+	if len(addrBytes) > 32 {
+		return addrBytes[len(addrBytes)-32:], nil
+	}
+	if len(addrBytes) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(addrBytes):], addrBytes)
+		return padded, nil
+	}
+	return addrBytes, nil
 }
 
 func handleGetBalance(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	addrStr := vars["address"]
-	addrBytes, err := hex.DecodeString(strings.TrimPrefix(addrStr, "0x"))
-	if err != nil || len(addrBytes) != 32 {
+	addrBytes, err := parseAddressBytes(addrStr)
+	if err != nil || len(addrBytes) == 0 {
 		http.Error(w, `{"error": "Định dạng địa chỉ không hợp lệ"}`, http.StatusBadRequest)
 		return
 	}
@@ -326,10 +369,25 @@ func handleGetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tính toán expected_nonce dựa trên các giao dịch đang chờ (Pending - status 99)
+	db.mu.RLock()
+	expectedNonce := acc.Nonce
+	cleanQuery := hex.EncodeToString(addrBytes)
+	for _, tx := range db.Transactions {
+		sBytes, err := parseAddressBytes(tx.Sender)
+		if err == nil && hex.EncodeToString(sBytes) == cleanQuery && tx.Status == 99 {
+			if tx.Nonce >= expectedNonce {
+				expectedNonce = tx.Nonce + 1
+			}
+		}
+	}
+	db.mu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"address": addrStr,
-		"nonce":   acc.Nonce,
+		"address":        addrStr,
+		"nonce":          acc.Nonce,
+		"expected_nonce": expectedNonce,
 		"balances": map[string]uint64{
 			"btc_z":     acc.Balance,
 			"spendable": acc.Balance, // Phiên bản cổng độc lập hiện tại chỉ hiển thị số dư tài khoản đơn giản
@@ -340,15 +398,20 @@ func handleGetBalance(w http.ResponseWriter, r *http.Request) {
 
 func handleAddressHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	addrStr := strings.ToLower(strings.TrimPrefix(vars["address"], "0x"))
+	addrBytes, err := parseAddressBytes(vars["address"])
+	if err != nil {
+		http.Error(w, `{"error": "Định dạng địa chỉ không hợp lệ"}`, http.StatusBadRequest)
+		return
+	}
+	cleanQuery := hex.EncodeToString(addrBytes)
 
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
 	var history []GatewayTx
-	txids := db.AddressIndex[addrStr]
-	
-	// Lấy chi tiết thông tin giao dịch (giới hạn 100 mục gần nhất để tránh quá tải tải lượng DDoS)
+	txids := db.AddressIndex[cleanQuery]
+
+	// Lấy chi tiết thông tin giao dịch (bao gồm cả giao dịch thất bại để người dùng theo dõi lý do)
 	limit := 100
 	count := 0
 	for i := len(txids) - 1; i >= 0 && count < limit; i-- {
@@ -358,6 +421,14 @@ func handleAddressHistory(w http.ResponseWriter, r *http.Request) {
 			count++
 		}
 	}
+
+	// Sắp xếp lịch sử giao dịch theo timestamp giảm dần (mới nhất lên đầu)
+	sort.Slice(history, func(i, j int) bool {
+		if history[i].Timestamp != history[j].Timestamp {
+			return history[i].Timestamp > history[j].Timestamp
+		}
+		return history[i].Nonce > history[j].Nonce
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -380,17 +451,28 @@ func handleGetTxDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	// Phản hồi theo định dạng đã được ánh xạ tương ứng với cấu trúc mong muốn của App.tsx
+	// Phản hồi theo định dạng chuẩn hóa tương thích tuyệt đối với App.tsx
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"txid":          tx.TxID,
 		"ID":            tx.TxID,
+		"sender":        tx.Sender,
 		"Sender":        tx.Sender,
+		"receiver":      tx.Receiver,
 		"Receiver":      tx.Receiver,
+		"amount":        tx.Amount,
 		"Amount":        tx.Amount,
+		"fee":           tx.Fee,
 		"Fee":           tx.Fee,
+		"nonce":         tx.Nonce,
 		"Nonce":         tx.Nonce,
+		"timestamp":     tx.Timestamp,
 		"Timestamp":     tx.Timestamp,
+		"status":        tx.Status,
+		"status_code":   mapGatewayStatus(tx.Status),
 		"StatusCode":    mapGatewayStatus(tx.Status),
+		"blockHeight":   tx.BlockHeight,
 		"Height":        tx.BlockHeight,
+		"confirmations": tx.Confirmations,
 		"Confirmations": tx.Confirmations,
 	})
 }
@@ -426,14 +508,14 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderBytes, err := hex.DecodeString(strings.TrimPrefix(ftarg.Sender, "0x"))
-	if err != nil {
-		http.Error(w, `{"error": "Địa chỉ người gửi không hợp lệ"}`, http.StatusBadRequest)
+	senderBytes, err := parseAddressBytes(ftarg.Sender)
+	if err != nil || len(senderBytes) != 32 {
+		http.Error(w, `{"error": "Địa chỉ người gửi không hợp lệ (cần 32 bytes)"}`, http.StatusBadRequest)
 		return
 	}
-	receiverBytes, err := hex.DecodeString(strings.TrimPrefix(ftarg.Receiver, "0x"))
-	if err != nil {
-		http.Error(w, `{"error": "Địa chỉ người nhận không hợp lệ"}`, http.StatusBadRequest)
+	receiverBytes, err := parseAddressBytes(ftarg.Receiver)
+	if err != nil || len(receiverBytes) != 32 {
+		http.Error(w, `{"error": "Địa chỉ người nhận không hợp lệ (cần 32 bytes)"}`, http.StatusBadRequest)
 		return
 	}
 	recentBlockHashBytes, err := hex.DecodeString(strings.TrimPrefix(ftarg.RecentBlockHash, "0x"))
@@ -464,8 +546,37 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	hashRes, err := grpcClient.SubmitTransaction(ctx, &tx)
+
+	txTimestamp := tx.Timestamp
+	if txTimestamp == 0 {
+		txTimestamp = uint64(time.Now().Unix())
+	}
+
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error": "%v"}`, err), http.StatusInternalServerError)
+		// Ngay cả khi thợ đào/node từ chối giao dịch, vẫn phải tính toán txid và lưu lịch sử thất bại vào DB
+		txidBytes := calculateSigningHash(&tx)
+		txidHex := hex.EncodeToString(txidBytes)
+		txidWithPrefix := "0x" + txidHex
+
+		db.mu.Lock()
+		failedTx := &GatewayTx{
+			TxID:          txidWithPrefix,
+			Sender:        "0x" + hex.EncodeToString(tx.Sender.Value),
+			Receiver:      "0x" + hex.EncodeToString(tx.Receiver.Value),
+			Amount:        tx.Amount,
+			Fee:           tx.Fee,
+			Nonce:         tx.Nonce,
+			Timestamp:     txTimestamp,
+			Status:        1, // Thất bại / Bị từ chối
+			Confirmations: 0,
+		}
+		db.Transactions[txidHex] = failedTx
+		db.addTxToAddressIndex(failedTx)
+		db.mu.Unlock()
+		db.save()
+		broadcastSSE("update")
+
+		http.Error(w, fmt.Sprintf(`{"error": "%v", "txid": "%s"}`, err, txidWithPrefix), http.StatusInternalServerError)
 		return
 	}
 
@@ -481,7 +592,7 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		Amount:        tx.Amount,
 		Fee:           tx.Fee,
 		Nonce:         tx.Nonce,
-		Timestamp:     tx.Timestamp,
+		Timestamp:     txTimestamp,
 		Status:        99, // Đang chờ trong Mempool
 		Confirmations: 0,
 	}
@@ -495,9 +606,126 @@ func handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"txid":    txidWithPrefix,
 	})
-	
+
 	// Kích hoạt phát tín hiệu cập nhật thời gian thực cục bộ ngay lập tức
+
 	broadcastSSE("update")
+}
+
+// Cấu trúc yêu cầu tạo bản nháp giao dịch
+type PrepareTxRequest struct {
+	Sender   string `json:"sender"`
+	Receiver string `json:"receiver"`
+	Amount   uint64 `json:"amount"` // Số tiền tính bằng VNT (1 GO = 100,000,000 VNT)
+}
+
+// Cấu trúc phản hồi bản nháp giao dịch đã đóng gói
+type PrepareTxResponse struct {
+	Success         bool   `json:"success"`
+	Error           string `json:"error,omitempty"`
+	Version         uint64 `json:"version"`
+	Sender          string `json:"sender"`
+	Receiver        string `json:"receiver"`
+	Amount          uint64 `json:"amount"`
+	Fee             uint64 `json:"fee"`
+	CreationFee     uint64 `json:"creation_fee"`
+	Nonce           uint64 `json:"nonce"`
+	Timestamp       uint64 `json:"timestamp"`
+	RecentBlockHash string `json:"recent_block_hash"`
+	SigningHash     string `json:"signing_hash"`
+	ChainId         uint64 `json:"chain_id"`
+}
+
+// calculateSigningHash: Tính toán mã băm Blake3 của giao dịch bằng DeriveKey
+func calculateSigningHash(tx *pb_block.Transaction) []byte {
+	if tx == nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	var tmp8 [8]byte
+	var tmp4 [4]byte
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.Version)
+	buf.Write(tmp8[:])
+
+	if tx.Sender != nil && len(tx.Sender.Value) > 0 {
+		binary.LittleEndian.PutUint32(tmp4[:], uint32(len(tx.Sender.Value)))
+		buf.Write(tmp4[:])
+		buf.Write(tx.Sender.Value)
+	} else {
+		binary.LittleEndian.PutUint32(tmp4[:], 0)
+		buf.Write(tmp4[:])
+	}
+
+	if tx.Receiver != nil && len(tx.Receiver.Value) > 0 {
+		binary.LittleEndian.PutUint32(tmp4[:], uint32(len(tx.Receiver.Value)))
+		buf.Write(tmp4[:])
+		buf.Write(tx.Receiver.Value)
+	} else {
+		binary.LittleEndian.PutUint32(tmp4[:], 0)
+		buf.Write(tmp4[:])
+	}
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.Amount)
+	buf.Write(tmp8[:])
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.Fee)
+	buf.Write(tmp8[:])
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.Nonce)
+	buf.Write(tmp8[:])
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.Timestamp)
+	buf.Write(tmp8[:])
+
+	binary.LittleEndian.PutUint32(tmp4[:], uint32(len(tx.RecentBlockHash)))
+	buf.Write(tmp4[:])
+	buf.Write(tx.RecentBlockHash)
+
+	binary.LittleEndian.PutUint64(tmp8[:], tx.ChainId)
+	buf.Write(tmp8[:])
+
+	hash := make([]byte, 32)
+	blake3.DeriveKey(hash, RustCryptoContext, buf.Bytes())
+	return hash
+}
+
+func getFullNodeHTTPAddr() string {
+	host := nodeAddr
+	if strings.Contains(host, ":") {
+		parts := strings.Split(host, ":")
+		host = parts[0]
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	return "http://" + host + ":8080"
+}
+
+func handlePrepareTx(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req PrepareTxRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(PrepareTxResponse{Success: false, Error: "JSON request body không hợp lệ"})
+		return
+	}
+	defer r.Body.Close()
+
+	fullNodeHTTP := getFullNodeHTTPAddr()
+	reqBytes, _ := json.Marshal(req)
+
+	resp, err := http.Post(fullNodeHTTP+"/api/v1/prepare_unsigned_tx", "application/json", bytes.NewBuffer(reqBytes))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(PrepareTxResponse{Success: false, Error: "Không thể kết nối tới Full Node để đóng gói giao dịch: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // ==========================================
@@ -599,6 +827,17 @@ func (db *MemoryDB) indexBlock(block *pb_block.Block, height uint64, tip uint64)
 		if tx.Receiver != nil && len(tx.Receiver.Value) > 0 {
 			receiverAddr = "0x" + hex.EncodeToString(tx.Receiver.Value)
 		}
+		txTimestamp := tx.Timestamp
+		if txTimestamp == 0 {
+			if block.Header != nil && block.Header.Timestamp > 0 {
+				txTimestamp = block.Header.Timestamp
+			} else if height > 0 {
+				// Mốc thời gian mạng Genesis + height * 3s
+				txTimestamp = 1750800000 + (height * 3)
+			} else {
+				txTimestamp = uint64(time.Now().Unix())
+			}
+		}
 		newTx := &GatewayTx{
 			TxID:          "0x" + txid,
 			Sender:        senderAddr,
@@ -606,7 +845,7 @@ func (db *MemoryDB) indexBlock(block *pb_block.Block, height uint64, tip uint64)
 			Amount:        tx.Amount,
 			Fee:           tx.Fee,
 			Nonce:         tx.Nonce,
-			Timestamp:     tx.Timestamp,
+			Timestamp:     txTimestamp,
 			Status:        0, // Thành công (Đã khai thác vào khối)
 			BlockHeight:   height,
 			Confirmations: tip - height + 1,
@@ -627,26 +866,33 @@ func (db *MemoryDB) rebuildAddressIndex() {
 	}
 }
 
-// Thêm một giao dịch vào bản đồ chỉ mục địa chỉ tương ứng
+// Thêm một giao dịch vào bản đồ chỉ mục địa chỉ tương ứng (Chuẩn hóa 32-byte hex)
 func (db *MemoryDB) addTxToAddressIndex(tx *GatewayTx) {
 	if db.AddressIndex == nil {
 		db.AddressIndex = make(map[string][]string)
 	}
-	sender := strings.ToLower(strings.TrimPrefix(tx.Sender, "0x"))
-	receiver := strings.ToLower(strings.TrimPrefix(tx.Receiver, "0x"))
+	sBytes, errS := parseAddressBytes(tx.Sender)
+	rBytes, errR := parseAddressBytes(tx.Receiver)
 
 	appendUnique := func(addr, txid string) {
+		if addr == "" {
+			return
+		}
 		list := db.AddressIndex[addr]
 		for _, id := range list {
 			if id == txid {
 				return
 			}
 		}
-		db.AddressIndex[addr] = append(list, txid)
+		db.AddressIndex[addr] = append(db.AddressIndex[addr], txid)
 	}
 
-	appendUnique(sender, tx.TxID)
-	appendUnique(receiver, tx.TxID)
+	if errS == nil {
+		appendUnique(hex.EncodeToString(sBytes), tx.TxID)
+	}
+	if errR == nil {
+		appendUnique(hex.EncodeToString(rBytes), tx.TxID)
+	}
 }
 
 // Tính toán mã băm chữ ký (signing hash) của giao dịch trực tiếp bằng ngôn ngữ Go

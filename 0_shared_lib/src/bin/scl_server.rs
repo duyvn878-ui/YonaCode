@@ -1083,7 +1083,14 @@ impl SclService for MySclService {
             // Key: địa chỉ ví [u8; 32] -> Value: (SpendableBalance, ExpectedNonce, IsNewWallet)
             let mut wallet_cache: std::collections::HashMap<[u8; 32], (u64, u64, bool)> = prefetched_states.into_iter().collect();
 
-
+            let height = mgr.get_current_version();
+            let start_h = height.saturating_sub(100);
+            let mut recent_hashes = std::collections::HashSet::new();
+            for h in start_h..=height {
+                if let Some(h_val) = mgr.get_block_hash(h) {
+                    recent_hashes.insert(h_val);
+                }
+            }
 
             for item in pre_validated {
                 match item {
@@ -1097,6 +1104,31 @@ impl SclService for MySclService {
                     }
                     Ok((tx, tx_signing_hash, sender_bytes, _sig_bytes)) => {
                         let tx_hash_vec = tx_signing_hash.to_vec();
+
+                        // Kiểm tra Replay/Outdated Recent Block Hash
+                        if tx.amount > 0 && height >= 15 {
+                            if tx.recent_block_hash.len() == 32 {
+                                let mut tx_rbh = [0u8; 32];
+                                tx_rbh.copy_from_slice(&tx.recent_block_hash);
+                                if !recent_hashes.contains(&tx_rbh) {
+                                    results.push(TxValidationResult {
+                                        tx_hash: tx_hash_vec.clone(),
+                                        is_valid: false,
+                                        status_code: 107, // OUTDATED_RECENT_HASH
+                                        error_msg: format!("Replay/Outdated TX recent block hash: {}", hex::encode(tx_rbh)),
+                                    });
+                                    continue;
+                                }
+                            } else {
+                                results.push(TxValidationResult {
+                                    tx_hash: tx_hash_vec.clone(),
+                                    is_valid: false,
+                                    status_code: 108, // MISSING_RECENT_HASH
+                                    error_msg: "Missing or invalid recent block hash length".to_string(),
+                                });
+                                continue;
+                            }
+                        }
 
                         // Lấy hoặc khởi tạo cache cho người gửi (bản sao các thông số ra)
                         let (sender_balance, sender_nonce, _) = {

@@ -47,11 +47,11 @@ const ExplorerStatBlock = ({
         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${bgClass} bg-opacity-20 border-opacity-30 ${colorClass}`}>
           <Icon size={24} className={shimmer ? 'animate-pulse' : ''} />
         </div>
-        <span className={`text-[11px] font-black uppercase tracking-[0.4em] ${colorClass} italic opacity-60`}>{title}</span>
+        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 not-italic">{title}</span>
       </div>
       
       <div className="mt-auto flex flex-col gap-2">
-        <span className="text-4xl font-black italic tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] tabular-nums">
+        <span className="text-3xl sm:text-4xl font-semibold tracking-normal text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] tabular-nums font-mono not-italic">
           {value}
         </span>
 
@@ -86,7 +86,7 @@ const ExplorerStatBlock = ({
         )}
 
         <div className="flex items-center gap-2">
-           <span className="text-[10px] font-bold text-white/30 uppercase tracking-[0.25em]">{label}</span>
+           <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider not-italic">{label}</span>
            <div className={`h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent`} />
         </div>
       </div>
@@ -140,13 +140,14 @@ const UnifiedExplorerPanel: React.FC<UnifiedExplorerPanelProps> = ({ status, min
          />
          
          <ExplorerStatBlock 
-            title={t.storage_label || "LEDGER_CIRCULATION"}
-            value={supply.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            label={t.go_supply_l0 || "GO_SUPPLY_L0"}
+            title={t.storage_label || "SỔ CÁI LƯU TRỮ"}
+            value={typeof supply === 'number' ? supply.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : supply}
+            label={t.go_supply_l0 || "TỔNG CUNG GO L0"}
             icon={Database}
-            colorClass="text-accent-amber"
-            bgClass="bg-accent-amber"
+            colorClass="text-amber-400"
+            bgClass="bg-amber-500"
          />
+
          
          <ExplorerStatBlock 
             title={t.network_intel || "NODE_CONSENSUS"}

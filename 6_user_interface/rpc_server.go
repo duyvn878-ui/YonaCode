@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"mime"
 	"net/http"
 	"os"
@@ -34,7 +35,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"math/big"
 
 	"github.com/tyler-smith/go-bip39"
 
@@ -42,7 +42,7 @@ import (
 	node_p2p "btc_genz/5_node_p2p"
 	"btc_genz/6_user_interface/audit"
 	"btc_genz/6_user_interface/internal"
-	"btc_genz/9_mining_pool"
+	mining_pool "btc_genz/9_mining_pool"
 	pb_block "btc_genz/proto"
 
 	"github.com/gorilla/mux"
@@ -158,8 +158,9 @@ type RPCServer struct {
 	lastWalletUpdate time.Time
 	walletCacheMu    sync.RWMutex
 
-	// [FINALITY-UI] In-memory Tx Tracker
+	// [FINALITY-UI] In-memory Tx Tracker & O(1) Address Index Map
 	txTracker         map[string]*TrackedTx // key: TxID hex
+	addrTxIndex       map[string][]string   // key: cleanAddr -> []TxID (Instant O(1) Lookup)
 	txTrackerMu       sync.RWMutex
 	txOrder           []string // Thứ tự TxID theo thời gian
 	lastFinalizedH    uint64   // Cache chiều cao finalized gần nhất để phát hiện thay đổi
@@ -179,13 +180,13 @@ type RPCServer struct {
 	nodeMode   string
 	nodeModeMu sync.RWMutex
 
-	miningDevice      string // "cpu", "gpu", or "hybrid"
-	miningDeviceMu    sync.RWMutex
-	gpuEnvError       string
-	gpuEnvErrorMu     sync.RWMutex
-	cpuHashrate       uint64
-	gpuHashrate       uint64
-	lastGpuHashTime   time.Time
+	miningDevice    string // "cpu", "gpu", or "hybrid"
+	miningDeviceMu  sync.RWMutex
+	gpuEnvError     string
+	gpuEnvErrorMu   sync.RWMutex
+	cpuHashrate     uint64
+	gpuHashrate     uint64
+	lastGpuHashTime time.Time
 
 	// [MINER V3] Startup Guard & Grace Period
 	launchTime     time.Time
@@ -240,14 +241,14 @@ type RPCServer struct {
 	senderLocks   map[string]*countedMutex
 	senderLocksMu sync.Mutex
 
-	pool          *mining_pool.MiningPool
+	pool *mining_pool.MiningPool
 
 	// [MINER-STREAM] Các trường quản lý kết nối thợ đào độc lập
-	minerStreams     map[uint64]pb_block.MinerGateway_ConnectMinerServer
-	minerHashrates   map[uint64]uint64
-	minerAddresses   map[uint64]string
-	nextStreamId     uint64
-	minerStreamsMu   sync.RWMutex
+	minerStreams       map[uint64]pb_block.MinerGateway_ConnectMinerServer
+	minerHashrates     map[uint64]uint64
+	minerAddresses     map[uint64]string
+	nextStreamId       uint64
+	minerStreamsMu     sync.RWMutex
 	internetAutoPaused bool
 	internetOffline    int32 // 0: Online, 1: Offline
 	lastRejectLogTime  time.Time
@@ -269,43 +270,44 @@ type NodeConfig struct {
 	NodeMode      string `json:"node_mode"`
 	RewardAddress string `json:"reward_address"`
 	NodeID        string `json:"node_id,omitempty"` // Thêm NodeID để định danh cấu hình này thuộc về node nào
-	MiningDevice  string `json:"mining_device"`    // Thiết bị khai thác (cpu, gpu, hybrid)
+	MiningDevice  string `json:"mining_device"`     // Thiết bị khai thác (cpu, gpu, hybrid)
 }
 
 const maxTrackedTxs = 5000 // [VANGUARD-OPTIMIZATION] Giới hạn bộ đệm RAM 5,000 giao dịch để tránh phình to bộ nhớ và đĩa cứng dưới tải cao khi stress test
 
 func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port int, wm *internal.WalletManager, minerAddr []byte, minerKey ed25519.PrivateKey, app *CLIApp) *RPCServer {
 	s := &RPCServer{
-		bridge:            br,
-		netMgr:            netMgr,
-		port:              port,
-		walletMgr:         wm,
-		minerAddr:         minerAddr,
-		minerKey:          minerKey,
-		cliApp:            app,
-		txTracker:         make(map[string]*TrackedTx),
-		txOrder:           make([]string, 0),
-		nodeMode:          app.GetNodeMode(),
-		cpuIntensity:      50,
-		launchTime:        time.Now(),
-		txUpdateChan:      make(chan struct{}, 100),
-		blockUpdateChan:   make(chan struct{}, 100), // [REALTIME-BLOCK-FIX]
-		historyWriteChan:  make(chan struct{}, 1),
-		dbPath:            filepath.Clean(app.dbPath), // [V1.65 PORTABLE] Chuẩn hóa đường dẫn để hoạt động trên mọi máy
-		rateLimiters:      make(map[string]*tokenBucket),
-		seedCache:         make(map[string][]byte),
+		bridge:             br,
+		netMgr:             netMgr,
+		port:               port,
+		walletMgr:          wm,
+		minerAddr:          minerAddr,
+		minerKey:           minerKey,
+		cliApp:             app,
+		txTracker:          make(map[string]*TrackedTx),
+		addrTxIndex:        make(map[string][]string),
+		txOrder:            make([]string, 0),
+		nodeMode:           app.GetNodeMode(),
+		cpuIntensity:       50,
+		launchTime:         time.Now(),
+		txUpdateChan:       make(chan struct{}, 100),
+		blockUpdateChan:    make(chan struct{}, 100), // [REALTIME-BLOCK-FIX]
+		historyWriteChan:   make(chan struct{}, 1),
+		dbPath:             filepath.Clean(app.dbPath), // [V1.65 PORTABLE] Chuẩn hóa đường dẫn để hoạt động trên mọi máy
+		rateLimiters:       make(map[string]*tokenBucket),
+		seedCache:          make(map[string][]byte),
 		balanceCache:       make(map[string]uint64),
 		balanceCacheTime:   make(map[string]time.Time),
 		avgBlockTimeCache:  make(map[uint64]float64),
 		blockHashrateCache: make(map[uint64]uint64),
 		recentBlocksCache:  make([]interface{}, 0, 200),
-		cachedWallets:     make(map[string]bool),
-		lastWalletUpdate:  time.Time{},
-		senderLocks:       make(map[string]*countedMutex),
-		minerStreams:      make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
-		minerHashrates:    make(map[uint64]uint64),
-		minerAddresses:    make(map[uint64]string),
-		miningDevice:      "gpu",
+		cachedWallets:      make(map[string]bool),
+		lastWalletUpdate:   time.Time{},
+		senderLocks:        make(map[string]*countedMutex),
+		minerStreams:       make(map[uint64]pb_block.MinerGateway_ConnectMinerServer),
+		minerHashrates:     make(map[uint64]uint64),
+		minerAddresses:     make(map[uint64]string),
+		miningDevice:       "gpu",
 		lastRejectLogTime:  time.Time{},
 	}
 
@@ -427,6 +429,9 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 				}
 			}
 			s.triggerSave()
+			if len(txsBySender) > 0 && s.cliApp != nil {
+				go s.cliApp.RefreshMiningTask()
+			}
 		})
 		// [V7.1 PERFORMANCE] Chuyển đổi sang cơ chế Event-driven lắng nghe blockUpdateChan để đồng bộ Mempool Tracker
 		// Tại sao: Loại bỏ hoàn toàn việc polling định kỳ mỗi 2 giây vốn gây nghẽn CPU không cần thiết.
@@ -544,7 +549,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 // [V38.0 FIX-RACE] Thêm cơ chế Retry + Fallback để xử lý Race Condition khi RocksDB chưa flush xong
 // [V39.0 MEGA-BLOCKS] Tối ưu hóa hiệu năng cực cao bằng cách tự tính TxID qua Go Native Hashing và Lazy Evaluation.
 func (s *RPCServer) SyncBlockToTracker(height uint64) {
-	// Tại sao thiết kế như vậy: Trì hoãn việc quét khối UI Tracker 2 giây để tránh bão gRPC/RocksDB 
+	// Tại sao thiết kế như vậy: Trì hoãn việc quét khối UI Tracker 2 giây để tránh bão gRPC/RocksDB
 	// tranh chấp CPU/IO với thợ đào ngay khoảnh khắc chuyển khối, giúp thợ đào tạo Block Template mới
 	// và bắt đầu băm khối mới trên genz_miner.exe tức thì mà không gặp bất kỳ độ trễ nào.
 	time.Sleep(2 * time.Second)
@@ -793,7 +798,7 @@ func (s *RPCServer) SyncBlockToTracker(height uint64) {
 
 		// [AUTOMATIC-STALE-CLEANUP-FIX] Tự động dọn dẹp các giao dịch stale trong Mempool khi có block mới
 		// Tại sao: Xóa các giao dịch cũ có nonce nhỏ hơn nonce hiện tại của ví gửi khi có block mới.
-		// Bằng cách thực hiện trực tiếp tại đây, chúng ta loại bỏ hoàn toàn race condition do RocksDB chưa kịp ghi block body 
+		// Bằng cách thực hiện trực tiếp tại đây, chúng ta loại bỏ hoàn toàn race condition do RocksDB chưa kịp ghi block body
 		// khi gọi GetBlock(height) ở callback ngoài. Tại đây block body đã được unmarshal thành công.
 		sendersSeen := make(map[string]bool)
 		for _, tx := range body.Transactions {
@@ -820,6 +825,23 @@ func (s *RPCServer) SyncBlockToTracker(height uint64) {
 					senders[idx] = hex.EncodeToString(entry.Address)
 					nonces[idx] = entry.Nonce
 				}
+
+				// [AUTOMATIC-STALE-CLEANUP-FIX] Tự động cập nhật trạng thái các giao dịch stale thành Rejected/Failed trong Tracker
+				s.txTrackerMu.Lock()
+				for idx, senderHex := range senders {
+					currentNonce := nonces[idx]
+					for _, tx := range s.txTracker {
+						if strings.ToLower(strings.TrimPrefix(tx.Sender, "0x")) == strings.ToLower(senderHex) {
+							if tx.BlockHeight == 0 && tx.Status == 99 && tx.Nonce < currentNonce {
+								tx.Status = 3 // Nonce Mismatch / Stale
+								tx.ErrorMessage = "Giao dịch bị từ chối: Số Nonce quá thấp hoặc đã bị bỏ qua"
+							}
+						}
+					}
+				}
+				s.txTrackerMu.Unlock()
+				s.triggerSave()
+
 				removed := s.netMgr.Mempool.RemoveStaleNonceTxsBatch(senders, nonces)
 				if removed > 0 {
 					log.Printf("[MEMPOOL-RPC-CLEANUP] 🧹 Đã dọn dẹp hàng loạt %d TX rác cho %d ví", removed, len(senders))
@@ -1128,7 +1150,7 @@ func (s *RPCServer) loadNodeConfig() {
 	} else if cfg.MiningDevice != "" {
 		s.miningDevice = cfg.MiningDevice
 	}
-	
+
 	if s.miningDevice != "gpu" {
 		log.Printf("[CONFIG] ⚠️ Thiết bị đào '%s' đã bị vô hiệu hóa (Chỉ hỗ trợ đào bằng GPU). Tự động chuyển sang: gpu", s.miningDevice)
 		s.miningDevice = "gpu"
@@ -1468,7 +1490,7 @@ func (s *RPCServer) loadHistory() {
 		zombieCleanupCount := 0
 		for _, txid := range s.txOrder {
 			tx := s.txTracker[txid]
-			if tx.BlockHeight == 0 && (tx.Status == 0 || tx.Status == 99 || tx.Status == 9) && !pendingHashes[txid] {
+			if tx.BlockHeight == 0 && !pendingHashes[txid] {
 				delete(s.txTracker, txid)
 				zombieCleanupCount++
 			} else {
@@ -1993,8 +2015,8 @@ func (s *RPCServer) getTxStatusMessage(statusCode uint32) string {
 }
 
 // updateTxTracker: (V2.8 IDENTITY SYNC) Quản lý Sổ theo dõi Giao dịch UI với khả năng gộp trùng lặp.
-// Tại sao: Thiết kế này được tối ưu hóa để tránh gọi GetBalance gRPC khi h > 0, 
-// bằng cách lấy trực tiếp số dư trước/sau từ biên lai (receipt) của khối đã xác nhận, 
+// Tại sao: Thiết kế này được tối ưu hóa để tránh gọi GetBalance gRPC khi h > 0,
+// bằng cách lấy trực tiếp số dư trước/sau từ biên lai (receipt) của khối đã xác nhận,
 // giảm tải hoàn toàn I/O đĩa và FFI bridge.
 func (s *RPCServer) updateTxTracker(txHash string, sender, receiver string, amount, fee, nonce uint64, h uint64, ts int64, errMsg string) {
 	sender = strings.ToLower(strings.TrimPrefix(sender, "0x"))
@@ -2508,8 +2530,19 @@ func (s *RPCServer) syncMempoolToTracker() {
 					res.tx.Status = res.status
 					res.tx.ErrorMessage = s.getTxStatusMessage(res.status)
 				} else {
-					res.tx.Status = 3
-					res.tx.ErrorMessage = "Sai số thứ tự giao dịch (Nonce Mismatch / Stale)"
+					inMempool := false
+					if s.netMgr != nil && s.netMgr.Mempool != nil {
+						if mp, ok := s.netMgr.Mempool.(*node_p2p.Mempool); ok {
+							_, inMempool = mp.GetTransaction(res.tx.TxID)
+						}
+					}
+					if !inMempool {
+						txAge := time.Now().Unix() - res.tx.Timestamp
+						if txAge > 900 {
+							res.tx.Status = 3
+							res.tx.ErrorMessage = "Sai số thứ tự giao dịch (Nonce Mismatch / Stale)"
+						}
+					}
 				}
 			}
 		}
@@ -2745,7 +2778,7 @@ func (s *RPCServer) startAlertConsoleLogger() {
 			if alert.GithubUrl != "" {
 				urlInfo = fmt.Sprintf(" | GitHub Update Link: %s", alert.GithubUrl)
 			}
-			fmt.Printf("\033[31m[EMERGENCY-ALERT] 🚨 %s (Vietnamese: %s) [ID: %d, Expiration Block: #%d]%s\033[0m\n", 
+			fmt.Printf("\033[31m[EMERGENCY-ALERT] 🚨 %s (Vietnamese: %s) [ID: %d, Expiration Block: #%d]%s\033[0m\n",
 				alert.MessageEn, alert.MessageVi, alert.ID, alert.ExpirationBlock, urlInfo)
 		}
 	}
@@ -2780,12 +2813,12 @@ func (s *RPCServer) Start() {
 						log.Printf("[INTERNET-WARN] ⏸️ Tự động tạm dừng khai thác Blake3-PoW và đóng các tiến trình máy đào để bảo vệ chuỗi.")
 						s.bridge.SetMiningPause(true)
 						s.StopConfiguredMiners()
-						
+
 						// Xóa template khối cũ để ngăn chặn việc đào tiếp tục trên getwork cũ
 						s.cliApp.activeMiningMu.Lock()
 						s.cliApp.activeBlock = nil
 						s.cliApp.activeMiningMu.Unlock()
-						
+
 						s.internetAutoPaused = true
 					}
 				}
@@ -2797,13 +2830,13 @@ func (s *RPCServer) Start() {
 					if s.cliApp.GetNodeMode() == "full-mining" && s.internetAutoPaused {
 						log.Printf("[INTERNET-OK] ▶️ Tự động khôi phục khai thác Blake3-PoW.")
 						s.bridge.SetMiningPause(false)
-						
+
 						// Tạo lại template khối mới từ mempool và phát sóng
 						s.cliApp.RefreshMiningTask()
-						
+
 						// Khởi động lại các tiến trình đào GPU/CPU
 						s.StartConfiguredMiners()
-						
+
 						s.internetAutoPaused = false
 					}
 				}
@@ -2874,6 +2907,7 @@ func (s *RPCServer) Start() {
 	// CORE RPC API
 	r.HandleFunc("/api/v1/send_tx", s.localhostOnly(s.handleSendTx)).Methods("POST")
 	r.HandleFunc("/api/v1/send_raw_tx", s.walletGate(s.handleSendRawTx)).Methods("POST")
+	r.HandleFunc("/api/v1/prepare_unsigned_tx", s.walletGate(s.handlePrepareUnsignedTx)).Methods("POST")
 	r.HandleFunc("/api/v1/send_batch_tx", s.localhostOnly(s.handleSendBatchTx)).Methods("POST")
 	r.HandleFunc("/api/v1/block/{height}", s.handleGetBlock).Methods("GET")
 	r.HandleFunc("/api/v1/balance/{address}", s.walletGate(s.handleGetBalance)).Methods("GET")
@@ -3092,17 +3126,17 @@ func (s *RPCServer) handleGetBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"height":          height,
-		"hash":            hex.EncodeToString(blockHash),
-		"parent_hash":     parentHash,
-		"timestamp":       block.Header.Timestamp,
-		"nonce":           block.Header.Nonce,
-		"difficulty":      hex.EncodeToString(block.Header.Difficulty),
-		"state_root":      hex.EncodeToString(block.Header.StateRoot.GetValue()),
-		"tx_root":         hex.EncodeToString(block.Header.TxRoot.GetValue()),
-		"miner":           hex.EncodeToString(block.Header.MinerAddress.GetValue()),
-		"tx_count":        len(txList),
-		"transactions":    txList,
+		"height":       height,
+		"hash":         hex.EncodeToString(blockHash),
+		"parent_hash":  parentHash,
+		"timestamp":    block.Header.Timestamp,
+		"nonce":        block.Header.Nonce,
+		"difficulty":   hex.EncodeToString(block.Header.Difficulty),
+		"state_root":   hex.EncodeToString(block.Header.StateRoot.GetValue()),
+		"tx_root":      hex.EncodeToString(block.Header.TxRoot.GetValue()),
+		"miner":        hex.EncodeToString(block.Header.MinerAddress.GetValue()),
+		"tx_count":     len(txList),
+		"transactions": txList,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -3231,15 +3265,15 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 				"recv": recv,
 			}
 		}(),
-		"difficulty":       getDifficulty(s.bridge),
-		"avg_block_time":   s.calculateAvgBlockTime(),
-		"block_reward":     float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
-		"total_supply":     float64(s.bridge.GetActualTotalSupply()) / 1e8,
-		"hashrate":         atomic.LoadUint64(&s.currentHashrate),
-		"network_hashrate": s.calculateNetworkHashrate(),
+		"difficulty":               getDifficulty(s.bridge),
+		"avg_block_time":           s.calculateAvgBlockTime(),
+		"block_reward":             float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
+		"total_supply":             float64(s.bridge.GetActualTotalSupply()) / 1e8,
+		"hashrate":                 atomic.LoadUint64(&s.currentHashrate),
+		"network_hashrate":         s.calculateNetworkHashrate(),
 		"network_hashrate_history": s.getNetworkHashrateHistory(),
-		"top_miners":       s.getTopMiners(),
-		"pending_tx_count": len(s.netMgr.Mempool.GetPendingTxList()),
+		"top_miners":               s.getTopMiners(),
+		"pending_tx_count":         len(s.netMgr.Mempool.GetPendingTxList()),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -3314,7 +3348,6 @@ func (s *RPCServer) calculateNetworkHashrate() uint64 {
 	hashrate := new(big.Int).Div(difficulty, big.NewInt(int64(avgBlockTime)))
 	return hashrate.Uint64()
 }
-
 
 func getDifficulty(bridge *go_bridge.Bridge) string {
 	// 1. Thử lấy Header của khối cao nhất hiện tại (sử dụng mã băm thực tế thay vì nil)
@@ -3651,9 +3684,9 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// [AUTO-GAP-HEAL-MUTEX] Khóa đồng bộ theo từng Sender
-	// Tại sao thiết kế như vậy: Khi client gửi request spam song song hoặc gối đầu nhau rất nhanh, 
-	// việc ký giao dịch tốn thời gian (300ms+) dẫn tới việc dự phóng nonce bị gối đầu và xáo trộn 
-	// thứ tự đẩy vào TxBus, gây ra lỗi Nonce Gap nghiêm trọng. Tuần tự hóa xử lý theo từng sender 
+	// Tại sao thiết kế như vậy: Khi client gửi request spam song song hoặc gối đầu nhau rất nhanh,
+	// việc ký giao dịch tốn thời gian (300ms+) dẫn tới việc dự phóng nonce bị gối đầu và xáo trộn
+	// thứ tự đẩy vào TxBus, gây ra lỗi Nonce Gap nghiêm trọng. Tuần tự hóa xử lý theo từng sender
 	// giải quyết triệt để race condition này.
 	s.senderLocksMu.Lock()
 	if s.senderLocks == nil {
@@ -3693,7 +3726,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// [HSSD LAYER 1 & SECURITY-FIX] Áp dụng Rate Limiter cho API Batch để chống cạn kiệt tài nguyên / DoS
-	// Tại sao: Ngăn chặn kẻ tấn công lợi dụng batch gửi hàng nghìn giao dịch liên tục mà không bị hạn chế, 
+	// Tại sao: Ngăn chặn kẻ tấn công lợi dụng batch gửi hàng nghìn giao dịch liên tục mà không bị hạn chế,
 	// gây nghẽn kết nối gRPC và Starvation khóa txTrackerMu.
 	if !s.allowTransactions(senderHex, totalTxCount) {
 		w.Header().Set("Content-Type", "application/json")
@@ -3723,11 +3756,11 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 		}
 
 		type txEvalResult struct {
-			idx     int
-			tx      *pb_block.Transaction
-			data    []byte
-			txHash  []byte
-			err     error
+			idx    int
+			tx     *pb_block.Transaction
+			data   []byte
+			txHash []byte
+			err    error
 		}
 
 		results := make([]txEvalResult, len(req.SignedTxs))
@@ -3818,7 +3851,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// --- TRƯỜNG HỢP 2: Lô giao dịch cần Node ký tự động (Online Batch) ---
 		auditLogs = append(auditLogs, "🛡️ [EBP-PHASE 2] Khởi chạy quy trình chuẩn bị và ký lô giao dịch tự động...")
-		
+
 		// Lấy Private Key của ví gửi
 		_, err = s.walletMgr.LoadWallet(senderHex)
 		if err != nil {
@@ -3987,7 +4020,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 	for idx, result := range resp.Results {
 		txBytes := txsBytes[idx]
 		txHashStr := txHashes[idx]
-		
+
 		var tx pb_block.Transaction
 		if err := proto.Unmarshal(txBytes, &tx); err != nil {
 			continue
@@ -4018,7 +4051,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 					creationFee = 1000
 				}
 			}
-			
+
 			// Nạp trực tiếp vào mempool Go (và Rust Core) đồng bộ
 			success := s.netMgr.Mempool.AddValidatedTx(txHashStr, txBytes, senderHex, &tx, creationFee)
 			if success {
@@ -4044,7 +4077,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Clear projected nonce của ví ngay lập tức để tự sửa đổi
 			s.netMgr.Mempool.ClearProjectedNonce(senderHex)
-			
+
 			// Đăng ký tracker với mã lỗi thực tế của Rust
 			s.updateTxTrackerWithCachedData(txHashStr, senderHex, receiverHex, tx.Amount, tx.Fee, tx.Nonce, 0, time.Now().Unix(), errorMsg, senderBal, userAddrs)
 			s.txTrackerMu.Lock()
@@ -4053,7 +4086,7 @@ func (s *RPCServer) handleSendBatchTx(w http.ResponseWriter, r *http.Request) {
 				tracked.ErrorMessage = errorMsg
 			}
 			s.txTrackerMu.Unlock()
-			
+
 			// [HSSD LỚP 5] Ngắt mạch tự động (Circuit Breaker) nếu phát hiện lỗi lệch nonce hoặc số dư nghiêm trọng
 			log.Printf("[EBP-WARNING] Giao dịch %s bị từ chối đồng bộ: Mã=%d, Lỗi=%s", txHashStr[:12], statusCode, errorMsg)
 		}
@@ -4442,11 +4475,23 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 	// Lấy pending từ Mempool
 	if s.netMgr != nil && s.netMgr.Mempool != nil {
 		pendingTxs := s.netMgr.Mempool.GetPendingTxList()
+		reqAddrNorm := strings.TrimPrefix(strings.ToLower(r.URL.Query().Get("address")), "0x")
+
 		for _, p := range pendingTxs {
-			txTime := p.Timestamp
-			if txTime == 0 {
-				txTime = time.Now().Unix()
+			sNorm := strings.TrimPrefix(strings.ToLower(p.Sender), "0x")
+			rNorm := strings.TrimPrefix(strings.ToLower(p.Receiver), "0x")
+
+			// Lọc nghiêm ngặt: Nếu có địa chỉ thì chỉ lấy giao dịch pending liên quan đến ví đó
+			if reqAddrNorm != "" && sNorm != reqAddrNorm && rNorm != reqAddrNorm {
+				continue
 			}
+
+			dir := "OUT"
+			if rNorm == reqAddrNorm && sNorm != reqAddrNorm {
+				dir = "IN"
+			}
+
+			txTime := p.Timestamp
 			result = append(result, TxResponse{
 				ID:            p.Hash,
 				Sender:        p.Sender,
@@ -4458,7 +4503,7 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 				Confirmations: 0,
 				Status:        "ĐANG CHỜ (MEMPOOL)",
 				StatusCode:    0,
-				Direction:     "OUT",
+				Direction:     dir,
 				PrevBalance:   0,
 				PostBalance:   0,
 				Nonce:         p.Nonce,
@@ -4505,9 +4550,17 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 			}
 		} else {
 			isStillInMempool := mempoolSet[txID]
-			txAge := time.Now().Unix() - tx.Timestamp
 
-			if !isStillInMempool && txAge > 900 {
+			if !isStillInMempool {
+				statCode := tx.Status
+				if statCode < 2 {
+					statCode = 3
+				}
+				statusText := s.getTxStatusText(statCode, 0, false)
+				errMsg := tx.ErrorMessage
+				if errMsg == "" {
+					errMsg = s.getTxStatusMessage(statCode)
+				}
 				result = append(result, TxResponse{
 					ID:            tx.TxID,
 					Sender:        tx.Sender,
@@ -4517,8 +4570,9 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 					Timestamp:     tx.Timestamp,
 					Height:        0,
 					Confirmations: 0,
-					Status:        "HẾT HẠN (EXPIRED)",
-					StatusCode:    3,
+					Status:        statusText,
+					StatusCode:    statCode,
+					ErrorMessage:  errMsg,
 					Direction:     s.getTxDirection(tx),
 					PrevBalance:   tx.PrevBalance,
 					PostBalance:   tx.PostBalance,
@@ -4535,6 +4589,11 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 					statusCode = 0
 				}
 
+				errMsg := tx.ErrorMessage
+				if statusCode != 0 && errMsg == "" {
+					errMsg = s.getTxStatusMessage(statusCode)
+				}
+
 				result = append(result, TxResponse{
 					ID:            tx.TxID,
 					Sender:        tx.Sender,
@@ -4546,6 +4605,7 @@ func (s *RPCServer) handleRecentTransactions(w http.ResponseWriter, r *http.Requ
 					Confirmations: 0,
 					Status:        statusText,
 					StatusCode:    statusCode,
+					ErrorMessage:  errMsg,
 					Direction:     s.getTxDirection(tx),
 					PrevBalance:   tx.PrevBalance,
 					PostBalance:   tx.PostBalance,
@@ -4707,8 +4767,14 @@ func (s *RPCServer) handleAddressHistory(w http.ResponseWriter, r *http.Request)
 	var candidates []trackerCandidate
 	var unfinalizedIDs []string
 
-	for i := len(s.txOrder) - 1; i >= 0 && len(candidates) < 500; i-- {
-		txID := s.txOrder[i]
+	// Tối ưu hóa O(1): Lấy trực tiếp danh sách TxID thuộc về ví thay vì quét toàn bộ giao dịch toàn mạng
+	relevantTxIDs := s.txOrder
+	if addrList, exists := s.addrTxIndex[cleanAddr]; exists && len(addrList) > 0 {
+		relevantTxIDs = addrList
+	}
+
+	for i := len(relevantTxIDs) - 1; i >= 0 && len(candidates) < 500; i-- {
+		txID := relevantTxIDs[i]
 		if mempoolSet[txID] {
 			continue
 		}
@@ -4893,12 +4959,12 @@ func (s *RPCServer) handleAddressHistory(w http.ResponseWriter, r *http.Request)
 	}
 	s.txTrackerMu.Unlock()
 
-	// 4. Sắp xếp thông minh (Mempool lên đầu -> Chiều cao khối giảm dần -> Thời gian)
+	// 4. Sắp xếp thông minh (Mempool lên đầu -> Thời gian giảm dần)
 	sort.Slice(entries, func(i, j int) bool {
 		h1 := entries[i].data.Height
 		h2 := entries[j].data.Height
 
-		// ƯU TIÊN 1: Khối 0 (Đang chờ trong Mempool) LUÔN LUÔN nằm trên cùng
+		// ƯU TIÊN 1: Khối 0 (Đang chờ trong Mempool hoặc Bị từ chối) LUÔN LUÔN nằm trên cùng
 		if h1 == 0 && h2 != 0 {
 			return true
 		}
@@ -4906,25 +4972,18 @@ func (s *RPCServer) handleAddressHistory(w http.ResponseWriter, r *http.Request)
 			return false
 		}
 
-		// ƯU TIÊN 2: Khi cả hai giao dịch đều ở Mempool (h1 == 0 && h2 == 0)
-		if h1 == 0 && h2 == 0 {
-			s1 := entries[i].data.Sender
-			s2 := entries[j].data.Sender
-			n1 := entries[i].data.Nonce
-			n2 := entries[j].data.Nonce
-			if s1 == s2 {
-				return n1 < n2
-			}
-			return entries[i].timestamp < entries[j].timestamp
+		// ƯU TIÊN 2: Sắp xếp theo Timestamp thực tế giảm dần (mới nhất lên đầu)
+		if entries[i].timestamp != entries[j].timestamp {
+			return entries[i].timestamp > entries[j].timestamp
 		}
 
-		// ƯU TIÊN 3: Sắp xếp theo chiều cao khối (Block Height) giảm dần (Mới nhất lên trước)
+		// ƯU TIÊN 3: Nếu cùng timestamp, sắp xếp theo Height giảm dần
 		if h1 != h2 {
 			return h1 > h2
 		}
 
-		// ƯU TIÊN 4: Nếu nằm trong cùng 1 khối đã chốt, sắp xếp theo Timestamp thực tế giảm dần (mới nhất lên đầu)
-		return entries[i].timestamp > entries[j].timestamp
+		// ƯU TIÊN 4: Nếu cùng block và timestamp, sắp xếp theo Nonce giảm dần (mới nhất lên đầu)
+		return entries[i].data.Nonce > entries[j].data.Nonce
 	})
 
 	// 5. [OPTIMIZED] Giới hạn 50 giao dịch gần nhất
@@ -4961,10 +5020,10 @@ func (s *RPCServer) handleSupply(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total_supply":  supplyVNT,
-		"total_vnt":     supplyVNT,
-		"max_supply":    2100000000000000, // 21 triệu * 10^8
-		"unit":          "BTC_Z",
+		"total_supply": supplyVNT,
+		"total_vnt":    supplyVNT,
+		"max_supply":   2100000000000000, // 21 triệu * 10^8
+		"unit":         "BTC_Z",
 	})
 }
 
@@ -5415,7 +5474,7 @@ func (s *RPCServer) calculateAvgNetworkHashrate(window uint64) uint64 {
 	}
 	var totalHashrate uint64 = 0
 	var count uint64 = 0
-	for h := highest; h > highest - window; h-- {
+	for h := highest; h > highest-window; h-- {
 		totalHashrate += s.getBlockHashrate(h)
 		count++
 	}
@@ -5458,7 +5517,7 @@ func (s *RPCServer) getTopMiners() []MinerStats {
 	minerCounts := make(map[string]int)
 	totalBlocks := 0
 
-	for h := highest; h > highest - window; h-- {
+	for h := highest; h > highest-window; h-- {
 		blockRaw := s.bridge.GetBlock(h)
 		if blockRaw == nil {
 			continue
@@ -5501,8 +5560,6 @@ func (s *RPCServer) getTopMiners() []MinerStats {
 
 	return stats
 }
-
-
 
 // ----------------------------------------------------------------------------
 // Nhóm hàm Web UI & Wallet (Integrated)
@@ -5713,6 +5770,18 @@ func (s *RPCServer) SubmitTransaction(ctx context.Context, tx *pb_block.Transact
 		return nil, fmt.Errorf("Khối lượng giao dịch (Amount) bằng Không hoặc Vượt quá Tổng cung")
 	}
 
+	// [SECURITY-VANGUARD] Kiểm tra số dư và Nonce từ Ledger ngay tại cửa ngõ
+	if tx.Sender != nil && len(tx.Sender.Value) == 32 {
+		bal := s.bridge.GetBalance(nil, tx.Sender.Value, uint32(s.bridge.GetCurrentVersion()))
+		if bal < tx.Amount+tx.Fee {
+			return nil, fmt.Errorf("Số dư ví không đủ để thực hiện giao dịch (Có: %d, Cần: %d VNT)", bal, tx.Amount+tx.Fee)
+		}
+		currentNonce := s.bridge.GetNonce(nil, tx.Sender.Value)
+		if tx.Nonce < currentNonce {
+			return nil, fmt.Errorf("Số thứ tự giao dịch (Nonce) quá cũ (Gửi: %d, Sổ cái hiện tại: %d)", tx.Nonce, currentNonce)
+		}
+	}
+
 	data, _ := tx.MarshalVT()
 
 	// [SECURITY-FIX] Phát sóng giao dịch được di chuyển xuống SAU khi xác thực chữ ký + số dư + nạp Mempool.
@@ -5720,8 +5789,7 @@ func (s *RPCServer) SubmitTransaction(ctx context.Context, tx *pb_block.Transact
 	// lên toàn mạng P2P mà không cần chữ ký hợp lệ.
 
 	// 2. Đưa vào Mempool cục bộ để thợ đào xử lý ngay
-	nextH := s.bridge.GetCurrentVersion() + 1
-	h := s.bridge.GetCanonicalTxHash(data, nextH)
+	h := node_p2p.GetSigningHashNative(tx)
 	txHashStr := hex.EncodeToString(h)
 	senderHex := ""
 	if tx.Sender != nil {
@@ -5760,7 +5828,6 @@ func (s *RPCServer) SubmitTransaction(ctx context.Context, tx *pb_block.Transact
 	return &pb_block.Hash{Value: h}, nil
 }
 
-
 func (s *RPCServer) GetStatus(ctx context.Context, req *pb_block.GetStatusRequest) (*pb_block.GetStatusResponse, error) {
 	h := s.bridge.GetCurrentVersion()
 	f := s.netMgr.SyncEngine.GetFinalizedHeight()
@@ -5782,11 +5849,16 @@ func (s *RPCServer) GetAccount(ctx context.Context, req *pb_block.GetAccountRequ
 	}
 
 	balance := s.bridge.GetBalance(nil, req.Address, 0)
-	nonce := s.bridge.GetNonce(nil, req.Address)
+	currentNonce := s.bridge.GetNonce(nil, req.Address)
+	expectedNonce := currentNonce
+	if s.netMgr != nil && s.netMgr.Mempool != nil {
+		senderHex := hex.EncodeToString(req.Address)
+		expectedNonce = s.netMgr.Mempool.GetExpectedNonce(senderHex, currentNonce)
+	}
 
 	return &pb_block.AccountResponse{
 		Balance: balance,
-		Nonce:   nonce,
+		Nonce:   expectedNonce,
 		Address: req.Address,
 	}, nil
 }
@@ -6034,38 +6106,38 @@ func (s *RPCServer) broadcastStatusUpdate(w http.ResponseWriter, prevFinalizedH,
 	}
 
 	resp := map[string]interface{}{
-		"active_alert":           activeAlertMap,
-		"current_height":         height,
-		"target_height":          targetHeight,
-		"sync_state":             syncState,
-		"sync_executing":         s.bridge.IsSyncing(),
-		"sync_downloading":       downloading,
-		"snapshot_chunks_loaded": chunksLoaded,
-		"snapshot_chunks_total":  chunksTotal,
-		"finalized_height":       fH,
-		"timestamp":              time.Now().Unix(),
-		"hashrate":               calculatedRate,
-		"hashrate_history":       s.getHashrateHistory(),
-		"network_hashrate":       s.calculateNetworkHashrate(),
+		"active_alert":             activeAlertMap,
+		"current_height":           height,
+		"target_height":            targetHeight,
+		"sync_state":               syncState,
+		"sync_executing":           s.bridge.IsSyncing(),
+		"sync_downloading":         downloading,
+		"snapshot_chunks_loaded":   chunksLoaded,
+		"snapshot_chunks_total":    chunksTotal,
+		"finalized_height":         fH,
+		"timestamp":                time.Now().Unix(),
+		"hashrate":                 calculatedRate,
+		"hashrate_history":         s.getHashrateHistory(),
+		"network_hashrate":         s.calculateNetworkHashrate(),
 		"network_hashrate_history": s.getNetworkHashrateHistory(),
-		"top_miners":             s.getTopMiners(),
-		"is_mining":              s.isMiningActive(),
-		"peer_count":             s.netMgr.GetPeerCount(),
-		"pending_tx_count":       pendingCount,
-		"block_reward":           float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
-		"network_difficulty":     getDifficulty(s.bridge),
-		"difficulty":             getDifficulty(s.bridge), // Đáp ứng trường difficulty mong đợi trong api.ts
-		"total_supply":           float64(s.bridge.GetActualTotalSupply()) / 1e8,
-		"node_mode":              currentMode,
-		"cpu_intensity":          currentCpu,
-		"mining_device":          device,
-		"is_pool_mining":         s.isPoolMining,
-		"pool_miner_device":      s.poolMinerDevice,
-		"oldest_height":          s.bridge.GetOldestHeight(),
-		"version":                "YonaCode Go V1.2.1-Ready",
-		"avg_block_time":         s.calculateAvgBlockTime(),
-		"grace_period_remaining": s.getGracePeriodRemaining(),
-		"mining_warning":         miningWarning,
+		"top_miners":               s.getTopMiners(),
+		"is_mining":                s.isMiningActive(),
+		"peer_count":               s.netMgr.GetPeerCount(),
+		"pending_tx_count":         pendingCount,
+		"block_reward":             float64(s.bridge.CalculateBlockRewardBtcZ(height)) / 1e8,
+		"network_difficulty":       getDifficulty(s.bridge),
+		"difficulty":               getDifficulty(s.bridge), // Đáp ứng trường difficulty mong đợi trong api.ts
+		"total_supply":             float64(s.bridge.GetActualTotalSupply()) / 1e8,
+		"node_mode":                currentMode,
+		"cpu_intensity":            currentCpu,
+		"mining_device":            device,
+		"is_pool_mining":           s.isPoolMining,
+		"pool_miner_device":        s.poolMinerDevice,
+		"oldest_height":            s.bridge.GetOldestHeight(),
+		"version":                  "YonaCode Go V1.2.1-Ready",
+		"avg_block_time":           s.calculateAvgBlockTime(),
+		"grace_period_remaining":   s.getGracePeriodRemaining(),
+		"mining_warning":           miningWarning,
 		"bandwidth": func() map[string]interface{} {
 			sent := atomic.LoadUint64(&s.netMgr.BytesSent)
 			recv := atomic.LoadUint64(&s.netMgr.BytesRecv)
@@ -6350,7 +6422,7 @@ func (s *RPCServer) startHashrateMonitor() {
 		// Tổng hashrate = Giao thức gRPC (Các máy đào CPU ngoài/cục bộ) + CPU FFI + GPU Miner (REST)
 		totalRate := grpcRate + cpuRate + gpuRate
 		atomic.StoreUint64(&s.currentHashrate, totalRate)
-		
+
 		s.recordHashrate(float64(totalRate)) // Ghi nhận hashrate định kỳ vào ring buffer cho biểu đồ Web UI
 	}
 }
@@ -6865,7 +6937,7 @@ func (s *RPCServer) handleManualSnapshotImport(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Tính năng nạp Snapshot thủ công đang hoạt động.",
@@ -6883,7 +6955,7 @@ func (s *RPCServer) handleManualSnapshotExport(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Tính năng xuất Snapshot thủ công đang hoạt động.",
@@ -7138,13 +7210,13 @@ func (s *RPCServer) ConnectMiner(stream pb_block.MinerGateway_ConnectMinerServer
 					if err == nil {
 						headerHash := s.bridge.CalculateBlockHeaderHash(headerRaw)
 						workerDiff := s.pool.GetWorkerDifficulty(workerAddr)
-						
+
 						// LỚP 2: Khóa và kiểm tra nonce nguyên tử trong stream gRPC
 						if !s.pool.CheckAndRegisterNonce(msg.FoundNonce, activeBlock.Header.Height) {
 							log.Printf("[POOL-WARN] ⚠️ Phát hiện thợ đào #%d nộp trùng nonce %d qua stream (gRPC). Từ chối.", sid, msg.FoundNonce)
 							continue
 						}
-						
+
 						isPoolShare, isNetworkBlock := s.pool.VerifyShare(headerHash, msg.FoundNonce, activeBlock.Header.Difficulty, activeBlock.Header.Height, workerDiff)
 
 						if isPoolShare {
@@ -7216,7 +7288,7 @@ func (s *RPCServer) BroadcastMiningTask(taskBytes []byte, sessionID uint64, diff
 
 	for sid, stream := range s.minerStreams {
 		workerAddr := s.minerAddresses[sid]
-		
+
 		var finalTaskBytes []byte
 		var targetDiff uint64
 		if len(difficulty) >= 8 {
@@ -7402,7 +7474,7 @@ func (s *RPCServer) walletGate(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		// 2. Nếu không phải localhost, kiểm tra xem cổng ví có được bật không
 		if !s.cliApp.walletServerEnabled {
 			w.WriteHeader(http.StatusForbidden)
@@ -7440,18 +7512,18 @@ func (s *RPCServer) walletGate(next http.HandlerFunc) http.HandlerFunc {
 // handleSendRawTx: Nhận giao dịch signed offline từ ví client và phát sóng lên mempool
 func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	var req struct {
-		Version          uint64 `json:"version"`
-		Sender           string `json:"sender"`
-		Receiver         string `json:"receiver"`
-		Amount           uint64 `json:"amount"`
-		Fee              uint64 `json:"fee"`
-		Nonce            uint64 `json:"nonce"`
-		Timestamp        uint64 `json:"timestamp"`
-		RecentBlockHash  string `json:"recent_block_hash"`
-		ChainId          uint64 `json:"chain_id"`
-		Signature        string `json:"signature"`
+		Version         uint64 `json:"version"`
+		Sender          string `json:"sender"`
+		Receiver        string `json:"receiver"`
+		Amount          uint64 `json:"amount"`
+		Fee             uint64 `json:"fee"`
+		Nonce           uint64 `json:"nonce"`
+		Timestamp       uint64 `json:"timestamp"`
+		RecentBlockHash string `json:"recent_block_hash"`
+		ChainId         uint64 `json:"chain_id"`
+		Signature       string `json:"signature"`
 	}
 
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
@@ -7531,7 +7603,7 @@ func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 
 	// [NONCE CHECK] Kiểm tra Nonce hợp lệ
 	currentNonce := s.bridge.GetNonce(nil, senderBytes)
-	nextExpectedNonce := s.netMgr.Mempool.GetNextNonce(senderHex, currentNonce)
+	nextExpectedNonce := s.netMgr.Mempool.GetExpectedNonce(senderHex, currentNonce)
 	if req.Nonce < nextExpectedNonce {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -7550,10 +7622,10 @@ func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 		Receiver: &pb_block.Address{
 			Value: receiverBytes,
 		},
-		Amount: req.Amount,
-		Fee:    req.Fee,
-		Nonce:  req.Nonce,
-		Timestamp: req.Timestamp,
+		Amount:          req.Amount,
+		Fee:             req.Fee,
+		Nonce:           req.Nonce,
+		Timestamp:       req.Timestamp,
 		RecentBlockHash: recentBlockBytes,
 		Signature: &pb_block.Signature{
 			Value: sigBytes,
@@ -7590,6 +7662,133 @@ func (s *RPCServer) handleSendRawTx(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "Success",
 		"txid":   txHashStr,
+	})
+}
+
+func (s *RPCServer) handlePrepareUnsignedTx(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		Sender   string `json:"sender"`
+		Receiver string `json:"receiver"`
+		Amount   uint64 `json:"amount"`
+	}
+
+	if err := json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "JSON request body không hợp lệ: " + err.Error()})
+		return
+	}
+	defer r.Body.Close()
+
+	if req.Amount == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Số tiền chuyển phải lớn hơn 0"})
+		return
+	}
+
+	senderHex := strings.TrimPrefix(req.Sender, "0x")
+	receiverHex := strings.TrimPrefix(req.Receiver, "0x")
+
+	senderBytes, err := hex.DecodeString(senderHex)
+	if err != nil || len(senderBytes) != 32 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Địa chỉ người gửi không hợp lệ (cần 32 bytes hex)"})
+		return
+	}
+
+	receiverBytes, err := hex.DecodeString(receiverHex)
+	if err != nil || len(receiverBytes) != 32 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Địa chỉ người nhận không hợp lệ (cần 32 bytes hex)"})
+		return
+	}
+
+	// 1. Số dư và Nonce hiện tại từ Sổ cái
+	senderBal := s.bridge.GetBalance(nil, senderBytes, uint32(s.bridge.GetCurrentVersion()))
+	currentNonce := s.bridge.GetNonce(nil, senderBytes)
+
+	// 2. Tính Creation Fee nếu ví nhận chưa có trên Sổ cái
+	creationFee := uint64(0)
+	recBal := s.bridge.GetBalance(nil, receiverBytes, uint32(s.bridge.GetCurrentVersion()))
+	recNonce := s.bridge.GetNonce(nil, receiverBytes)
+	if recBal == 0 && recNonce == 0 {
+		creationFee = 1000 // 1000 VNT Creation Fee
+	}
+
+	baseFee := uint64(250)
+	displayFee := baseFee + creationFee
+	totalCost := req.Amount + displayFee
+
+	if senderBal < totalCost {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Số dư không đủ: Hiện có %.8f GO, cần %.8f GO (chuyển %.8f GO + phí %.8f GO)", float64(senderBal)/1e8, float64(totalCost)/1e8, float64(req.Amount)/1e8, float64(displayFee)/1e8),
+		})
+		return
+	}
+
+	// 3. Dự phóng Nonce tính tới các giao dịch đang chờ trong Mempool Go
+	expectedNonce := currentNonce
+	if s.netMgr != nil && s.netMgr.Mempool != nil {
+		pendingTxs := s.netMgr.Mempool.GetPendingTxList()
+		senderCleanStr := strings.ToLower(senderHex)
+		for _, p := range pendingTxs {
+			pSenderClean := strings.ToLower(strings.TrimPrefix(p.Sender, "0x"))
+			if pSenderClean == senderCleanStr {
+				if p.Nonce >= expectedNonce {
+					expectedNonce = p.Nonce + 1
+				}
+			}
+		}
+	}
+
+	// 4. Lấy Recent Block Hash chuẩn Canonical từ Khối đỉnh hiện tại
+	highest := s.bridge.GetCurrentVersion()
+	recentBlockHash := make([]byte, 32)
+	if highest > 0 {
+		blockRaw := s.bridge.GetBlock(highest)
+		if blockRaw != nil {
+			var block pb_block.Block
+			if err := proto.Unmarshal(blockRaw, &block); err == nil && block.Header != nil {
+				headerBuf, _ := proto.Marshal(block.Header)
+				recentBlockHash = s.bridge.CalculateBlockHeaderHash(headerBuf)
+			}
+		}
+		if len(recentBlockHash) == 0 || bytes.Equal(recentBlockHash, make([]byte, 32)) {
+			recentBlockHash = s.bridge.GetBlockHash(highest)
+		}
+	}
+
+	nowTs := uint64(time.Now().Unix())
+	tx := &pb_block.Transaction{
+		Version:         1,
+		Sender:          &pb_block.Address{Value: senderBytes},
+		Receiver:        &pb_block.Address{Value: receiverBytes},
+		Amount:          req.Amount,
+		Fee:             displayFee,
+		Nonce:           expectedNonce,
+		Timestamp:       nowTs,
+		RecentBlockHash: recentBlockHash,
+		ChainId:         25062025,
+	}
+
+	signingHash := node_p2p.GetSigningHashNative(tx)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"signing_hash":      "0x" + hex.EncodeToString(signingHash),
+		"version":           1,
+		"sender":            "0x" + senderHex,
+		"receiver":          "0x" + receiverHex,
+		"amount":            req.Amount,
+		"fee":               displayFee,
+		"nonce":             expectedNonce,
+		"timestamp":         nowTs,
+		"recent_block_hash": "0x" + hex.EncodeToString(recentBlockHash),
+		"chain_id":          25062025,
 	})
 }
 
@@ -7731,7 +7930,7 @@ func difficultyToTarget(difficultyBytes []byte) []byte {
 	targetBytes := make([]byte, 32)
 	tb := targetBig.Bytes()
 	copy(targetBytes[32-len(tb):], tb)
-	return reverseBytes(targetBytes)
+	return targetBytes
 }
 
 func reverseBytes(b []byte) []byte {
@@ -7888,11 +8087,11 @@ func (s *RPCServer) handleMinerHashrate(w http.ResponseWriter, r *http.Request) 
 
 	atomic.StoreUint64(&s.gpuHashrate, req.Hashrate)
 	s.lastGpuHashTime = time.Now()
-	
+
 	if req.Address != "" && s.pool != nil {
 		s.pool.UpdateHashrate(req.Address, req.Hashrate)
 	}
-	
+
 	log.Printf("[RPC-UI] ⚡ Nhận báo cáo hashrate từ GPU Miner (%s): %d H/s (%.2f MH/s)", req.Address, req.Hashrate, float64(req.Hashrate)/1000000.0)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
@@ -7906,7 +8105,7 @@ func (s *RPCServer) handleInstallEnvironment(w http.ResponseWriter, r *http.Requ
 	go func() {
 		// 1. Tải bộ cài vc_redist.x64.exe từ Microsoft
 		dest := filepath.Join(os.TempDir(), "vc_redist.x64.exe")
-		
+
 		log.Printf("[AUTO-INSTALL] 📥 Đang tải VC++ Redistributable từ Microsoft...")
 		err := s.downloadFile("https://aka.ms/vs/17/release/vc_redist.x64.exe", dest)
 		if err != nil {
@@ -8190,14 +8389,14 @@ func (s *RPCServer) handlePoolStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"pool_address":     s.pool.PoolAddress,
-		"pool_fee":         s.pool.PoolFee,
-		"share_diff_mult":  s.pool.ShareDiffMult,
-		"active_workers":   activeWorkers,
-		"total_hashrate":   totalHashrate,
-		"solved_blocks":    s.pool.SolvedBlocks,
-		"mined_blocks":     s.pool.MinedBlocks,
-		"workers":          workersList,
+		"pool_address":    s.pool.PoolAddress,
+		"pool_fee":        s.pool.PoolFee,
+		"share_diff_mult": s.pool.ShareDiffMult,
+		"active_workers":  activeWorkers,
+		"total_hashrate":  totalHashrate,
+		"solved_blocks":   s.pool.SolvedBlocks,
+		"mined_blocks":    s.pool.MinedBlocks,
+		"workers":         workersList,
 	})
 }
 
@@ -8222,21 +8421,21 @@ func (s *RPCServer) handlePoolMinerStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":          "Success",
-		"is_pool_mining":  isRunning,
-		"device":          s.poolMinerDevice,
+		"status":         "Success",
+		"is_pool_mining": isRunning,
+		"device":         s.poolMinerDevice,
 	})
 }
 
 func (s *RPCServer) handlePoolMinerToggle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	var req struct {
-		Enabled  bool   `json:"enabled"`
-		Device   string `json:"device"`
-		PoolURL  string `json:"pool_url"`
-		Address  string `json:"address"`
-		Threads  int    `json:"threads"`
+		Enabled bool   `json:"enabled"`
+		Device  string `json:"device"`
+		PoolURL string `json:"pool_url"`
+		Address string `json:"address"`
+		Threads int    `json:"threads"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -8386,6 +8585,3 @@ func (s *RPCServer) handlePoolMinerToggle(w http.ResponseWriter, r *http.Request
 		"is_pool_mining": true,
 	})
 }
-
-
-
