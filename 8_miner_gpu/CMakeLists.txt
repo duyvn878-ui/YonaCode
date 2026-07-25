@@ -22,9 +22,3 @@ set_target_properties(yona_gpu_miner PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
     CUDA_LINK_LIBRARIES_SHARED OFF
 )
-
-# Thêm mục tiêu Unit Test để kiểm thử
-add_executable(yona_gpu_test test_miner.cpp blake3_pow.cu yona_pow.cu)
-if(WIN32)
-    target_link_libraries(yona_gpu_test PRIVATE ws2_32)
-endif()

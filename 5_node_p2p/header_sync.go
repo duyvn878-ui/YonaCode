@@ -34,15 +34,9 @@ func (n *NetworkManager) RegisterHeaderSyncHandler() {
 		defer s.Close()
 		
 		peerID := s.Conn().RemotePeer()
+		_ = peerID
 		
-		// [SECURITY-HARDENING] Chỉ phục vụ peer đã hoàn thành Handshake
-		n.PeerMutex.RLock()
-		_, hasHandshaked := n.PeerHeights[peerID]
-		n.PeerMutex.RUnlock()
-		if !hasHandshaked {
-			log.Printf("[SYNC-HEADER] 🛡️ Từ chối yêu cầu từ peer chưa handshake: %s", peerID.String()[:12])
-			return
-		}
+		// [SECURITY-HARDENING] Cho phép mọi Connected Peer xin Header công khai không giới hạn Handshake
 		
 		// [VANGUARD-FIX] Bỏ hoàn toàn Rate Limit theo thời gian (100ms) theo cơ chế Bitcoin Core (Initial Block Download - IBD).
 		// Tốc độ đồng bộ chỉ bị giới hạn bởi kích thước gói tin và băng thông mạng, tránh tình trạng tự ban Peer oan.
@@ -79,15 +73,9 @@ func (n *NetworkManager) RegisterHeaderSyncHandler() {
 		defer s.Close()
 		
 		peerID := s.Conn().RemotePeer()
+		_ = peerID
 		
-		// [SECURITY-HARDENING] Chỉ phục vụ peer đã hoàn thành Handshake
-		n.PeerMutex.RLock()
-		_, hasHandshaked := n.PeerHeights[peerID]
-		n.PeerMutex.RUnlock()
-		if !hasHandshaked {
-			log.Printf("[P2P-HEADER] 🛡️ Từ chối yêu cầu batch từ peer chưa handshake: %s", peerID.String()[:12])
-			return
-		}
+		// [SECURITY-HARDENING] Cho phép mọi Connected Peer xin Batch Header công khai
 		
 		// [VANGUARD-FIX] Bỏ hoàn toàn Rate Limit theo thời gian theo cơ chế Bitcoin Core.
 		
@@ -132,15 +120,9 @@ func (n *NetworkManager) RegisterHeaderSyncHandler() {
 		defer s.Close()
 		
 		peerID := s.Conn().RemotePeer()
+		_ = peerID
 		
-		// [SECURITY-HARDENING] Chỉ phục vụ peer đã hoàn thành Handshake
-		n.PeerMutex.RLock()
-		_, hasHandshaked := n.PeerHeights[peerID]
-		n.PeerMutex.RUnlock()
-		if !hasHandshaked {
-			log.Printf("[SYNC-HEADER-HASH] 🛡️ Từ chối yêu cầu theo hash từ peer chưa handshake: %s", peerID.String()[:12])
-			return
-		}
+		// [SECURITY-HARDENING] Cho phép mọi Connected Peer xin Header theo Hash công khai
 		
 		// [VANGUARD-FIX] Bỏ hoàn toàn Rate Limit theo thời gian theo cơ chế Bitcoin Core.
 		

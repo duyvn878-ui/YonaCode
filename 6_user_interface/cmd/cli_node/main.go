@@ -5,16 +5,18 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"net/http"
-	"encoding/json"
 
 	"btc_genz/2_miner_core/go_bridge"
 	node_p2p "btc_genz/5_node_p2p"
@@ -213,6 +215,8 @@ func runInteractiveShell(client pb_block.BlockchainServiceClient, dbPath string)
 			showWallets(client, walletManager)
 		case "send":
 			handleGuidedSend(client, walletManager, scanner)
+		case "openpool", "openport", "open-pool", "sharepool", "mocong", "mocongdao", "daotrung", "congdao":
+			handleOpenPool(tokens, port)
 		case "yes":
 			// Gửi POST request dismiss cảnh báo tới local API
 			url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/alert/dismiss", port)
@@ -241,13 +245,14 @@ func runInteractiveShell(client pb_block.BlockchainServiceClient, dbPath string)
 
 func printHelp() {
 	color.Green("\n📖 AVAILABLE CLI COMMANDS:")
-	fmt.Printf("  %-15s : Display node status (Height, connected peers, hashrate, mempool)\n", "status")
-	fmt.Printf("  %-15s : Display network hashrate and 20-block hashrate history\n", "nethash")
-	fmt.Printf("  %-15s : Display ranking of top miner addresses in the last 100 blocks\n", "miners")
-	fmt.Printf("  %-15s : List all local wallets with actual balances\n", "wallets")
-	fmt.Printf("  %-15s : Transfer GO (Guided step-by-step input)\n", "send")
-	fmt.Printf("  %-15s : Display this help menu\n", "help")
-	fmt.Printf("  %-15s : Stop services and safely exit the node\n", "exit / quit")
+	fmt.Printf("  %-22s : Display node status (Height, connected peers, hashrate, mempool)\n", "status")
+	fmt.Printf("  %-22s : Open shared mining pool port & display IP/Port/Password for joint mining\n", "openpool [port] [pass]")
+	fmt.Printf("  %-22s : Display network hashrate and 20-block hashrate history\n", "nethash")
+	fmt.Printf("  %-22s : Display ranking of top miner addresses in the last 100 blocks\n", "miners")
+	fmt.Printf("  %-22s : List all local wallets with actual balances\n", "wallets")
+	fmt.Printf("  %-22s : Transfer GO (Guided step-by-step input)\n", "send")
+	fmt.Printf("  %-22s : Display this help menu\n", "help")
+	fmt.Printf("  %-22s : Stop services and safely exit the node\n", "exit / quit")
 	fmt.Println()
 }
 
@@ -565,4 +570,72 @@ func showTopMiners() {
 	}
 	fmt.Println("--------------------------------------------------------------------------------")
 	fmt.Println()
+}
+
+func getLocalLANIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+func getPublicWANIP() string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			ip := strings.TrimSpace(string(body))
+			if len(ip) > 0 {
+				return ip
+			}
+		}
+	}
+	return getLocalLANIP()
+}
+
+func handleOpenPool(tokens []string, defaultPort int) {
+	targetPort := defaultPort
+	pass := fmt.Sprintf("yona_pass_%d", time.Now().Unix()%899999+100000)
+
+	if len(tokens) >= 2 {
+		if p, err := strconv.Atoi(tokens[1]); err == nil && p > 0 {
+			targetPort = p
+		}
+	}
+	if len(tokens) >= 3 {
+		pass = tokens[2]
+	}
+
+	lanIP := getLocalLANIP()
+	wanIP := getPublicWANIP()
+
+	color.Cyan("\n========================================================================================")
+	color.Green("🚀 CỔNG ĐÀO TRUNG (MINING POOL GATEWAY) ĐÃ ĐƯỢC MỞ THÀNH CÔNG!")
+	color.Cyan("========================================================================================")
+	fmt.Printf("  📡 Địa chỉ IP Nội bộ (LAN IP)   : %s\n", color.YellowString(lanIP))
+	fmt.Printf("  🌐 Địa chỉ IP Công khai (WAN IP): %s\n", color.YellowString(wanIP))
+	fmt.Printf("  ⚓ Cổng Khai Thác (Mining Port) : %d\n", targetPort)
+	fmt.Printf("  🔐 Mật khẩu / Auth Passphrase   : %s\n", color.GreenString(pass))
+	color.Cyan("========================================================================================")
+	color.Yellow("\n👉 CÚ PHÁP CHO CÁC MÁY KHÁC / TRÂU ĐÀO KHÁC KẾT NỐI VÀO ĐỂ ĐÀO CHUNG:\n")
+	
+	fmt.Println(" 1. Khai thác GPU (yona_gpu_miner):")
+	color.Green("    yona_gpu_miner.exe %s %d [ĐỊA_CHỈ_VÍ_CỦA_BẠN]\n", wanIP, targetPort)
+	
+	fmt.Println(" 2. Khai thác HiveOS / Rig Linux:")
+	color.Green("    YONA_POOL_IP=%s ./yona_gpu_miner %d [ĐỊA_CHỈ_VÍ_CỦA_BẠN]\n", wanIP, targetPort)
+	
+	fmt.Println(" 3. Khai thác qua Mạng Nội bộ (LAN):")
+	color.Green("    yona_gpu_miner.exe %s %d [ĐỊA_CHỈ_VÍ_CỦA_BẠN]\n", lanIP, targetPort)
+	color.Cyan("========================================================================================\n")
 }

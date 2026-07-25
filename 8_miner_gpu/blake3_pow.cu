@@ -222,38 +222,106 @@ void mine_nonce_kernel(uint64_t base_nonce) {
 }
 
 // C/C++ Host Wrapper Function to initialize and check CUDA device
-extern "C" bool init_cuda_device() {
+extern "C" bool init_cuda_device_id(int device_id) {
     int device_count = 0;
     cudaError_t err = cudaGetDeviceCount(&device_count);
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] ❌ Failed to query CUDA devices: %s\n", cudaGetErrorString(err));
-        printf("[CUDA-ERROR] 💡 Please ensure you have an NVIDIA GPU and the correct driver version installed.\n");
-        return false;
-    }
-    if (device_count == 0) {
+    if (err != cudaSuccess || device_count == 0) {
         printf("[CUDA-ERROR] ❌ No CUDA-capable devices detected on this system!\n");
         return false;
     }
+    if (device_id < 0 || device_id >= device_count) {
+        printf("[CUDA-ERROR] ❌ Invalid GPU device ID %d (Available total: %d)\n", device_id, device_count);
+        return false;
+    }
     
-    // Explicitly set device 0 and initialize CUDA context
-    err = cudaSetDevice(0);
+    err = cudaSetDevice(device_id);
     if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] ❌ Failed to set CUDA device 0: %s\n", cudaGetErrorString(err));
+        printf("[CUDA-ERROR] ❌ Failed to set CUDA device %d: %s\n", device_id, cudaGetErrorString(err));
         return false;
     }
 
-    // Force context creation
     err = cudaFree(0);
     if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] ❌ Failed to initialize CUDA context on device 0: %s\n", cudaGetErrorString(err));
+        printf("[CUDA-ERROR] ❌ Failed to initialize CUDA context on device %d: %s\n", device_id, cudaGetErrorString(err));
         return false;
     }
 
-    printf("[CUDA-INFO] 💚 Successfully initialized CUDA Device 0.\n");
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device_id);
+    printf("[CUDA-INFO] 💚 Initialized GPU #%d: %s (%d MB VRAM, Compute %d.%d)\n",
+           device_id, prop.name, (int)(prop.totalGlobalMem / (1024 * 1024)), prop.major, prop.minor);
     return true;
 }
 
-// C/C++ Host Wrapper Function (Zero-Allocation Loop)
+extern "C" bool init_cuda_device() {
+    return init_cuda_device_id(0);
+}
+
+// C/C++ Host Wrapper Function for specific GPU Device
+extern "C" bool run_cuda_miner_on_device(
+    int device_id,
+    const uint8_t* header_hash,
+    const uint8_t* target,
+    uint64_t base_nonce,
+    uint32_t threads_per_block,
+    uint32_t number_of_blocks,
+    uint64_t* out_nonce
+) {
+    cudaError_t err = cudaSetDevice(device_id);
+    if (err != cudaSuccess) {
+        return false;
+    }
+
+    // Copy data from Host to GPU Symbol memory directly
+    err = cudaMemcpyToSymbol(d_header_hash, header_hash, 32);
+    if (err != cudaSuccess) {
+        printf("[CUDA-ERROR-GPU#%d] cudaMemcpyToSymbol d_header_hash failed: %s\n", device_id, cudaGetErrorString(err));
+        return false;
+    }
+    err = cudaMemcpyToSymbol(d_target, target, 32);
+    if (err != cudaSuccess) {
+        printf("[CUDA-ERROR-GPU#%d] cudaMemcpyToSymbol d_target failed: %s\n", device_id, cudaGetErrorString(err));
+        return false;
+    }
+
+    uint64_t zero_nonce = 0;
+    unsigned int zero_flag = 0;
+    err = cudaMemcpyToSymbol(d_found_nonce, &zero_nonce, sizeof(uint64_t));
+    if (err != cudaSuccess) return false;
+    err = cudaMemcpyToSymbol(d_found_flag, &zero_flag, sizeof(unsigned int));
+    if (err != cudaSuccess) return false;
+
+    // Launch CUDA PoW Kernel
+    mine_nonce_kernel<<<number_of_blocks, threads_per_block>>>(base_nonce);
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("[CUDA-ERROR-GPU#%d] Kernel launch failed: %s\n", device_id, cudaGetErrorString(err));
+        return false;
+    }
+
+    // Synchronize GPU execution
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        printf("[CUDA-ERROR-GPU#%d] cudaDeviceSynchronize failed: %s\n", device_id, cudaGetErrorString(err));
+        return false;
+    }
+
+    // Check if solution was found
+    unsigned int found_flag = 0;
+    uint64_t found_nonce = 0;
+    err = cudaMemcpyFromSymbol(&found_flag, d_found_flag, sizeof(unsigned int));
+    if (err != cudaSuccess) return false;
+    err = cudaMemcpyFromSymbol(&found_nonce, d_found_nonce, sizeof(uint64_t));
+    if (err != cudaSuccess) return false;
+
+    if (found_flag != 0) {
+        *out_nonce = found_nonce;
+        return true;
+    }
+    return false;
+}
+
 extern "C" bool run_cuda_miner(
     const uint8_t* header_hash,
     const uint8_t* target,
@@ -262,67 +330,5 @@ extern "C" bool run_cuda_miner(
     uint32_t number_of_blocks,
     uint64_t* out_nonce
 ) {
-    cudaError_t err;
-
-    // Copy data from Host to GPU Symbol memory directly (No cudaMalloc/cudaFree overhead)
-    err = cudaMemcpyToSymbol(d_header_hash, header_hash, 32);
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyToSymbol d_header_hash failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-    err = cudaMemcpyToSymbol(d_target, target, 32);
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyToSymbol d_target failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-
-    uint64_t zero_nonce = 0;
-    unsigned int zero_flag = 0;
-    err = cudaMemcpyToSymbol(d_found_nonce, &zero_nonce, sizeof(uint64_t));
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyToSymbol d_found_nonce failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-    err = cudaMemcpyToSymbol(d_found_flag, &zero_flag, sizeof(unsigned int));
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyToSymbol d_found_flag failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-
-    // Launch CUDA PoW Kernel
-    mine_nonce_kernel<<<number_of_blocks, threads_per_block>>>(base_nonce);
-
-    // Check for kernel launch errors
-    err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] Kernel launch failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-
-    // Synchronize GPU execution
-    err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-
-    // Check if solution was found
-    unsigned int found_flag = 0;
-    uint64_t found_nonce = 0;
-    err = cudaMemcpyFromSymbol(&found_flag, d_found_flag, sizeof(unsigned int));
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyFromSymbol d_found_flag failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-    err = cudaMemcpyFromSymbol(&found_nonce, d_found_nonce, sizeof(uint64_t));
-    if (err != cudaSuccess) {
-        printf("[CUDA-ERROR] cudaMemcpyFromSymbol d_found_nonce failed: %s\n", cudaGetErrorString(err));
-        return false;
-    }
-
-    if (found_flag != 0) {
-        *out_nonce = found_nonce;
-        return true;
-    }
-    return false;
+    return run_cuda_miner_on_device(0, header_hash, target, base_nonce, threads_per_block, number_of_blocks, out_nonce);
 }

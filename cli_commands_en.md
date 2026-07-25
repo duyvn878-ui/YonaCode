@@ -172,15 +172,43 @@ In addition to triggering mining via the Node's CLI, you can directly launch the
 
 #### ⚡ 2. Standalone GPU Miner (`yona_gpu_miner`)
 *Note: Supports CUDA-compatible NVIDIA graphics cards only.*
-* **Verify CUDA compatibility:**
+* **Verify CUDA compatibility & List Devices:**
   ```bash
   ./yona_gpu_miner --check
   ```
-* **How to run:**
+* **Parallel Multi-GPU Mining:**
   ```bash
-  ./yona_gpu_miner [node_ip_address] [node_rpc_port]
+  # Default auto-detects and mines on ALL installed GPUs:
+  ./yona_gpu_miner [node_ip_address] [node_rpc_port] [wallet_address]
+
+  # Target specific GPU devices (e.g. GPUs 0, 1, and 2):
+  ./yona_gpu_miner [node_ip_address] [node_rpc_port] [wallet_address] --devices 0,1,2
   ```
-  *(Example connecting to a local Node: `./yona_gpu_miner 127.0.0.1 8080`)*
+
+---
+
+## 🚀 4. OPEN SHARED POOL GATEWAY (`openpool` / `openport`)
+
+Command category to open a Shared Mining Pool Gateway, displaying local/public IP, port, and authentication password for remote miners and rigs.
+
+### 🌐 Supported Command Names (English & Vietnamese Aliases)
+* **English:** `openpool`, `openport`, `open-pool`, `sharepool`
+* **Vietnamese:** `mocong`, `mocongdao`, `daotrung`, `congdao`
+
+### 💡 Syntax & Usage Examples:
+```bash
+# Open default pool port (8080) with auto-generated password:
+cli_yona_code > openpool
+# Or using Vietnamese alias:
+cli_yona_code > mocong
+
+# Custom port and custom password:
+cli_yona_code > openpool 8080 mysecretpass123
+# Or via CLI binary:
+./yonacode openpool 8080 mysecretpass123
+```
+
+* **Function:** Automatically detects local LAN and public WAN IP addresses, then prints connection commands for remote miners to easily connect and mine jointly.
 
 ---
 

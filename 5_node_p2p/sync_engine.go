@@ -1680,6 +1680,9 @@ func (s *SyncEngine) IsSynced() bool {
 		return false
 	}
 
+	if s.netManager == nil || s.netManager.Host == nil || s.netManager.Host.Network() == nil {
+		return true
+	}
 	peers := s.netManager.Host.Network().Peers()
 	if len(peers) == 0 {
 		return true

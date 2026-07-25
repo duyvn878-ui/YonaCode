@@ -292,22 +292,29 @@ void mine_yona_kernel(uint64_t base_nonce) {
     }
 }
 
-// Host Wrapper Function khởi tạo thiết bị
-extern "C" bool init_yona_cuda_device() {
+extern "C" bool init_yona_cuda_device_id(int device_id) {
     int device_count = 0;
     cudaError_t err = cudaGetDeviceCount(&device_count);
     if (err != cudaSuccess || device_count == 0) {
         printf("[CUDA-ERROR] No NVIDIA GPU detected.\n");
         return false;
     }
-    cudaSetDevice(0);
+    if (device_id < 0 || device_id >= device_count) {
+        printf("[CUDA-ERROR] Invalid GPU device ID %d\n", device_id);
+        return false;
+    }
+    cudaSetDevice(device_id);
     cudaFree(0);
-    printf("[CUDA-INFO] Yona Hash GPU Miner successfully initialized Device 0.\n");
+    printf("[CUDA-INFO] Yona Hash GPU Miner successfully initialized Device %d.\n", device_id);
     return true;
 }
 
-// Host Wrapper Function chạy miner (Zero-Allocation Loop)
-extern "C" bool run_yona_cuda_miner(
+extern "C" bool init_yona_cuda_device() {
+    return init_yona_cuda_device_id(0);
+}
+
+extern "C" bool run_yona_cuda_miner_on_device(
+    int device_id,
     uint64_t height,
     const uint8_t* parent_hash,
     const uint8_t* merkle_root,
@@ -317,9 +324,9 @@ extern "C" bool run_yona_cuda_miner(
     uint32_t number_of_blocks,
     uint64_t* out_nonce
 ) {
-    cudaError_t err;
+    cudaError_t err = cudaSetDevice(device_id);
+    if (err != cudaSuccess) return false;
 
-    // Truyền tải dữ liệu qua constant memory của GPU (nhanh hơn Global memory 10 lần)
     err = cudaMemcpyToSymbol(d_height, &height, sizeof(uint64_t));
     if (err != cudaSuccess) return false;
     err = cudaMemcpyToSymbol(d_parent_hash, parent_hash, 32);
@@ -329,7 +336,6 @@ extern "C" bool run_yona_cuda_miner(
     err = cudaMemcpyToSymbol(d_target, target, 32);
     if (err != cudaSuccess) return false;
 
-    // Reset cờ tìm kiếm
     uint64_t zero_nonce = 0;
     unsigned int zero_flag = 0;
     err = cudaMemcpyToSymbol(d_found_nonce, &zero_nonce, sizeof(uint64_t));
@@ -337,7 +343,6 @@ extern "C" bool run_yona_cuda_miner(
     err = cudaMemcpyToSymbol(d_found_flag, &zero_flag, sizeof(unsigned int));
     if (err != cudaSuccess) return false;
 
-    // Kích hoạt Kernel GPU quét Nonce song song (mỗi thread quét 32 nonces)
     mine_yona_kernel<<<number_of_blocks, threads_per_block>>>(base_nonce);
 
     err = cudaGetLastError();
@@ -346,7 +351,6 @@ extern "C" bool run_yona_cuda_miner(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) return false;
 
-    // Lấy kết quả từ GPU
     unsigned int found_flag = 0;
     uint64_t found_nonce = 0;
     err = cudaMemcpyFromSymbol(&found_flag, d_found_flag, sizeof(unsigned int));
@@ -359,4 +363,17 @@ extern "C" bool run_yona_cuda_miner(
         return true;
     }
     return false;
+}
+
+extern "C" bool run_yona_cuda_miner(
+    uint64_t height,
+    const uint8_t* parent_hash,
+    const uint8_t* merkle_root,
+    const uint8_t* target,
+    uint64_t base_nonce,
+    uint32_t threads_per_block,
+    uint32_t number_of_blocks,
+    uint64_t* out_nonce
+) {
+    return run_yona_cuda_miner_on_device(0, height, parent_hash, merkle_root, target, base_nonce, threads_per_block, number_of_blocks, out_nonce);
 }

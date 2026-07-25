@@ -172,15 +172,43 @@ Bên cạnh việc ra lệnh đào qua CLI của Node, bạn có thể chạy tr
 
 #### ⚡ 2. Trình đào GPU độc lập (`yona_gpu_miner`)
 *Chú ý: Chỉ hỗ trợ card đồ họa NVIDIA tương thích CUDA.*
-* **Kiểm tra tương thích CUDA:**
+* **Kiểm tra tương thích & Danh sách GPU CUDA:**
   ```bash
   ./yona_gpu_miner --check
   ```
-* **Cách khởi chạy:**
+* **Chạy đào GPU Đa card song song (Multi-GPU Parallel Mining):**
   ```bash
-  ./yona_gpu_miner [địa_chỉ_ip_node] [cổng_rpc_node]
+  # Mặc định tự động quét và cày 100% tất cả GPU có trong máy:
+  ./yona_gpu_miner [địa_chỉ_ip_node] [cổng_rpc_node] [địa_chỉ_ví]
+
+  # Hoặc chỉ định các card GPU cụ thể (ví dụ card 0, 1, 2):
+  ./yona_gpu_miner [địa_chỉ_ip_node] [cổng_rpc_node] [địa_chỉ_ví] --devices 0,1,2
   ```
-  *(Ví dụ kết nối tới Node chạy ở local: `./yona_gpu_miner 127.0.0.1 8080`)*
+
+---
+
+## 🚀 4. LỆNH MỞ CỔNG ĐÀO TRUNG (`openpool` / `mocong`)
+
+Nhóm lệnh cho phép mở Cổng Đào Trung (Shared Mining Pool Gateway) hiển thị thông số IP máy chủ, Port kết nối và Passphrase cho các máy khác kết nối đào chung.
+
+### 🌐 Tên lệnh hỗ trợ (Tên Tiếng Anh & Tiếng Việt)
+* **Tiếng Anh:** `openpool`, `openport`, `open-pool`, `sharepool`
+* **Tiếng Việt:** `mocong`, `mocongdao`, `daotrung`, `congdao`
+
+### 💡 Cú pháp & Ví dụ sử dụng:
+```bash
+# Sử dụng cổng mặc định (8080) và tự tạo mật khẩu ngẫu nhiên:
+cli_yona_code > openpool
+# Hoặc Tiếng Việt:
+cli_yona_code > mocong
+
+# Tùy chỉnh cổng và mật khẩu cổng:
+cli_yona_code > openpool 8080 mysecretpass123
+# Hoặc trên dòng lệnh YonaCode:
+./yonacode openpool 8080 mysecretpass123
+```
+
+* **Chức năng:** Tự động dò tìm IP LAN (Nội bộ) & IP WAN (Công khai) của máy chủ, sau đó in bảng hướng dẫn đấu nối chi tiết để các trâu đào / máy khác chỉ việc sao chép lệnh và kết nối ngay vào đào chung.
 
 ---
 

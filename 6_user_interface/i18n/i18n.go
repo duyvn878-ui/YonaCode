@@ -69,6 +69,13 @@ var translations = map[string]map[string]string{
 		"pool_start_cpu":      "[POOL-MINE] 🚀 Đang khởi chạy Thợ đào CPU (Rust Core) kết nối tới Pool VPS (%s)...",
 		"pool_wallet_info":    "[POOL-MINE] 🏦 Ví thợ đào nhận thưởng: %s",
 		"pool_err_run":        "❌ Lỗi trong quá trình chạy thợ đào: %v",
+
+		"openpool_success_title":       "🚀 CỔNG ĐÀO TRUNG (MINING POOL GATEWAY) ĐÃ ĐƯỢC KÍCH HOẠT THÀNH CÔNG!",
+		"openpool_lan_ip":              "  📡 Địa chỉ IP Nội bộ (LAN IP)   : %s",
+		"openpool_wan_ip":              "  🌐 Địa chỉ IP Công khai (WAN IP): %s",
+		"openpool_port":                "  ⚓ Cổng Khai Thác (Mining Port) : %d",
+		"openpool_pass":                "  🔐 Mật khẩu / Auth Passphrase   : %s",
+		"openpool_connect_instructions": "👉 CÚ PHÁP CHO CÁC MÁY KHÁC / TRÂU ĐÀO KHÁC KẾT NỐI VÀO ĐỂ ĐÀO CHUNG:",
 	},
 	"eng": {
 		"welcome": "🚀 YonaCode Go Lite v1.0 - Minimalist, Immutable, Ultralight",
@@ -134,6 +141,13 @@ var translations = map[string]map[string]string{
 		"pool_start_cpu":      "[POOL-MINE] 🚀 Launching CPU Miner (Rust Core) connected to Pool VPS (%s)...",
 		"pool_wallet_info":    "[POOL-MINE] 🏦 Reward wallet address: %s",
 		"pool_err_run":        "❌ Error during miner execution: %v",
+
+		"openpool_success_title":       "🚀 MINING POOL GATEWAY ACTIVATED SUCCESSFULLY!",
+		"openpool_lan_ip":              "  📡 Local LAN IP Address   : %s",
+		"openpool_wan_ip":              "  🌐 Public WAN IP Address  : %s",
+		"openpool_port":                "  ⚓ Mining Pool Port        : %d",
+		"openpool_pass":                "  🔐 Auth Password / Token  : %s",
+		"openpool_connect_instructions": "👉 COMMANDS FOR REMOTE MINERS / RIGS TO JOIN THIS POOL:",
 	},
 }
 

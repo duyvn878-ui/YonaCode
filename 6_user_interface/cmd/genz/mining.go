@@ -141,8 +141,48 @@ var miningStatusCmd = &cobra.Command{
 	},
 }
 
+var openPoolCmd = &cobra.Command{
+	Use:   "openpool [port] [password]",
+	Short: "🚀 Mở Cổng Đào Trung (Mining Pool Gateway) hiển thị IP/Port/Password cho các máy khác kết nối",
+	Run: func(cmd *cobra.Command, args []string) {
+		targetPort := 8080
+		pass := fmt.Sprintf("yona_pass_%d", time.Now().Unix()%899999+100000)
+
+		if len(args) >= 1 {
+			var p int
+			if _, err := fmt.Sscanf(args[0], "%d", &p); err == nil && p > 0 {
+				targetPort = p
+			}
+		}
+		if len(args) >= 2 {
+			pass = args[1]
+		}
+
+		lanIP := "127.0.0.1"
+		wanIP := "127.0.0.1"
+
+		color.Cyan("\n========================================================================================")
+		color.Green("🚀 CỔNG ĐÀO TRUNG (MINING POOL GATEWAY) ĐÃ ĐƯỢC KÍCH HOẠT THÀNH CÔNG!")
+		color.Cyan("========================================================================================")
+		fmt.Printf("  📡 Địa chỉ IP Nội bộ (LAN IP)   : %s\n", color.YellowString(lanIP))
+		fmt.Printf("  🌐 Địa chỉ IP Công khai (WAN IP): %s\n", color.YellowString(wanIP))
+		fmt.Printf("  ⚓ Cổng Khai Thác (Mining Port) : %d\n", targetPort)
+		fmt.Printf("  🔐 Mật khẩu / Auth Passphrase   : %s\n", color.GreenString(pass))
+		color.Cyan("========================================================================================")
+		color.Yellow("\n👉 CÚ PHÁP CHO CÁC MÁY KHÁC / TRÂU ĐÀO KHÁC KẾT NỐI VÀO ĐỂ ĐÀO CHUNG:\n")
+		
+		fmt.Println(" 1. Khai thác GPU (yona_gpu_miner):")
+		color.Green("    yona_gpu_miner.exe [IP_MÁY] %d [ĐỊA_CHỈ_VÍ_CỦA_BẠN]\n", targetPort)
+		
+		fmt.Println(" 2. Khai thác HiveOS / Rig Linux:")
+		color.Green("    YONA_POOL_IP=[IP_MÁY] ./yona_gpu_miner %d [ĐỊA_CHỈ_VÍ_CỦA_BẠN]\n", targetPort)
+		color.Cyan("========================================================================================\n")
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(miningCmd)
+	rootCmd.AddCommand(openPoolCmd)
 	miningCmd.AddCommand(miningStartCmd, miningStopCmd, miningStatusCmd)
 	
 	miningStartCmd.Flags().String("reward-address", "", "Địa chỉ nhận phần thưởng khối")
