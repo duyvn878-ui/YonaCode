@@ -1,114 +1,114 @@
-# ⚡ ULTRA-FAST BLOCKCHAIN LEDGER SYNC GUIDE - YONACODE ($YGO)
-> **Official Bootstrap Ledger Snapshot Installation Guide for Instant P2P Sync**
+# ⚡ ULTRA-FAST LEDGER SYNC GUIDE FOR YONACODE BLOCKCHAIN ($YGO)
+> **Pre-packaged Bootstrap Ledger Snapshot & 1-Line CLI Command to Skip Long Genesis Sync**
 
-This guide provides clear step-by-step instructions for **Option A (Full Bundled Release Packages)** and **Option B (Standalone Ledger Data Package `YonaCode_Ledger_Data.zip`)** to help your node synchronize at ultra-fast speeds on both Windows and Linux/VPS.
+This document provides step-by-step instructions for 2 options: **Option A (Full Integrated Package)** and **Option B (Independent Ledger Package `YonaCode_Ledger_Data.zip`)** for fast node deployment on Windows and Linux/VPS.
 
 ---
 
-## 🚀 1. ULTRA-FAST 1-LINE CLI BOOTSTRAP (RECOMMENDED FOR LINUX / VPS)
+## 🚀 1. 1-LINE FAST CLI SYNC (FOR LINUX / VPS)
 
-Open your terminal or SSH session and paste this single command:
+Open your Terminal or SSH session on your VPS/server and run the following **single command**:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/duyvn878-ui/YonaCode/main/sync_ledger_fast.sh | bash
 ```
 
-### What the 1-Line Script Does:
-1. Downloads `YonaCode_Ledger_Data.zip` directly from GitHub Release v2.0.0.
-2. Unpacks the RocksDB state database into `./node/scl/`.
-3. Cleans up temporary archives and sets optimal execution permissions (`chmod -R 755 node/scl`).
-4. Prepares your node to launch and sync immediately.
+---
+
+## 📦 2. COMPLETE FILE LISTINGS IN RELEASE PACKAGES (TAG `v2.0.0`)
+
+Visit the [GitHub Release v2.0.0](https://github.com/duyvn878-ui/YonaCode/releases/tag/v2.0.0) page and choose the appropriate package:
+
+### 🪟 Package 1: Full Windows Package (`YonaCode_Windows.zip`)
+Includes all 11 binary/DLL files + RocksDB ledger database directory `node/scl/`:
+
+```text
+YonaCode_Windows.zip
+├── YonaCode.exe               <-- Main Node UI & Browser Controller
+├── scl_server.exe             <-- Ledger Sync Core & P2P Engine
+├── genz_miner.exe             <-- Dedicated CPU Miner
+├── cli_yona_code.exe          <-- CLI Management Tool
+├── yona_gpu_miner.exe         <-- GPU Miner (Yona Hash Anti-ASIC)
+├── yona_gpu_setup.exe         <-- GPU Configuration Setup Tool
+├── yona_wallet_server.exe     <-- Wallet Server & Transaction Gateway
+├── btc_genz_scl.dll           <-- Rust FFI Consensus Engine Library
+├── msvcp140.dll               <-- Microsoft C++ Runtime Library
+├── vcruntime140.dll           <-- Microsoft C++ Runtime Library
+├── vcruntime140_1.dll         <-- Microsoft C++ Runtime Library
+└── node/
+    └── scl/                   <-- RocksDB Database (.sst, .log, MANIFEST)
+```
 
 ---
 
-## 📦 2. MANUAL DIRECT DOWNLOAD LINKS (GITHUB RELEASE v2.0.0)
+### 🐧 Package 2: Full Linux Package (`YonaCode_Linux.zip`)
+Includes all 7 Linux binary executables + RocksDB ledger database directory `node/scl/`:
 
-Visit the official [GitHub Release v2.0.0](https://github.com/duyvn878-ui/YonaCode/releases/tag/v2.0.0) and choose the package that fits your setup:
-
-* 🪟 **[Option A] Windows Full Bundle:** [YonaCode_Windows.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Windows.zip) (Contains `.exe` binaries + pre-packaged `node/scl/` data).
-* 🐧 **[Option A] Linux Full Bundle:** [YonaCode_Linux.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Linux.zip) (Contains Linux binaries + pre-packaged `node/scl/` data).
-* 🌐 **[Option B] Standalone Ledger Data:** [YonaCode_Ledger_Data.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Ledger_Data.zip) (Contains only `./node/scl/` - For users who already compiled or have node binaries).
-
----
-
-## 🛠️ 3. OPTION A INSTALLATION STEPS (FULL BUNDLE PACKAGES)
-
-Option A is recommended for new users who do not have node binaries.
-
-### Option A Steps for Windows:
-1. Download `YonaCode_Windows.zip`.
-2. Extract the archive into any folder (e.g., `C:\YonaCode\`).
-3. Verify that the `node\scl` folder is present alongside `YonaCode.exe`.
-4. Double-click `YonaCode.exe` or `scl_server.exe` to launch. The node will read the pre-packaged ledger and sync instantly.
-
-### Option A Steps for Linux:
-1. Download `YonaCode_Linux.zip`:
-   ```bash
-   wget https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Linux.zip
-   ```
-2. Extract the archive:
-   ```bash
-   unzip YonaCode_Linux.zip -d /opt/yonacode/
-   cd /opt/yonacode/
-   chmod +x YonaCode scl_server
-   ```
-3. Run `./YonaCode` or `./scl_server`.
+```text
+YonaCode_Linux.zip
+├── YonaCode                 <-- Main Node UI & Browser Controller
+├── scl_server               <-- Ledger Sync Core & P2P Engine
+├── genz_miner               <-- Dedicated CPU Miner
+├── cli_yona_code            <-- CLI Management Tool
+├── yona_gpu_miner           <-- GPU Miner (Yona Hash)
+├── yona_gpu_setup           <-- GPU Setup Tool
+├── yona_wallet_server       <-- Wallet Server & Transaction Gateway
+└── node/
+    └── scl/                 <-- RocksDB Database (.sst, .log, MANIFEST)
+```
 
 ---
 
-## 🛠️ 4. DETAILED OPTION B INSTALLATION STEPS (STANDALONE LEDGER DATA)
+### 🌐 Package 3: Independent Ledger Data (`YonaCode_Ledger_Data.zip`)
+Contains **only the ledger database folder `node/scl/`** (For users who already have existing `.exe` binaries or built from source):
 
-Option B is specifically designed for users who **already compiled node binaries from source** or **have existing node executables** and only wish to update or install the pre-built ledger database without re-downloading node software.
+```text
+YonaCode_Ledger_Data.zip
+└── node/
+    └── scl/                 <-- RocksDB Database (.sst, .log, MANIFEST)
+```
 
-### Detailed Option B Steps for Windows:
-1. Download the standalone ledger package **[YonaCode_Ledger_Data.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Ledger_Data.zip)**.
-2. Navigate to your working directory containing `YonaCode.exe` (e.g., `D:\BTC\`).
-3. Stop `YonaCode.exe` or `scl_server.exe` if currently running.
-4. Extract the contents of `YonaCode_Ledger_Data.zip` **directly into your working directory**.
-5. Verify exact path structure after extraction:
+---
+
+## 🛠️ 3. INSTRUCTIONS FOR OPTION A (FULL PACKAGE INSTALLATION)
+
+### Windows Option A Setup:
+1. Download **[YonaCode_Windows.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Windows.zip)**.
+2. Extract the ZIP to any directory (e.g. `D:\BTC\`).
+3. Verify that all 11 binary/DLL files and the `node\scl\` folder are present at the root level.
+4. Double-click `YonaCode.exe` or `scl_server.exe` to run.
+
+---
+
+## 🛠️ 4. INSTRUCTIONS FOR OPTION B (INDEPENDENT LEDGER DATA)
+
+### Windows Option B Setup:
+1. Download **[YonaCode_Ledger_Data.zip](https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Ledger_Data.zip)**.
+2. Navigate to your application root directory (e.g. `D:\BTC\`).
+3. Stop `YonaCode.exe` or `scl_server.exe` if running.
+4. Extract `YonaCode_Ledger_Data.zip` **directly into your application root directory**.
+5. Verify the file structure after extraction:
    ```text
-   D:\BTC\                      <-- Working directory containing Node binaries
+   D:\BTC\                               <-- Root application folder
    ├── YonaCode.exe
    ├── scl_server.exe
-   └── node\                    <-- Extracted node directory
-       └── scl\                 <-- Directory containing RocksDB .log, .sst files
+   ├── genz_miner.exe
+   ├── cli_yona_code.exe
+   ├── yona_gpu_miner.exe
+   ├── yona_wallet_server.exe
+   ├── btc_genz_scl.dll
+   ├── msvcp140.dll
+   ├── vcruntime140.dll
+   ├── vcruntime140_1.dll
+   └── node\                             <-- Extracted node directory
+       └── scl\                          <-- Extracted RocksDB database folder
    ```
-6. Relaunch `YonaCode.exe`. The node will instantly detect the RocksDB database in `node\scl\` and bypass block-0 rebuilding.
+6. Restart `YonaCode.exe` or `scl_server.exe`.
 
 ---
 
-### Detailed Option B Steps for Linux / VPS / Headless:
-1. Open Terminal / SSH in your current node directory containing `./YonaCode`:
-   ```bash
-   cd /path/to/your/yonacode/
-   ```
-2. Stop running node processes:
-   ```bash
-   pkill -f scl_server || pkill -f YonaCode
-   ```
-3. Download the standalone ledger archive:
-   ```bash
-   curl -sSL -o YonaCode_Ledger_Data.zip https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Ledger_Data.zip
-   ```
-4. Unpack `./node/scl` directly into place:
-   ```bash
-   unzip -o YonaCode_Ledger_Data.zip -d ./
-   rm -f YonaCode_Ledger_Data.zip
-   ```
-5. Set permissions for database directory:
-   ```bash
-   chmod -R 755 node/scl
-   ```
-6. Relaunch node:
-   ```bash
-   ./YonaCode --mining
-   ```
-
----
-
-## 🚦 5. VERIFY SYNC STATUS
-Launch your node console or inspect startup logs. You should see:
+## 🚦 5. SYNC STATUS VERIFICATION
+Check the node console log. You should see:
 ```text
 [SYNC-ENGINE] 🚀 Detected pre-packaged RocksDB state at block height #38500. Resuming fast P2P sync...
 ```
-Your node is now running with Ultra-Fast Bootstrap active!
