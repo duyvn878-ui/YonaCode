@@ -12,11 +12,16 @@
 Author / Founder: **Vo Nhat Thien**
 
 > [!TIP]
-> **Pre-packaged Ledger Data:**  
-> The zip file already contains the `node` folder with the ledger data, so you can synchronize extremely quickly without having to download it via p2p.
+> **Pre-packaged Ledger Data & Automated Scripts:**  
+> The release zip files already contain the `node/scl` folder with the ledger data, allowing you to synchronize extremely quickly without having to download everything from Block 0 via P2P.
 > 
-> Please note the configuration required for the node to accept this ledger. Although the code is already designed to recognize it automatically, you generally just need to extract the zip file, open the extracted folder, and launch it to get it working.
-> It will be a bit more challenging on Linux—if you are running it headless (without a GUI), you will need to manually point the node to the ledger directory.
+> * ⚡ **Fast Ledger Sync Guide:** [BOOST_SYNC_LEDGER_GUIDE_VI.md](https://github.com/duyvn878-ui/YonaCode/blob/main/BOOST_SYNC_LEDGER_GUIDE_VI.md) (Bản Tiếng Việt) | [BOOST_SYNC_LEDGER_GUIDE_EN.md](https://github.com/duyvn878-ui/YonaCode/blob/main/BOOST_SYNC_LEDGER_GUIDE_EN.md) (English)
+> * 🚀 **HiveOS GPU Mining Guide:** [HIVEOS_CONFIG_GUIDE_VI.md](https://github.com/duyvn878-ui/YonaCode/blob/main/HIVEOS_CONFIG_GUIDE_VI.md) (Bản Tiếng Việt) | [HIVEOS_CONFIG_GUIDE_EN.md](https://github.com/duyvn878-ui/YonaCode/blob/main/HIVEOS_CONFIG_GUIDE_EN.md) (English)
+> * 🛠️ **CLI Commands Guide:** [cli_commands_vi.md](https://github.com/duyvn878-ui/YonaCode/blob/main/cli_commands_vi.md) (Bản Tiếng Việt) | [cli_commands_en.md](https://github.com/duyvn878-ui/YonaCode/blob/main/cli_commands_en.md) (English)
+> 
+> **1-Line CLI Commands:**
+> * **Ultra-Fast Ledger Bootstrap (Linux/VPS):** `curl -sSL https://raw.githubusercontent.com/duyvn878-ui/YonaCode/main/sync_ledger_fast.sh | bash`
+> * **HiveOS GPU Miner Auto-Setup:** `curl -sSL https://raw.githubusercontent.com/duyvn878-ui/YonaCode/main/hiveos_setup.sh | bash -s -- --node 110.172.28.103:8080`
 
 ---
 
