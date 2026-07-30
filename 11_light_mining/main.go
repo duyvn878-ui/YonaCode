@@ -290,6 +290,8 @@ func main() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
+		lastIsMiningState := -1 // -1: unitialized, 0: paused, 1: mining
+
 		for {
 			select {
 			case <-sigChan:
@@ -323,8 +325,12 @@ func main() {
 
 					color.Cyan("[CLI-CONSOLE] ⚡ Speed: %s | VPS Node: %s | Blocks: %d | Earned: %.4f $YGO",
 						hrStr, nodeStatusStr, found, earned)
+					lastIsMiningState = 1
 				} else {
-					color.Yellow("[CLI-CONSOLE] ⏸️ Engine Paused | VPS Node: %s | Enter [1] to start mining", nodeStatusStr)
+					if lastIsMiningState != 0 {
+						color.Yellow("[CLI-CONSOLE] ⏸️ Engine Paused | VPS Node: %s | Enter [1] to start mining", nodeStatusStr)
+						lastIsMiningState = 0
+					}
 				}
 			}
 		}

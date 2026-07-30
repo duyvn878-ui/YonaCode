@@ -230,6 +230,9 @@ func (m *MinerEngine) findSetupBinary() string {
 		"yona_gpu_setup.exe",
 		"../yona_gpu_setup.exe",
 		"bin/yona_gpu_setup.exe",
+		"yona_gpu_setup",
+		"../yona_gpu_setup",
+		"bin/yona_gpu_setup",
 	}
 
 	if execPath, err := os.Executable(); err == nil {
@@ -237,6 +240,8 @@ func (m *MinerEngine) findSetupBinary() string {
 		candidates = append([]string{
 			filepath.Join(execDir, "yona_gpu_setup.exe"),
 			filepath.Join(execDir, "..", "yona_gpu_setup.exe"),
+			filepath.Join(execDir, "yona_gpu_setup"),
+			filepath.Join(execDir, "..", "yona_gpu_setup"),
 		}, candidates...)
 	}
 
