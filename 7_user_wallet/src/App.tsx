@@ -516,10 +516,23 @@ export default function App() {
                else mappedStatus = 1;
              }
 
+            let txid = h.txid || h.id || h.ID || '';
+            if (txid && !txid.toLowerCase().startsWith('0x')) {
+              txid = '0x' + txid;
+            }
+            let sender = h.sender || h.Sender || '';
+            if (sender && !sender.toLowerCase().startsWith('0x')) {
+              sender = '0x' + sender;
+            }
+            let receiver = h.receiver || h.Receiver || '';
+            if (receiver && !receiver.toLowerCase().startsWith('0x')) {
+              receiver = '0x' + receiver;
+            }
+
             return {
-              txid: h.txid || h.id || h.ID || '',
-              sender: h.sender || h.Sender || '',
-              receiver: h.receiver || h.Receiver || '',
+              txid: txid,
+              sender: sender,
+              receiver: receiver,
               amount: h.amount !== undefined ? h.amount : (h.Amount !== undefined ? h.Amount : 0),
               fee: h.fee !== undefined ? h.fee : (h.Fee !== undefined ? h.Fee : 0),
               nonce: h.nonce !== undefined ? h.nonce : (h.Nonce !== undefined ? h.Nonce : 0),

@@ -7,10 +7,18 @@ interface WalletSetupProps {
   onWalletChange: (w: string) => void;
   onCopyWallet: () => void;
   onOpenBip39Modal: () => void;
+  onOpenRecoverModal: () => void;
   t: Translations;
 }
 
-const WalletSetup: React.FC<WalletSetupProps> = ({ wallet, onWalletChange, onCopyWallet, onOpenBip39Modal, t }) => {
+const WalletSetup: React.FC<WalletSetupProps> = ({ 
+  wallet, 
+  onWalletChange, 
+  onCopyWallet, 
+  onOpenBip39Modal, 
+  onOpenRecoverModal,
+  t 
+}) => {
   return (
     <article className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-5 rounded-2xl flex flex-col gap-4 shadow-xl hover:border-sky-500/30 transition-all">
       <div className="flex items-center justify-between">
@@ -49,13 +57,23 @@ const WalletSetup: React.FC<WalletSetupProps> = ({ wallet, onWalletChange, onCop
         <span>{t.btnCopyWallet}</span>
       </button>
 
-      <button 
-        onClick={onOpenBip39Modal}
-        className="w-full py-3 px-4 rounded-xl bg-white/5 border border-slate-800 hover:bg-white/10 text-white font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-all"
-      >
-        <Key size={14} />
-        <span>{t.btnGenBip39}</span>
-      </button>
+      <div className="flex gap-2.5">
+        <button 
+          onClick={onOpenBip39Modal}
+          className="flex-1 py-3 px-3 rounded-xl bg-white/5 border border-slate-800 hover:bg-white/10 text-white font-bold text-[10px] tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all"
+        >
+          <Key size={12} />
+          <span>{t.btnGenBip39.replace(' BIP39 Mnemonic', '')}</span>
+        </button>
+
+        <button 
+          onClick={onOpenRecoverModal}
+          className="flex-1 py-3 px-3 rounded-xl bg-white/5 border border-slate-800 hover:bg-white/10 text-white font-bold text-[10px] tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all"
+        >
+          <Key size={12} />
+          <span>{t.btnRecoverWallet.replace(' từ Mnemonic', '').replace(' from Mnemonic', '')}</span>
+        </button>
+      </div>
     </article>
   );
 };

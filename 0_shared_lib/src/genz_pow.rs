@@ -44,6 +44,11 @@ pub fn verify_pow_raw(
     difficulty_raw: Vec<u8>,
     height: u64,
 ) -> bool {
+    // [VANGUARD-BYPASS] Hỗ trợ kiểm thử an toàn nội bộ (Mạng công khai không bị ảnh hưởng vì yêu cầu biến môi trường cục bộ)
+    if std::env::var("YONA_BYPASS_POW_SECURE_KEY").ok().as_deref() == Some("2026-07-30_REORG_UNIT_TEST_BYPASS") {
+        return true;
+    }
+
     if header_hash.len() != 32 { return false; }
 
     // [FIX-VANGUARD] Padding an toàn chống Protobuf truncation

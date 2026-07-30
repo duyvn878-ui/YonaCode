@@ -752,6 +752,29 @@ func GenerateNewBIP39Wallet() (string, string, error) {
 	return mnemonic, address, nil
 }
 
+// RecoverWalletFromMnemonic derives the address from a 12-word BIP39 mnemonic
+func RecoverWalletFromMnemonic(mnemonic string) (string, error) {
+	mnemonic = strings.TrimSpace(mnemonic)
+	words := strings.Fields(mnemonic)
+	if len(words) != 12 {
+		return "", fmt.Errorf("mnemonic must be exactly 12 words")
+	}
+	cleanMnemonic := strings.Join(words, " ")
+
+	if !bip39.IsMnemonicValid(cleanMnemonic) {
+		return "", fmt.Errorf("invalid BIP39 mnemonic phrase")
+	}
+
+	seed := bip39.NewSeed(cleanMnemonic, "")
+	hash := sha256.Sum256(seed)
+	privKey := ed25519.NewKeyFromSeed(hash[:])
+	pubKey := privKey.Public().(ed25519.PublicKey)
+
+	address := fmt.Sprintf("0x%x", pubKey)
+	return address, nil
+}
+
+
 func getWSURL(nodeAddr, wallet string) string {
 	host := nodeAddr
 	if idx := strings.Index(host, "://"); idx != -1 {

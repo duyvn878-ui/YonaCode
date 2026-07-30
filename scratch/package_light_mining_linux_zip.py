@@ -15,7 +15,7 @@ zip_output = os.path.join(zip_dir, "YonaCode_Light_Mining_Linux.zip")
 
 # Generate 1-click run script for Linux with auto-chmod
 run_sh_content = """#!/bin/bash
-chmod +x yona_light_miner_linux yona_light_miner_cli yona_gpu_miner genz_miner hiveos_setup.sh
+chmod +x yona_light_miner_linux yona_light_miner_cli yona_gpu_miner genz_miner yona_gpu_setup hiveos_setup.sh
 ./yona_light_miner_linux
 """
 run_sh_path = os.path.join(staging_dir, "run_light_mining.sh")
@@ -27,6 +27,7 @@ files_to_pack = [
     ("yona_light_miner_cli", os.path.join(staging_dir, "yona_light_miner_cli")),
     ("yona_gpu_miner", os.path.join(root_dir, "bin", "linux", "yona_gpu_miner")),
     ("genz_miner", os.path.join(root_dir, "bin", "linux", "genz_miner")),
+    ("yona_gpu_setup", os.path.join(root_dir, "bin", "linux", "yona_gpu_setup")),
     ("hiveos_setup.sh", os.path.join(staging_dir, "hiveos_setup.sh")),
     ("run_light_mining.sh", run_sh_path),
 ]

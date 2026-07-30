@@ -77,6 +77,7 @@ func (s *GUIServer) EnsureStarted() {
 	mux.HandleFunc("/api/shutdown", s.handleShutdown)
 	mux.HandleFunc("/api/cpu/config", s.handleCPUConfig)
 	mux.HandleFunc("/api/wallet/create", s.handleWalletCreate)
+	mux.HandleFunc("/api/wallet/recover", s.handleWalletRecover)
 
 	// Static file handler (Embedded FS with disk fallback)
 	if distFS != nil {
@@ -411,6 +412,29 @@ func (s *GUIServer) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
 		"address":  address,
 	})
 }
+
+func (s *GUIServer) handleWalletRecover(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Mnemonic string `json:"mnemonic"`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	address, err := RecoverWalletFromMnemonic(req.Mnemonic)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"address": address,
+	})
+}
+
 
 func (s *GUIServer) handleNodeCPU(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

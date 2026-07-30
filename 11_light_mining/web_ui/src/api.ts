@@ -60,6 +60,11 @@ const api = {
     return res.data;
   },
 
+  async recoverWallet(mnemonic: string): Promise<{ success: boolean; address?: string; error?: string }> {
+    const res = await axios.post<{ success: boolean; address?: string; error?: string }>('/api/wallet/recover', { mnemonic });
+    return res.data;
+  },
+
   async setCPUConfig(threads: number, intensity: number): Promise<{ success: boolean }> {
     const res = await axios.post<{ success: boolean }>('/api/cpu/config', {
       cpu_threads: threads,

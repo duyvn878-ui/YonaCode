@@ -265,7 +265,7 @@ fn test_heavier_sidechain_reorg() {
     
     // Khởi tạo Genesis Block (Height 0)
     let genesis_root = mgr.consolidate_smt_batch(vec![], 0);
-    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), U256::from(10), genesis_root.to_vec());
+    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), *MIN_DIFFICULTY * 10, genesis_root.to_vec());
     let genesis_hash = commit_mock_block_to_db(&mgr, &genesis_block);
     
     // Tiền tính toán State Roots từ Genesis đến cao độ 30 bằng cách thực thi trực tiếp trên mgr
@@ -273,7 +273,7 @@ fn test_heavier_sidechain_reorg() {
     state_roots[0] = genesis_root;
     
     let mut parent_hash = genesis_hash.to_vec();
-    let mut current_weight = U256::from(10);
+    let mut current_weight = *MIN_DIFFICULTY * 10;
     for h in 1..=30 {
         // Thực thi để sinh SMT state root đúng chuẩn (có block reward)
         let body_raw = btc_genz_scl::proto::block::BlockBody { transactions: vec![] }.encode_to_vec();
@@ -286,7 +286,7 @@ fn test_heavier_sidechain_reorg() {
         ).unwrap();
         state_roots[h as usize] = payload.final_root;
         
-        current_weight = current_weight + U256::from(1);
+        current_weight = current_weight + *MIN_DIFFICULTY;
         let block = create_mock_block(h as u64, parent_hash.clone(), diff_bytes.clone(), current_weight, payload.final_root.to_vec());
         
         let header = block.header.as_ref().unwrap();
@@ -332,13 +332,13 @@ fn test_heavier_sidechain_reorg() {
     
     // Tái thiết Genesis Block
     let genesis_root = mgr.consolidate_smt_batch(vec![], 0);
-    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), U256::from(10), genesis_root.to_vec());
+    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), *MIN_DIFFICULTY * 10, genesis_root.to_vec());
     let genesis_hash = commit_mock_block_to_db(&mgr, &genesis_block);
     mgr.current_version.store(0, std::sync::atomic::Ordering::SeqCst);
 
     // Tái xây dựng Main Chain cao độ 1..=10 sạch sẽ hoàn toàn
     let mut parent_hash = genesis_hash.to_vec();
-    let mut current_weight = U256::from(10);
+    let mut current_weight = *MIN_DIFFICULTY * 10;
     for h in 1..=10 {
         let body_raw = btc_genz_scl::proto::block::BlockBody { transactions: vec![] }.encode_to_vec();
         let (payload, _, _) = btc_genz_scl::execute_block_internal(
@@ -349,7 +349,7 @@ fn test_heavier_sidechain_reorg() {
             false
         ).unwrap();
         
-        current_weight = current_weight + U256::from(1);
+        current_weight = current_weight + *MIN_DIFFICULTY;
         let block = create_mock_block(h as u64, parent_hash.clone(), diff_bytes.clone(), current_weight, payload.final_root.to_vec());
         
         let header = block.header.as_ref().unwrap();
@@ -382,42 +382,42 @@ fn test_heavier_sidechain_reorg() {
     assert_eq!(mgr.get_finalized_height(), 10);
 
     // Điểm rẽ nhánh sâu tại cao độ 8 (< 10 finalized)
-    // Trọng số tại cao độ 8 là 18, trọng số tại local tip #10 là 20.
-    // Local Segment Weight = 20 - 18 = 2.
-    // Required Weight for x5 bypass = 2 * 5 = 10.
+    // Trọng số tại cao độ 8 là 18 * MIN_DIFFICULTY, trọng số tại local tip #10 là 20 * MIN_DIFFICULTY.
+    // Local Segment Weight = 2 * MIN_DIFFICULTY.
+    // Required Weight for x10 bypass = 20 * MIN_DIFFICULTY.
     let fork_point_hash = mgr.get_block_hash(8).unwrap().to_vec();
 
     // TRƯỜNG HỢP A: Nhánh rẽ sâu nhẹ hơn (Chỉ có 1 khối rẽ nhánh)
-    // Sidechain B chỉ bắt đầu từ 9..=9, trọng số tích lũy của đoạn mới = 1.
+    // Sidechain B chỉ bắt đầu từ 9..=9, trọng số tích lũy của đoạn mới = 1 * MIN_DIFFICULTY.
     // 1 < 2 -> Vi phạm tường lửa, trả về status 2 (bị ban).
     let mut side_a_parent = fork_point_hash.clone();
-    let mut side_a_weight = U256::from(18);
+    let mut side_a_weight = *MIN_DIFFICULTY * 18;
     let mut blocks_side_a = Vec::new();
     for h in 9..=9 {
-        side_a_weight = side_a_weight + U256::from(1);
+        side_a_weight = side_a_weight + *MIN_DIFFICULTY;
         let block = create_mock_block(h, side_a_parent.clone(), diff_bytes.clone(), side_a_weight, state_roots[h as usize].to_vec());
         let block_raw = block.encode_to_vec();
         side_a_parent = calculate_header_hash(block.header.as_ref().unwrap());
         blocks_side_a.push((block, block_raw));
     }
 
-    // Kết quả mong đợi: Bị từ chối thẳng thừng vì năng lượng phân đoạn mới quá nhẹ
+    // Kết quả mong đợi: Bỏ qua và không bị ban (trả về status 0)
     let req_a = SyncChainRequest {
         blocks_raw: blocks_side_a.into_iter().map(|(_, raw)| raw).collect(),
     };
     let resp_a = btc_genz_scl::consensus::process_chain(req_a, false, 0);
     println!("DEBUG TEST - resp_a status: {}, error_msg: {}", resp_a.status, resp_a.error_msg);
-    assert_eq!(resp_a.status, 2, "Chuỗi rẽ nhánh sâu nhẹ hơn phải bị từ chối với status 2");
+    assert_eq!(resp_a.status, 0, "Chuỗi rẽ nhánh sâu nhẹ hơn phải bị bỏ qua với status 0, không bị ban");
     assert!(resp_a.error_msg.contains("ERR_IMMUTABLE_FIREWALL_VIOLATION"), "Lỗi phải báo vi phạm tường lửa");
 
     // TRƯỜNG HỢP B: Nhánh rẽ sâu nặng gấp 10 lần (Bàn tay vô hình giải cứu)
     // Sidechain C bắt đầu từ 9..=30 (22 khối), mỗi khối tích lũy 1 đơn vị độ khó.
-    // Tổng năng lượng mới = 22 >= 20 -> Đạt ngưỡng x10!
+    // Tổng năng lượng mới = 22 * MIN_DIFFICULTY >= 20 * MIN_DIFFICULTY -> Đạt ngưỡng x10!
     let mut side_b_parent = fork_point_hash.clone();
-    let mut side_b_weight = U256::from(18);
+    let mut side_b_weight = *MIN_DIFFICULTY * 18;
     let mut blocks_side_b = Vec::new();
     for h in 9..=30 {
-        side_b_weight = side_b_weight + U256::from(1);
+        side_b_weight = side_b_weight + *MIN_DIFFICULTY;
         let block = create_mock_block(h, side_b_parent.clone(), diff_bytes.clone(), side_b_weight, state_roots[h as usize].to_vec());
         let block_raw = block.encode_to_vec();
         side_b_parent = calculate_header_hash(block.header.as_ref().unwrap());
@@ -433,5 +433,196 @@ fn test_heavier_sidechain_reorg() {
     assert_eq!(resp_b.status, 1, "Chuỗi rẽ nhánh sâu nặng x10 phải được thông hành thành công");
     assert_eq!(mgr.get_current_version(), 30, "Chiều cao node phải cập nhật lên 30");
 }
+
+/// 7. Unit Test chuyên biệt kiểm thử Trọng tài Năng lượng x10 khi có phân nhánh sâu (Deep Fork)
+/// Test này mô phỏng:
+/// - Main chain được xây dựng đến chiều cao 10.
+/// - Thiết lập finalized height là 10.
+/// - Phân nhánh sâu bắt đầu từ khối thứ 8.
+/// - Chuỗi A (Sidechain A) có trọng số segment nhỏ hơn -> Phải bị Tường lửa chặn với status 2.
+/// - Chuỗi B (Sidechain B) có trọng số segment gấp 10 lần local segment -> Phải được chấp nhận và Reorg thành công với status 1.
+#[test]
+fn test_branching_x10_explicit() {
+    let (mgr, _tmp) = create_test_state_manager();
+    let _ = GLOBAL_STATE_MANAGER.set(mgr.clone());
+    
+    let mut diff_bytes = vec![0u8; 32];
+    (*MIN_DIFFICULTY).to_little_endian(&mut diff_bytes);
+
+    let genesis_root = mgr.consolidate_smt_batch(vec![], 0);
+    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), *MIN_DIFFICULTY * 10, genesis_root.to_vec());
+    let genesis_hash = commit_mock_block_to_db(&mgr, &genesis_block);
+    
+    let mut state_roots = vec![[0u8; 32]; 31];
+    state_roots[0] = genesis_root;
+
+    // Tính toán State Roots cho 1..=30
+    let mut parent_hash = genesis_hash.to_vec();
+    let mut current_weight = *MIN_DIFFICULTY * 10;
+    for h in 1..=30 {
+        let body_raw = btc_genz_scl::proto::block::BlockBody { transactions: vec![] }.encode_to_vec();
+        let (payload, _, _) = btc_genz_scl::execute_block_internal(
+            body_raw.clone(),
+            vec![0; 32],
+            parent_hash.clone(),
+            h as u64,
+            false
+        ).unwrap();
+        state_roots[h as usize] = payload.final_root;
+        
+        current_weight = current_weight + *MIN_DIFFICULTY;
+        let block = create_mock_block(h as u64, parent_hash.clone(), diff_bytes.clone(), current_weight, payload.final_root.to_vec());
+        let header = block.header.as_ref().unwrap();
+        let header_hash = calculate_header_hash(header);
+        let mut hash_arr = [0u8; 32];
+        hash_arr.copy_from_slice(&header_hash);
+        
+        let mut weight_bytes = [0u8; 32];
+        current_weight.to_little_endian(&mut weight_bytes);
+        
+        mgr.commit_block_atomic(
+            h as u64,
+            &hash_arr,
+            header.encode_to_vec(),
+            body_raw,
+            payload.tx_hashes,
+            payload.touched_accs,
+            payload.state_batch,
+            payload.actual_total_supply,
+            payload.actual_total_supply,
+            weight_bytes.to_vec()
+        );
+        parent_hash = header_hash;
+    }
+
+    // Reset database để xây dựng lại Main Chain đến chiều cao 10
+    mgr.reset_state_completely().unwrap();
+    let blocks_cf = mgr.db.cf_handle("blocks").unwrap();
+    let headers_cf = mgr.db.cf_handle("headers").unwrap();
+    let bodies_cf = mgr.db.cf_handle("block_bodies").unwrap();
+    for cf in [blocks_cf, headers_cf, bodies_cf] {
+        let mut batch = rocksdb::WriteBatch::default();
+        let iter = mgr.db.iterator_cf(cf, rocksdb::IteratorMode::Start);
+        for item in iter {
+            if let Ok((key, _)) = item {
+                batch.delete_cf(cf, key);
+            }
+        }
+        mgr.db.write(batch).unwrap();
+    }
+
+    let genesis_root = mgr.consolidate_smt_batch(vec![], 0);
+    let genesis_block = create_mock_block(0, vec![0; 32], diff_bytes.clone(), *MIN_DIFFICULTY * 10, genesis_root.to_vec());
+    let genesis_hash = commit_mock_block_to_db(&mgr, &genesis_block);
+    mgr.current_version.store(0, std::sync::atomic::Ordering::SeqCst);
+
+    let mut parent_hash = genesis_hash.to_vec();
+    let mut current_weight = *MIN_DIFFICULTY * 10;
+    for h in 1..=10 {
+        let body_raw = btc_genz_scl::proto::block::BlockBody { transactions: vec![] }.encode_to_vec();
+        let (payload, _, _) = btc_genz_scl::execute_block_internal(
+            body_raw.clone(),
+            vec![0; 32],
+            parent_hash.clone(),
+            h as u64,
+            false
+        ).unwrap();
+        
+        current_weight = current_weight + *MIN_DIFFICULTY;
+        let block = create_mock_block(h as u64, parent_hash.clone(), diff_bytes.clone(), current_weight, payload.final_root.to_vec());
+        let header = block.header.as_ref().unwrap();
+        let header_hash = calculate_header_hash(header);
+        let mut hash_arr = [0u8; 32];
+        hash_arr.copy_from_slice(&header_hash);
+        
+        let mut weight_bytes = [0u8; 32];
+        current_weight.to_little_endian(&mut weight_bytes);
+        
+        mgr.commit_block_atomic(
+            h as u64,
+            &hash_arr,
+            header.encode_to_vec(),
+            body_raw,
+            payload.tx_hashes,
+            payload.touched_accs,
+            payload.state_batch,
+            payload.actual_total_supply,
+            payload.actual_total_supply,
+            weight_bytes.to_vec()
+        );
+        parent_hash = header_hash;
+    }
+
+    assert_eq!(mgr.get_current_version(), 10);
+    mgr.force_set_finalized_height(10);
+
+    let fork_point_hash = mgr.get_block_hash(8).unwrap().to_vec();
+
+    // 1. Kiểm thử Sidechain nhẹ: Gồm 1 khối rẽ nhánh tại #9.
+    // Năng lượng phân đoạn cục bộ = 2 * MIN_DIFFICULTY.
+    // Năng lượng phân đoạn sidechain = 1 * MIN_DIFFICULTY.
+    // Vì rẽ nhánh dưới mức finalized và không đạt x10 (1 < 20) -> Báo lỗi vi phạm tường lửa
+    let mut side_a_parent = fork_point_hash.clone();
+    let mut side_a_weight = *MIN_DIFFICULTY * 18;
+    let mut blocks_side_a = Vec::new();
+    for h in 9..=9 {
+        side_a_weight = side_a_weight + *MIN_DIFFICULTY;
+        let block = create_mock_block(h, side_a_parent.clone(), diff_bytes.clone(), side_a_weight, state_roots[h as usize].to_vec());
+        let block_raw = block.encode_to_vec();
+        side_a_parent = calculate_header_hash(block.header.as_ref().unwrap());
+        blocks_side_a.push((block, block_raw));
+    }
+
+    let req_a = SyncChainRequest {
+        blocks_raw: blocks_side_a.into_iter().map(|(_, raw)| raw).collect(),
+    };
+    let resp_a = btc_genz_scl::consensus::process_chain(req_a, false, 0);
+    assert_eq!(resp_a.status, 0, "Bắt buộc phải trả về trạng thái bỏ qua (0) đối với chuỗi nhẹ, không bị ban");
+    assert!(resp_a.error_msg.contains("ERR_IMMUTABLE_FIREWALL_VIOLATION"), "Thông báo lỗi phải là vi phạm tường lửa");
+
+    // 2. Kiểm thử Sidechain nặng hơn nhưng không đủ x10 (ví dụ gồm 6 khối từ #9 đến #14).
+    // Năng lượng phân đoạn sidechain = 6 * MIN_DIFFICULTY.
+    // 6 * MIN_DIFFICULTY > 2 * MIN_DIFFICULTY (nặng hơn local) nhưng < 20 * MIN_DIFFICULTY (không đủ x10).
+    // Kết quả mong đợi: Trả về status 0 (ACCEPTED / IGNORED), không bị ban (status 2).
+    let mut side_c_parent = fork_point_hash.clone();
+    let mut side_c_weight = *MIN_DIFFICULTY * 18;
+    let mut blocks_side_c = Vec::new();
+    for h in 9..=14 {
+        side_c_weight = side_c_weight + *MIN_DIFFICULTY;
+        let block = create_mock_block(h, side_c_parent.clone(), diff_bytes.clone(), side_c_weight, state_roots[h as usize].to_vec());
+        let block_raw = block.encode_to_vec();
+        side_c_parent = calculate_header_hash(block.header.as_ref().unwrap());
+        blocks_side_c.push((block, block_raw));
+    }
+
+    let req_c = SyncChainRequest {
+        blocks_raw: blocks_side_c.into_iter().map(|(_, raw)| raw).collect(),
+    };
+    let resp_c = btc_genz_scl::consensus::process_chain(req_c, false, 0);
+    assert_eq!(resp_c.status, 0, "Bắt buộc phải trả về trạng thái 0 (ACCEPTED) đối với chuỗi nặng hơn nhưng chưa đủ x10");
+    assert!(resp_c.error_msg.contains("Chain is heavier but < 10x"), "Thông báo lỗi phải chứa thông tin Heavier but < 10x");
+
+    // 3. Kiểm thử Sidechain nặng x10: Gồm 22 khối từ #9 đến #30.
+    // Năng lượng phân đoạn sidechain = 22 * MIN_DIFFICULTY >= 20 * MIN_DIFFICULTY (Đạt x10)
+    // -> Bàn tay vô hình mở khóa tường lửa, Reorg thành công!
+    let mut side_b_parent = fork_point_hash.clone();
+    let mut side_b_weight = *MIN_DIFFICULTY * 18;
+    let mut blocks_side_b = Vec::new();
+    for h in 9..=30 {
+        side_b_weight = side_b_weight + *MIN_DIFFICULTY;
+        let block = create_mock_block(h, side_b_parent.clone(), diff_bytes.clone(), side_b_weight, state_roots[h as usize].to_vec());
+        let block_raw = block.encode_to_vec();
+        side_b_parent = calculate_header_hash(block.header.as_ref().unwrap());
+        blocks_side_b.push((block, block_raw));
+    }
+
+    let req_b = SyncChainRequest {
+        blocks_raw: blocks_side_b.into_iter().map(|(_, raw)| raw).collect(),
+    };
+    let resp_b = btc_genz_scl::consensus::process_chain(req_b, false, 0);
+    assert_eq!(resp_b.status, 1, "Bắt buộc phải reorg thành công (1) do năng lượng áp đảo x10");
+    assert_eq!(mgr.get_current_version(), 30, "Đỉnh cao độ của hệ thống phải được cập nhật lên 30");
+}
+
 
 

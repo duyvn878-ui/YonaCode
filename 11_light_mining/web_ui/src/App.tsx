@@ -7,6 +7,7 @@ import RewardsPanel from './components/RewardsPanel';
 import MinedBlocksHistory from './components/MinedBlocksHistory';
 import ConsoleTerminal from './components/ConsoleTerminal';
 import Bip39Modal from './components/Bip39Modal';
+import RecoverModal from './components/RecoverModal';
 import PowerControlBar from './components/PowerControlBar';
 
 import api, { MinerEngineStatus } from './api';
@@ -26,6 +27,8 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<MinerEngineStatus | null>(null);
   const [walletInput, setWalletInput] = useState<string>('');
   const [isBip39Open, setIsBip39Open] = useState<boolean>(false);
+  const [isRecoverOpen, setIsRecoverOpen] = useState<boolean>(false);
+  const [hasInitializedWallet, setHasInitializedWallet] = useState<boolean>(false);
   const [seedWords, setSeedWords] = useState<string[]>([]);
   const [generatedTime, setGeneratedTime] = useState<string>('');
   const [toast, setToast] = useState<{ show: boolean; msg: string; icon: string }>({ show: false, msg: '', icon: '📋' });
@@ -41,8 +44,9 @@ const App: React.FC = () => {
     try {
       const data = await api.getStatus();
       setStatus(data);
-      if (data.wallet && !walletInput) {
+      if (data.wallet && !hasInitializedWallet) {
         setWalletInput(data.wallet);
+        setHasInitializedWallet(true);
       }
     } catch (e) {
       // Backend status poll fallback
@@ -123,6 +127,26 @@ const App: React.FC = () => {
     showToast('Tải xuống bản sao lưu an toàn...', '📄');
   };
 
+  const handleWalletInputChange = (w: string) => {
+    setWalletInput(w);
+    setHasInitializedWallet(true);
+  };
+
+  const handleRecoverWallet = async (mnemonic: string): Promise<boolean> => {
+    try {
+      const res = await api.recoverWallet(mnemonic);
+      if (res.success && res.address) {
+        setWalletInput(res.address);
+        setHasInitializedWallet(true);
+        showToast(t.msgRecoverSuccess, '🔑');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 pb-28 space-y-6 font-sans">
       <Header 
@@ -145,9 +169,10 @@ const App: React.FC = () => {
           />
           <WalletSetup 
             wallet={walletInput}
-            onWalletChange={setWalletInput}
+            onWalletChange={handleWalletInputChange}
             onCopyWallet={handleCopyWallet}
             onOpenBip39Modal={handleOpenBip39Modal}
+            onOpenRecoverModal={() => setIsRecoverOpen(true)}
             t={t}
           />
         </section>
@@ -194,6 +219,13 @@ const App: React.FC = () => {
         generatedTime={generatedTime}
         onCopySeed={handleCopySeed}
         onDownloadPDF={handleDownloadPDF}
+        t={t}
+      />
+
+      <RecoverModal 
+        isOpen={isRecoverOpen}
+        onClose={() => setIsRecoverOpen(false)}
+        onRecover={handleRecoverWallet}
         t={t}
       />
 

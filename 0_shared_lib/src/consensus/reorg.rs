@@ -526,12 +526,12 @@ pub fn process_chain(req: SyncChainRequest, is_syncing: bool, deadline: u64) -> 
                 ..Default::default()
             };
         } else {
-            // [TRƯỜNG HỢP 2] Nhẹ hơn cục bộ -> LÀ RÁC/DDOS -> BAN
-            log::error!("[FIREWALL] 🧱 CHẶN ĐỨNG HACKER: Chuỗi rác rẽ nhánh sâu bị từ chối.");
+            // [TRƯỜNG HỢP 2] Nhẹ hơn cục bộ -> Bỏ qua, đặt cooldown, KHÔNG BAN để tránh phân tách mạng vĩnh viễn
+            log::warn!("[VNT-CONSENSUS] ⚠️ Chuỗi rẽ nhánh sâu nhẹ hơn cục bộ. Bỏ qua, không phạt Peer.");
             return SyncChainResponse {
-                status: 2, // Trả về 2 để Go Node BAN Peer này
-                error_msg: format!("ERR_IMMUTABLE_FIREWALL_VIOLATION: Chuỗi rác cố tình rẽ nhánh sâu"),
-                instruction: create_cmd(sync_instruction::Strategy::DeepRecovery, 0, 0),
+                status: 0, // Trả về 0 để Go Node hiểu là Side-chain hợp lệ nhưng bị bỏ qua, KHÔNG BAN
+                error_msg: format!("ERR_IMMUTABLE_FIREWALL_VIOLATION: Chuỗi rẽ nhánh sâu nhẹ hơn cục bộ. New: {} < Local: {}. Ignored.", new_segment_weight, local_segment_weight),
+                instruction: create_cmd(sync_instruction::Strategy::Continue, 0, 0),
                 ..Default::default()
             };
         }

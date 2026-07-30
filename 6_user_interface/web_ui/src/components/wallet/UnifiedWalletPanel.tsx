@@ -111,12 +111,21 @@ const UnifiedWalletPanel: React.FC<UnifiedWalletPanelProps> = ({
             if (rawBills) {
                 const localBills = JSON.parse(rawBills) as Transaction[];
                 
-                const apiTxIds = new Set(apiHistory.map((tx: any) => tx.id));
-                const remainingBills = localBills.filter(bill => !apiTxIds.has(bill.id));
+                const apiTxIds = new Set(apiHistory.map((tx: any) => {
+                    const tid = tx.id || '';
+                    return tid.toLowerCase().replace(/^0x/, '').trim();
+                }));
+                
+                const remainingBills = localBills.filter(bill => {
+                    const bid = bill.id || '';
+                    return !apiTxIds.has(bid.toLowerCase().replace(/^0x/, '').trim());
+                });
 
-                // Nếu bill không có trong API (kể cả khối và mempool), cập nhật trạng thái bị từ chối nếu vẫn đang là 0
+                const nowSec = Math.floor(Date.now() / 1000);
+                // Nếu bill không có trong API (kể cả khối và mempool), cập nhật trạng thái bị từ chối nếu vẫn đang là 0 và đã quá 60 giây (tránh giật lag đồng bộ)
                 const updatedBills = remainingBills.map(bill => {
-                    if (bill.status_code === 0) {
+                    const billTime = Number(bill.timestamp) || 0;
+                    if (bill.status_code === 0 && (nowSec - billTime) > 60) {
                         return {
                             ...bill,
                             status_code: 9,

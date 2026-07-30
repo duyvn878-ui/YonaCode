@@ -29,6 +29,12 @@ export interface Translations {
   blockReward: string;
   blockTime: string;
   noMinedBlocks: string;
+  btnRecoverWallet: string;
+  recoverModalTitle: string;
+  placeholderMnemonic: string;
+  btnRecover: string;
+  msgRecoverSuccess: string;
+  msgRecoverError: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -60,7 +66,13 @@ export const translations: Record<Language, Translations> = {
     blockHeight: "Độ cao Khối",
     blockReward: "Phần thưởng",
     blockTime: "Thời gian",
-    noMinedBlocks: "Chưa có khối nào được khai thác trong phiên này"
+    noMinedBlocks: "Chưa có khối nào được khai thác trong phiên này",
+    btnRecoverWallet: "Khôi phục ví từ Mnemonic",
+    recoverModalTitle: "Khôi phục ví bằng 12 từ khóa",
+    placeholderMnemonic: "Nhập 12 từ khóa cách nhau bởi khoảng trắng...",
+    btnRecover: "Khôi phục ngay",
+    msgRecoverSuccess: "Khôi phục địa chỉ ví thành công!",
+    msgRecoverError: "Mnemonic không hợp lệ, vui lòng kiểm tra lại!"
   },
   zh: {
     statusConnecting: "状态: 正在连接VPS...",
@@ -90,7 +102,13 @@ export const translations: Record<Language, Translations> = {
     blockHeight: "区块高度",
     blockReward: "爆块奖励",
     blockTime: "时间",
-    noMinedBlocks: "本会话尚未爆块"
+    noMinedBlocks: "本会话尚未爆块",
+    btnRecoverWallet: "从助记词恢复钱包",
+    recoverModalTitle: "使用 12 个助记词恢复钱包",
+    placeholderMnemonic: "请输入用空格分隔的 12 个恢复单词...",
+    btnRecover: "立即恢复",
+    msgRecoverSuccess: "钱包地址恢复成功！",
+    msgRecoverError: "助记词无效，请重新检查！"
   },
   en: {
     statusConnecting: "STATUS: Connecting VPS...",
@@ -120,6 +138,12 @@ export const translations: Record<Language, Translations> = {
     blockHeight: "Block Height",
     blockReward: "Reward",
     blockTime: "Time",
-    noMinedBlocks: "No blocks mined in this session"
+    noMinedBlocks: "No blocks mined in this session",
+    btnRecoverWallet: "Recover Wallet from Mnemonic",
+    recoverModalTitle: "Recover Wallet using 12 Words",
+    placeholderMnemonic: "Enter 12 mnemonic words separated by spaces...",
+    btnRecover: "Recover Now",
+    msgRecoverSuccess: "Wallet address recovered successfully!",
+    msgRecoverError: "Invalid mnemonic, please verify!"
   }
 };
