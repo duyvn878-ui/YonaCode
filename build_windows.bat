@@ -71,6 +71,14 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 copy /Y bin\YonaCode_Light_Miner.exe bbuild\YonaCode_Light_Miner.exe
+
+go build -o bin/yona_light_miner_cli.exe ./11_light_mining
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Light Mining CLI compilation failed!
+    exit /b %ERRORLEVEL%
+)
+copy /Y bin\yona_light_miner_cli.exe bbuild\yona_light_miner_cli.exe
+
 copy /Y bin\YonaCode_Light_Miner.exe bin\genz_miner.exe
 copy /Y bin\YonaCode_Light_Miner.exe bbuild\genz_miner.exe
 

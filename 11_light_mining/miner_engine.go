@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/ed25519"
+	"github.com/fatih/color"
 )
 
 type LogEntry struct {
@@ -198,6 +199,30 @@ func (m *MinerEngine) findMinerBinary() string {
 		}
 	}
 	return ""
+}
+
+func (m *MinerEngine) RunGPUCheck() {
+	setupPath := m.findSetupBinary()
+	if setupPath != "" {
+		setupCmd := exec.Command(setupPath)
+		setupCmd.Stdin = strings.NewReader("\n")
+		out, _ := setupCmd.CombinedOutput()
+		if len(out) > 0 {
+			lines := strings.Split(string(out), "\n")
+			for _, l := range lines {
+				lStr := strings.TrimSpace(l)
+				if lStr != "" {
+					if strings.Contains(lStr, "THÀNH CÔNG") || strings.Contains(lStr, "SUCCESS") {
+						color.Green("[SETUP] %s", lStr)
+					} else if strings.Contains(lStr, "LƯU Ý") || strings.Contains(lStr, "WARNING") || strings.Contains(lStr, "⚠️") {
+						color.Yellow("[SETUP] %s", lStr)
+					} else {
+						color.Cyan("[SETUP] %s", lStr)
+					}
+				}
+			}
+		}
+	}
 }
 
 func (m *MinerEngine) findSetupBinary() string {

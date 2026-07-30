@@ -166,6 +166,7 @@ func main() {
 		t = cliTranslations[selectedLang]
 
 		color.Green("\n" + t.Title)
+		engine.RunGPUCheck()
 		
 		targetWallet := sanitizeWalletAddress(*wallet)
 		if targetWallet == "" {
@@ -207,15 +208,8 @@ func main() {
 		color.White("  [3/w] 🔑 Gen New BIP39 Wallet  |  [4/s] 📊 Print Status")
 		color.White("  [5/l] 🌐 Change Language (VN/EN/ZH)  |  [q/Ctrl+C] 🚪 Exit Application")
 		color.Cyan("---------------------------------------------------------------\n")
-
-		// Auto-start mining engine in CLI mode at 100% capacity (all CPU/GPU threads)
+		// Mining engine is kept OFF by default on startup. User must press [1] or [b] to activate.
 		engine.SetCPUIntensity(100)
-		err := engine.Start(*nodeAddr, targetWallet, *device, runtime.NumCPU())
-		if err != nil {
-			color.Red("❌ Error starting GPU CUDA Engine: %v", err)
-		} else {
-			color.Green("✅ " + t.StartMining)
-		}
 
 		// Stream live engine logs directly to CLI terminal console
 		go func() {
