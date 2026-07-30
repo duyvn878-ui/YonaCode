@@ -5106,19 +5106,6 @@ func (s *RPCServer) handleMinerToggle(w http.ResponseWriter, r *http.Request) {
 
 	paused := s.bridge.IsMiningPaused()
 	if paused {
-		// [VANGUARD-SYNC-BLOCK] Chặn cứng không cho phép bật đào khi chưa đồng bộ hoàn tất
-		peerCount := s.netMgr.GetPeerCount()
-		if peerCount > 0 && s.netMgr.SyncEngine != nil && !s.netMgr.SyncEngine.IsSynced() {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":     "Error",
-				"message":    "Hệ thống chưa đồng bộ xong. Vui lòng đợi đồng bộ hoàn tất trước khi bật đào!",
-				"error_code": "MINER_BLOCKED_SYNC",
-			})
-			return
-		}
-
 		// [V2.0 SAFETY] Kiểm tra ví đào hợp lệ trước khi bật
 		if s.cliApp != nil && !s.cliApp.IsValidMinerAddress() {
 			w.Header().Set("Content-Type", "application/json")
@@ -7827,6 +7814,24 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	workerAddrHex := r.URL.Query().Get("address")
+	if workerAddrHex != "" && s.cliApp.IsLightMinerServerEnabled() {
+		cleanAddr := strings.TrimPrefix(workerAddrHex, "0x")
+		addrBytes, err := hex.DecodeString(cleanAddr)
+		if err == nil && len(addrBytes) == 32 {
+			resBytes, sid, err := s.cliApp.BuildCustomTemplateForAddress(addrBytes)
+			if err == nil {
+				log.Printf("[MINER-GETWORK] 🏗️ Đã cấp Block Template tùy chỉnh cho thợ đào nhẹ (Ví: 0x%s, SID: %d)", cleanAddr[:12], sid)
+				w.Write(resBytes)
+				return
+			} else {
+				log.Printf("[MINER-GETWORK] ⚠️ Lỗi tạo Template tùy chỉnh: %v. Fallback về ví Node.", err)
+			}
+		} else {
+			log.Printf("[MINER-GETWORK] ⚠️ Ví thợ đào không hợp lệ: '%s'. Fallback về ví Node.", workerAddrHex)
+		}
+	}
+
 	s.cliApp.activeMiningMu.Lock()
 	activeBlock := s.cliApp.activeBlock
 	activeSessionId := s.cliApp.activeSessionId
@@ -7892,6 +7897,27 @@ func (s *RPCServer) handleMinerSubmitWork(w http.ResponseWriter, r *http.Request
 
 	if req.Nonce == 0 {
 		http.Error(w, "Invalid nonce", http.StatusBadRequest)
+		return
+	}
+
+	if s.cliApp.IsLightMinerServerEnabled() {
+		success, err := s.cliApp.SubmitSolvedBlock(req.Nonce, req.SessionId)
+		if err != nil {
+			log.Printf("[MINER-SUBMIT] ❌ Lỗi xử lý khối nộp lên (SID: %d): %v", req.SessionId, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if success {
+			log.Printf("[MINER-SUBMIT] 🏆 Nộp khối thành công qua Light Mining Server (SID: %d)", req.SessionId)
+			h := s.bridge.GetCurrentVersion()
+			rewardAmount := float64(s.bridge.CalculateBlockRewardBtcZ(h)) / 1e8
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "success",
+				"reward": rewardAmount,
+			})
+		} else {
+			http.Error(w, "Block submission failed", http.StatusBadRequest)
+		}
 		return
 	}
 

@@ -62,6 +62,17 @@ if %ERRORLEVEL% neq 0 (
 )
 copy /Y bin\yona_gpu_setup.exe bbuild\yona_gpu_setup.exe
 
+echo ===================================================
+echo [BUILD-WIN] 4.6. Compiling Light Mining (YonaCode_Light_Miner.exe)...
+echo ===================================================
+go build -o bin/YonaCode_Light_Miner.exe ./11_light_mining
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Light Mining compilation failed!
+    exit /b %ERRORLEVEL%
+)
+copy /Y bin\YonaCode_Light_Miner.exe bbuild\YonaCode_Light_Miner.exe
+copy /Y bin\YonaCode_Light_Miner.exe bin\genz_miner.exe
+copy /Y bin\YonaCode_Light_Miner.exe bbuild\genz_miner.exe
 
 echo ===================================================
 echo [BUILD-WIN] 5. Compiling Windows GPU Miner (CMake)...
@@ -76,6 +87,11 @@ if %ERRORLEVEL% equ 0 (
 ) else (
     echo [WARN] Windows GPU Miner compilation failed! (CUDA/OpenCL drivers might be missing)
 )
+
+echo ===================================================
+echo [BUILD-WIN] 6. Packaging Light Mining Release ZIP Archive...
+echo ===================================================
+python scratch\package_light_mining_zip.py
 
 echo ===================================================
 echo [BUILD-WIN] SUCCESS: WINDOWS BUILD COMPLETED!

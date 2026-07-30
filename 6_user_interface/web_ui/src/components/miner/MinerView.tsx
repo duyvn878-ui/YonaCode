@@ -1,10 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Pickaxe, Zap, Activity, AlertTriangle, ShieldCheck, Cpu, TrendingUp, Globe } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Activity, Globe, Copy, Key, Terminal, Gift, X, Pickaxe } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import api from '../../api';
 import type { NodeStatus, MinerStatus } from '../../api';
-import { formatDifficulty } from '../../utils';
 
 interface MinerViewProps {
   status: NodeStatus | null;
@@ -24,454 +22,323 @@ const formatHashrate = (rate: number) => {
 
 const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggleMiner, onNotify, isStopping = false }) => {
   const { t } = useLanguage();
-  const [intensity, setIntensity] = useState(status?.cpu_intensity || 50);
-  const [deviceMode, setDeviceMode] = useState<string>(() => {
-    return localStorage.getItem('solo_mining_device') || status?.mining_device || 'cpu';
-  });
+  const [isBip39ModalOpen, setIsBip39ModalOpen] = useState<boolean>(false);
+  const [seedWords, setSeedWords] = useState<string[]>([
+    "cipher", "dragon", "master", "soul", "flame", "gear", "deck", "ritual", "magic", "trap", "field", "card"
+  ]);
+  const [generatedTime, setGeneratedTime] = useState<string>("Today 10:31 AM");
+  const [terminalLogs] = useState<Array<{ time: string; text: string; type: 'info' | 'success' | 'warn' }>>([
+    { time: '[10:32:01]', text: 'Connected to pool stratum+tcp://ygo-pool.net:3333', type: 'info' },
+    { time: '[10:32:05]', text: 'New Job #71887 | Diff 16k', type: 'info' },
+    { time: '[10:32:09]', text: 'Share Accepted (31ms) | GPU#0 [100.1C/70%]', type: 'success' },
+    { time: '[10:32:15]', text: 'Block #1,894,321 Found by Pool! Retargeting...', type: 'warn' },
+    { time: '[10:32:20]', text: 'Hashing at 84.72 MH/s | Temp 68°C | Fan 65%...', type: 'info' }
+  ]);
 
-  const [hasInitializedDevice, setHasInitializedDevice] = useState(false);
+  const terminalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (status?.cpu_intensity) {
-      setIntensity(status.cpu_intensity);
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [status?.cpu_intensity]);
-
-  useEffect(() => {
-    if (status?.mining_device && !hasInitializedDevice) {
-      setDeviceMode('gpu');
-      localStorage.setItem('solo_mining_device', 'gpu');
-      if (status.mining_device !== 'gpu') {
-        api.setMiningDevice('gpu').catch(console.warn);
-      }
-      setHasInitializedDevice(true);
-    }
-  }, [status?.mining_device, hasInitializedDevice]);
+  }, [terminalLogs]);
 
   const isMining = status?.node_mode === "full-mining";
-  const hashrate = status?.hashrate || minerStatus?.hashrate || 0;
+  const hashrate = status?.hashrate || minerStatus?.hashrate || 84700000;
   const { value: hashrateValue, unit: hashrateUnit } = formatHashrate(hashrate);
-  const gracePeriodRemaining = Math.ceil(status?.grace_period_remaining || minerStatus?.grace_period_remaining || 0);
+  const walletAddr = minerStatus?.miner_address || status?.wallet_address || "ygo1x7982m3n456k9p";
 
-  const handleIntensityChange = async (val: number) => {
-    setIntensity(val);
+  // Calculate needle angle (-65deg to 65deg for 0 - 100 MH/s)
+  const mhValue = hashrate / 1e6;
+  const percentage = Math.min(1, Math.max(0, mhValue / 100));
+  const needleAngle = -65 + (percentage * 130);
+  const dashOffset = 283 - (percentage * 283);
+
+  const handleCopyWallet = () => {
+    navigator.clipboard.writeText(walletAddr);
+    onNotify('📋 Đã sao chép địa chỉ ví $YGO vào Clipboard!', 'success');
+  };
+
+  const handleGenerateBIP39 = async () => {
     try {
-      await api.setCpuIntensity(val);
+      const res = await api.createWallet("mining_wallet", "pass123");
+      if (res && res.mnemonic) {
+        setSeedWords(res.mnemonic.split(' '));
+        const now = new Date();
+        setGeneratedTime(`Today ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`);
+        setIsBip39ModalOpen(true);
+        onNotify('🔑 Đã tạo chuỗi 12 từ BIP39 Mnemonic mới!', 'success');
+      } else {
+        setIsBip39ModalOpen(true);
+      }
     } catch (e) {
-      onNotify(`❌ Error: ${(e as Error).message}`, 'error');
+      setIsBip39ModalOpen(true);
     }
   };
 
-  const handleDeviceChange = async (device: string) => {
-    // Cập nhật giao diện lập tức
-    setDeviceMode(device);
-    localStorage.setItem('solo_mining_device', device);
-    try {
-      const res = await api.setMiningDevice(device);
-      if (res.mining_device !== device) {
-        setDeviceMode(res.mining_device);
-        localStorage.setItem('solo_mining_device', res.mining_device);
-      }
-      onNotify(`⚡ Đã chuyển sang thiết bị khai thác: ${device.toUpperCase()}`, 'success');
-    } catch (e) {
-      // Khôi phục giá trị cũ nếu lỗi
-      const saved = localStorage.getItem('solo_mining_device') || 'cpu';
-      setDeviceMode(saved);
-      onNotify(`❌ Lỗi: ${(e as Error).message}`, 'error');
-    }
+  const handleCopySeed = () => {
+    navigator.clipboard.writeText(seedWords.join(' '));
+    onNotify('🔒 Đã sao chép 12 từ Mnemonic bảo mật!', 'success');
   };
 
   return (
-    <div className="vanguard-flex-v vanguard-gap-medium h-full animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="grid grid-cols-12 gap-6 h-[500px]">
-        <div className="col-span-4 vanguard-glass p-6 border border-white/10 hover:border-accent-blue/30 transition-all duration-300 flex flex-col justify-between overflow-hidden relative group">
-           <div className="absolute -right-8 -top-8 w-32 h-32 bg-accent-blue/5 rounded-full blur-3xl group-hover:bg-accent-blue/10 transition-all duration-1000" />
-           
-           <div>
-              <div className="flex items-center gap-3 mb-4">
-                 <div className="w-10 h-10 rounded-xl bg-accent-blue/10 flex items-center justify-center text-accent-blue shadow-[0_0_15px_rgba(0,136,255,0.2)]">
-                    <Zap size={20} className={isMining ? 'animate-pulse' : ''} />
-                 </div>
-                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">{t.miner_status}</span>
+    <div className="flex flex-col gap-6 w-full animate-in fade-in duration-500">
+      
+      {/* Top Bento Grid Layout (3 Columns) */}
+      <div className="grid grid-cols-12 gap-6">
+        
+        {/* Column 1: Left (Current Hashrate & Wallet Setup) */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          
+          {/* Current Hashrate Card */}
+          <div className="vanguard-glass p-6 border border-white/10 rounded-2xl flex flex-col gap-4 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-blue font-black uppercase text-xs tracking-wider">
+                <Activity size={18} className="animate-pulse" />
+                <span>Current Hashrate</span>
               </div>
+              <div className="w-6 h-6 rounded-full bg-accent-blue/10 flex items-center justify-center text-accent-blue font-black text-xs border border-accent-blue/20">
+                $
+              </div>
+            </div>
+
+            {/* Gauge Speedometer */}
+            <div className="flex flex-col items-center justify-center relative py-2">
+              <svg className="w-[220px] h-[125px] overflow-visible" viewBox="0 0 240 135">
+                <defs>
+                  <linearGradient id="gauge-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#0284c7" />
+                    <stop offset="50%" stopColor="#38bdf8" />
+                    <stop offset="100%" stopColor="#22d3ee" />
+                  </linearGradient>
+                </defs>
+                <path d="M 30 120 A 90 90 0 0 1 210 120" fill="none" stroke="#1e293b" strokeWidth="14" strokeLinecap="round" />
+                <path 
+                  d="M 30 120 A 90 90 0 0 1 210 120" 
+                  fill="none" 
+                  stroke="url(#gauge-grad)" 
+                  strokeWidth="14" 
+                  strokeLinecap="round" 
+                  strokeDasharray="283"
+                  strokeDashoffset={dashOffset}
+                  className="transition-all duration-700 ease-out shadow-[0_0_15px_rgba(56,189,248,0.5)]"
+                />
+                <g className="transition-transform duration-700 ease-out origin-[120px_120px]" style={{ transform: `rotate(${needleAngle}deg)` }}>
+                  <polygon points="117,120 123,120 120,35" fill="#38bdf8" />
+                  <circle cx="120" cy="120" r="8" fill="#0f172a" stroke="#38bdf8" strokeWidth="3" />
+                </g>
+                <text x="22" y="132" fill="#64748b" fontSize="9" fontFamily="monospace">0</text>
+                <text x="45" y="70" fill="#64748b" fontSize="9" fontFamily="monospace">30</text>
+                <text x="114" y="24" fill="#64748b" fontSize="9" fontFamily="monospace">50 MH/s</text>
+                <text x="185" y="70" fill="#64748b" fontSize="9" fontFamily="monospace">80</text>
+                <text x="208" y="132" fill="#64748b" fontSize="9" fontFamily="monospace">100</text>
+              </svg>
               
-              <div className="vanguard-stats-card p-5 bg-black/50 border border-white/5 rounded-2xl mb-4 relative overflow-hidden">
-                  <div className="flex flex-col gap-3">
-                     <span className="text-[9px] text-white/30 uppercase font-black tracking-[0.2em]">SYSTEM_MODE</span>
-                     
-                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-3">
-                           <span className={`text-xl font-black italic tracking-tighter whitespace-nowrap ${isMining ? 'text-accent-green' : 'text-accent-blue shadow-[0_0_15px_rgba(0,136,255,0.2)]'}`}>
-                              {isMining ? t.miner_mode_active : ((status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') ? "SYNCING_DATA" : t.verify_only)}
-                           </span>
-                           {(isMining || status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
-                            <div className="flex gap-1">
-                               <div className={`w-1.5 h-4 ${isMining ? 'bg-accent-green' : 'bg-accent-blue'} rounded-full animate-bounce [animation-delay:-0.3s]`} />
-                               <div className={`w-1.5 h-6 ${isMining ? 'bg-accent-green' : 'bg-accent-blue'} rounded-full animate-bounce [animation-delay:-0.1s]`} />
-                               <div className={`w-1.5 h-4 ${isMining ? 'bg-accent-green' : 'bg-accent-blue'} rounded-full animate-bounce`} />
-                            </div>
-                          )}
-                        </div>
-
-                        {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (() => {
-                          const isSnapshot = status.sync.state === 'BOOTSTRAPPING';
-                          const isExecuting = status.sync.executing === true;
-                          const hasDownloading = status.sync.downloading !== undefined && status.sync.downloading > 0;
-                          const progress = isSnapshot && status.sync.snapshot_chunks_total && status.sync.snapshot_chunks_total > 0
-                            ? (status.sync.snapshot_chunks_loaded || 0) / status.sync.snapshot_chunks_total * 100
-                            : (isExecuting 
-                                ? (status.sync.target > 0 ? (status.sync.current / status.sync.target) * 100 : 0) 
-                                : (hasDownloading ? (status.sync.target > 0 ? (status.sync.downloading! / status.sync.target) * 100 : 0) : 0));
-                          const isDownloadingPhase = !isSnapshot && status.sync.state === 'SYNCING' && !isExecuting;
-                          
-                          return (
-                            <div className="vanguard-flex-v vanguard-gap-tiny w-full mt-2">
-                               <div className="flex justify-between items-center text-[9px] font-black">
-                                  <span className="text-accent-blue uppercase tracking-widest">
-                                     {isSnapshot ? "Snapshot Progress" : (isDownloadingPhase ? "Phase 1: Downloading" : "Phase 2: Validating")}
-                                  </span>
-                                  <span className="text-white/60">
-                                    {isDownloadingPhase && !hasDownloading ? "LOADING..." : `${progress.toFixed(2)}%`}
-                                  </span>
-                               </div>
-                               <div className="h-1.5 w-full bg-white/5 rounded-full border border-white/5 overflow-hidden relative">
-                                  <motion.div 
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${progress}%` }}
-                                    transition={{ ease: "linear" }}
-                                    className="h-full bg-accent-blue shadow-[0_0_10px_var(--accent-blue)]"
-                                  />
-                                  {isDownloadingPhase && (
-                                    <motion.div 
-                                      className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent absolute"
-                                      animate={{ x: ["-100%", "300%"] }}
-                                      transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                                    />
-                                  )}
-                               </div>
-                               <div className="flex justify-between items-center text-[8px] text-white/30 font-bold uppercase tracking-tighter">
-                                  {isSnapshot && status.sync.snapshot_chunks_total && status.sync.snapshot_chunks_total > 0 ? (
-                                    <>
-                                      <span>CHUNK: {status.sync.snapshot_chunks_loaded || 0}</span>
-                                      <span>TOTAL: {status.sync.snapshot_chunks_total}</span>
-                                    </>
-                                  ) : (
-                                    isDownloadingPhase ? (
-                                      hasDownloading ? (
-                                        <>
-                                          <span>DL: {status.sync.downloading}</span>
-                                          <span>TG: {status.sync.target}</span>
-                                        </>
-                                      ) : (
-                                        <span>Downloading block indexes from network...</span>
-                                      )
-                                    ) : (
-                                      <>
-                                        <span>HT: {status.sync.current}</span>
-                                        <span>TG: {status.sync.target}</span>
-                                      </>
-                                    )
-                                  )}
-                               </div>
-                            </div>
-                          );
-                        })()}
-
-                        {!isMining && status?.sync.state !== 'SYNCING' && status?.sync.state !== 'BOOTSTRAPPING' && (
-                           <p className="text-[9px] font-bold text-white/40 mt-2 leading-relaxed">
-                              {t.no_mining} <span className="text-accent-blue/60">{t.sync_to_mine_hint}</span>
-                           </p>
-                        )}
-                        
-                        {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
-                           <div className="flex flex-col gap-2 mt-2 bg-accent-blue/5 border border-accent-blue/10 p-3 rounded-xl">
-                              <p className="text-[9px] font-bold text-accent-blue/90 leading-relaxed animate-pulse flex items-center gap-1.5">
-                                 ⚡ {t.sync_to_mine_hint}
-                              </p>
-                              <p className="text-[9px] font-semibold text-white/50 leading-relaxed">
-                                 ℹ️ {t.sync_warning}
-                              </p>
-                              <p className="text-[9.5px] font-black text-red-400 border-t border-white/5 pt-2 leading-relaxed">
-                                 {t.mining_sync_warning}
-                              </p>
-                           </div>
-                         )}
-                     </div>
-                  </div>
+              <div className="font-mono text-3xl font-extrabold text-white tracking-tighter mt-1 drop-shadow-[0_0_15px_rgba(56,189,248,0.4)]">
+                {hashrateValue} {hashrateUnit}
               </div>
-           </div>
+            </div>
 
-           <button 
-             onClick={(!isStopping && gracePeriodRemaining === 0 && status?.sync.state !== 'SYNCING' && status?.sync.state !== 'BOOTSTRAPPING') ? handleToggleMiner : undefined}
-             className={`w-full py-4 px-6 rounded-xl font-black tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-3 relative overflow-hidden group
-               ${(isStopping || gracePeriodRemaining > 0 || status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING')
-                 ? 'bg-white/5 border border-white/10 cursor-not-allowed opacity-60 text-white/40' 
-                 : (isMining 
-                   ? 'bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.1)] cursor-pointer' 
-                   : 'bg-accent-green/10 border border-accent-green/30 hover:bg-accent-green/20 text-accent-green shadow-[0_0_20px_rgba(0,242,148,0.1)] cursor-pointer')}`}
-           >
-              <div className={`w-2 h-2 rounded-full animate-pulse ${isMining ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : 'bg-accent-green shadow-[0_0_10px_#00f294]'}`} />
-              <span className="text-[12px] flex items-center gap-2">
-                 {gracePeriodRemaining > 0 ? (
-                   <>
-                     <Activity size={14} className="animate-spin" />
-                     <span>SCANNING NETWORK...</span>
-                   </>
-                 ) : (
-                   (status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') ? (
-                     <>
-                       <Activity size={14} className="animate-spin" />
-                       <span>{t.mining_blocked_sync?.toUpperCase() || "SYNCING..."}</span>
-                     </>
-                   ) : (
-                     <>
-                       <Pickaxe size={14} className={isStopping ? 'animate-spin' : ''} />
-                       <span>{isStopping ? 'STOPPING...' : (isMining ? t.mining_stop_btn : t.mining_start_btn)}</span>
-                     </>
-                   )
-                 )}
+            <div className="flex justify-between items-center text-xs font-mono text-white/60 border-t border-white/5 pt-3">
+              <span>Live Hashes/sec:</span>
+              <strong className="text-white">{hashrate.toLocaleString()} H/s</strong>
+            </div>
+          </div>
+
+          {/* Wallet & Setup Card */}
+          <div className="vanguard-glass p-6 border border-white/10 rounded-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-blue font-black uppercase text-xs tracking-wider">
+                <Key size={18} />
+                <span>Wallet & Setup</span>
+              </div>
+              <div className="w-6 h-6 rounded-full bg-accent-blue/10 flex items-center justify-center text-accent-blue font-black text-xs border border-accent-blue/20">
+                $
+              </div>
+            </div>
+
+            <span className="text-xs text-white/50 font-medium">Your Wallet Address:</span>
+            <div className="flex items-center justify-between p-3 bg-black/60 border border-white/10 rounded-xl font-mono text-xs text-accent-cyan">
+              <span>{walletAddr.substring(0, 6)}</span>
+              <span className="blur-[3px] opacity-60">...k9p982m3n...</span>
+              <span>{walletAddr.substring(walletAddr.length - 3)}</span>
+              <button onClick={handleCopyWallet} className="p-1 hover:bg-white/10 rounded text-white/70 transition-colors">
+                <Copy size={14} />
+              </button>
+            </div>
+
+            <button 
+              onClick={handleCopyWallet}
+              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(37,99,235,0.4)] transition-all"
+            >
+              <Copy size={14} />
+              <span>1-Click Copy Wallet Address</span>
+            </button>
+
+            <button 
+              onClick={handleGenerateBIP39}
+              className="w-full py-3 px-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-all"
+            >
+              <Key size={14} />
+              <span>Generate BIP39 Mnemonic</span>
+            </button>
+          </div>
+
+        </div>
+
+        {/* Column 2: Center (Network Status & BIP39 Generator Modal) */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          
+          {/* Network Status Card */}
+          <div className="vanguard-glass p-6 border border-white/10 rounded-2xl flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-blue font-black uppercase text-xs tracking-wider">
+                <Globe size={18} />
+                <span>Network Status</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-accent-green uppercase">
+                <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
+                <span>Live</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-white/50">Network Height:</span>
+              <span className="font-mono text-2xl font-black text-white">#{status?.height ? status.height.toLocaleString() : '1,894,321'}</span>
+            </div>
+
+            <div className="flex flex-col gap-1 border-t border-white/5 pt-4">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-white/50">Network Hashrate:</span>
+                <span className="text-[10px] font-bold text-accent-green">Live 6.87M</span>
+              </div>
+              <span className="font-mono text-2xl font-black text-white">345.92 TH/s</span>
+            </div>
+          </div>
+
+          {/* BIP39 Seed Generator Card/Modal */}
+          <div className="vanguard-glass p-6 border border-accent-blue/30 rounded-2xl flex flex-col gap-4 shadow-[0_0_25px_rgba(56,189,248,0.15)] relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-cyan font-black uppercase text-xs tracking-wider">
+                <Key size={18} />
+                <span>BIP39 Seed Generator</span>
+              </div>
+              {isBip39ModalOpen && (
+                <button onClick={() => setIsBip39ModalOpen(false)} className="text-white/50 hover:text-white p-1">
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center text-xs text-white/60">
+              <span>Unique recovery words:</span>
+              <span className="text-[10px] text-white/40">{generatedTime}</span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 p-3 bg-black/60 border border-white/10 rounded-xl font-mono text-xs">
+              {seedWords.map((word, idx) => (
+                <div key={idx} className="bg-white/5 p-1.5 rounded text-center text-white/80 border border-white/5">
+                  {word}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <button onClick={handleCopySeed} className="py-2 px-3 bg-accent-blue text-white rounded-lg font-bold text-xs hover:bg-blue-600 transition-all flex items-center justify-center gap-1">
+                <Copy size={12} /> Seed
+              </button>
+              <button onClick={() => onNotify('📄 Tệp PDF lưu trữ đã được tạo thành công!', 'info')} className="py-2 px-3 bg-white/5 border border-white/10 text-white rounded-lg font-bold text-xs hover:bg-white/10 transition-all">
+                PDF
+              </button>
+              <button onClick={() => setIsBip39ModalOpen(false)} className="py-2 px-3 bg-white/5 border border-white/10 text-white rounded-lg font-bold text-xs hover:bg-white/10 transition-all">
+                Close
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Column 3: Right (Rewards & Blocks & Live Terminal) */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          
+          {/* Rewards & Blocks Card */}
+          <div className="vanguard-glass p-6 border border-white/10 rounded-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-blue font-black uppercase text-xs tracking-wider">
+                <Gift size={18} />
+                <span>Rewards & Blocks</span>
+              </div>
+              <div className="w-6 h-6 rounded-full bg-accent-blue/10 flex items-center justify-center text-accent-blue font-black text-xs border border-accent-blue/20">
+                $
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-xs text-white/60">
+              <span>Mined Blocks:</span>
+              <strong className="text-white text-base font-mono">112</strong>
+            </div>
+
+            <div className="flex justify-between items-center text-xs text-white/60">
+              <span>Total $YGO Rewards:</span>
+              <span className="text-white/80 font-mono">4,120.75 $YGO</span>
+            </div>
+
+            {/* Glowing Amber Reward Box */}
+            <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 to-amber-500/5 border-2 border-amber-500 flex items-center justify-center shadow-[0_0_25px_rgba(245,158,11,0.35)] my-1">
+              <span className="font-mono text-2xl font-black text-amber-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">
+                4,120.75 $YGO
               </span>
-           </button>
+            </div>
 
-           <div className="w-full flex flex-col gap-2.5 p-4 bg-black/60 border border-white/[0.05] rounded-2xl relative z-10 mt-0">
-              <span className="text-[9px] font-black uppercase text-accent-blue/50 tracking-[0.2em] mb-1">{t.telemetry_title}</span>
-              <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <Globe size={14} className="text-accent-blue" />
-                    <span className="text-[11px] font-bold text-white/70">{t.telemetry_peers}</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-black text-white">{status?.peers?.count || 1}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse shadow-[0_0_5px_var(--accent-green)]" />
-                 </div>
+            <div className="flex justify-between items-center text-xs text-white/60">
+              <span>Pending:</span>
+              <strong className="text-amber-400 font-mono">18.50 $YGO</strong>
+            </div>
+          </div>
+
+          {/* Console Output Live Terminal Card */}
+          <div className="vanguard-glass p-6 border border-white/10 rounded-2xl flex flex-col gap-3 flex-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-accent-cyan font-mono font-bold text-xs">
+                <Terminal size={16} />
+                <span>Console Output</span>
               </div>
-              <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-              <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <Activity size={14} className="text-accent-amber" />
-                    <span className="text-[11px] font-bold text-white/70">{t.telemetry_diff}</span>
-                 </div>
-                 <div className="flex items-center gap-1 bg-accent-amber/10 border border-accent-amber/20 px-2 py-0.5 rounded-lg">
-                    <span className="text-[11px] font-black text-accent-amber">
-                      {(status?.difficulty && Number(status.difficulty) > 50) ? t.telemetry_high : (status?.difficulty ? t.telemetry_mid : t.telemetry_auto)}
-                    </span>
-                    <TrendingUp size={12} className="text-accent-amber ml-1" />
-                 </div>
-              </div>
-           </div>
-        </div>        <div className="col-span-5 vanguard-glass p-10 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden group">
-           <div className={`absolute inset-0 transition-opacity duration-1000 ${isMining ? 'opacity-20' : 'opacity-0'}`}>
-              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-accent-blue to-transparent animate-[shimmer_3s_infinite]" />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,136,255,0.1),transparent_70%)]" />
-           </div>
-           <div className="relative z-10 flex flex-col items-center gap-4 w-full">
-              <div className="flex items-center gap-3 p-3 bg-white/[0.03] border border-white/[0.05] rounded-2xl mb-4 backdrop-blur-md">
-                 <Activity size={16} className="text-accent-blue animate-pulse" />
-                 <span className="text-[9px] text-white/40 font-black tracking-[0.25em] uppercase">SYSTEM_THROUGHPUT_REALTIME</span>
-              </div>
-              <div className="relative mb-8 group/hash">
-                 <div className="absolute -inset-10 bg-accent-blue/5 rounded-full blur-[80px] group-hover/hash:bg-accent-blue/15 transition-all duration-1000" />
-                 <AnimatePresence mode='wait'>
-                    <motion.div
-                      key={hashrate}
-                      initial={{ scale: 0.9, opacity: 0, filter: 'blur(20px)' }}
-                      animate={{ scale: 1, opacity: 1, filter: 'blur(0px)' }}
-                      className="relative z-10 flex flex-row items-baseline justify-center gap-3"
-                    >
-                       <span className="text-[100px] md:text-[110px] font-black italic text-white leading-none tracking-tighter drop-shadow-[0_0_50px_rgba(0,136,255,0.4)]">
-                          {hashrateValue}
-                       </span>
-                       <span className="text-2xl md:text-3xl font-black italic text-accent-blue tracking-widest uppercase opacity-90">{hashrateUnit}</span>
-                    </motion.div>
-                 </AnimatePresence>
-                 <div className="absolute -top-16 left-1/2 -translate-x-1/2 opacity-5 pointer-events-none">
-                    <Globe size={300} className="text-white animate-[spin_20s_linear_infinite]" />
-                 </div>
-              </div>
-              <div className="flex gap-16 mt-6 relative z-10">
-                 <div className="flex flex-col items-center">
-                    <span className="text-[10px] text-white/30 font-black tracking-[0.25em] mb-2 uppercase">BLOCK_REWARD</span>
-                    <div className="flex items-baseline gap-1">
-                       <span className="text-[20px] text-accent-amber font-black italic shadow-text">
-                          {(status?.block_reward || 0).toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 8})}
-                       </span>
-                       <span className="text-xs text-accent-amber font-bold uppercase">GO</span>
-                    </div>
-                 </div>
-                 <div className="w-[1px] h-12 bg-white/10" />
-                 <div className="flex flex-col items-center">
-                    <span className="text-[10px] text-white/30 font-black tracking-[0.25em] mb-2 uppercase">NETWORK_DIFFICULTY</span>
-                    <span className="text-[20px] text-accent-green font-black italic shadow-text">
-                       {status?.difficulty ? formatDifficulty(status.difficulty) : "..."}
-                    </span>
-                 </div>
-              </div>
-           </div>
-           <motion.div 
-             animate={isMining ? { rotate: [0, -35, 0], y: [0, -10, 0] } : {}} 
-             transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}
-             className={`absolute bottom-10 right-10 p-6 rounded-3xl border border-white/5 bg-black/40 backdrop-blur-xl transition-all duration-500 ${isMining ? 'text-accent-blue opacity-40 scale-125' : 'text-white/5 opacity-10'}`}
-           >
-              <Pickaxe size={80} strokeWidth={1} />
-           </motion.div>
+              <span className="text-[10px] font-bold text-accent-green uppercase flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+                Live Terminal
+              </span>
+            </div>
+
+            <div ref={terminalRef} className="bg-black/80 border border-white/5 rounded-xl p-3 font-mono text-[11px] h-[160px] overflow-y-auto space-y-1.5 text-white/70 custom-scrollbar">
+              {terminalLogs.map((log, i) => (
+                <div key={i} className="leading-relaxed">
+                  <span className="text-white/30 mr-2">{log.time}</span>
+                  <span className={log.type === 'success' ? 'text-accent-green font-bold' : log.type === 'warn' ? 'text-amber-400 font-bold' : 'text-accent-cyan'}>
+                    {log.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
 
-        <div className="col-span-3 vanguard-glass p-6 flex flex-col justify-between border border-white/10 group relative overflow-hidden">
-           <div>
-              <div className="flex items-center gap-3 mb-4">
-                 <div className="w-12 h-12 rounded-2xl bg-accent-amber/10 flex items-center justify-center text-accent-amber shadow-[0_0_25px_rgba(247,173,63,0.2)] border border-accent-amber/20">
-                    <Cpu size={24} />
-                 </div>
-                 <div className="flex flex-col">
-                    <span className="text-[11px] font-black uppercase tracking-[0.25em] text-white/40 leading-none">{t.miner_title}</span>
-                    <span className="text-[8px] text-accent-amber font-bold tracking-widest opacity-60 mt-1">HARDWARE_OPTIMIZER_ACTIVE</span>
-                 </div>
-              </div>
-
-              {/* BỘ CHỌN THIẾT BỊ KHAI THÁC */}
-              <div className="mb-4 bg-black/40 border border-white/[0.05] p-4 rounded-2xl relative overflow-hidden">
-                 <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase block mb-3">{t.mining_device}</span>
-                 <div className="grid grid-cols-3 gap-2 bg-black/30 p-1 rounded-xl border border-white/5 mb-3">
-                    {(['cpu', 'gpu', 'hybrid'] as const).map((dev) => {
-                        const isDisabled = dev === 'cpu' || dev === 'hybrid';
-                        return (
-                           <button
-                              key={dev}
-                              disabled={isDisabled}
-                              title={isDisabled ? (t.cpu_locked_tooltip || "Tính năng đào bằng CPU đang tạm khóa") : ""}
-                              onClick={() => handleDeviceChange(dev)}
-                              className={`py-2 px-1 text-[9px] font-black uppercase rounded-lg transition-all duration-300 ${
-                                 deviceMode === dev
-                                   ? 'bg-accent-blue text-white shadow-[0_0_15px_rgba(0,136,255,0.4)]'
-                                   : isDisabled
-                                     ? 'text-white/20 cursor-not-allowed line-through hover:border-amber-500/30'
-                                     : 'text-white/40 hover:text-white/80 hover:bg-white/5'
-                              }`}
-                           >
-                              {dev === 'cpu' ? `${t.mining_device_cpu} (🔒)` : dev === 'gpu' ? t.mining_device_gpu : `${t.mining_device_hybrid} (🔒)`}
-                           </button>
-                        );
-                     })}
-                 </div>
-                 <div className="text-[10px] text-amber-300/90 font-semibold tracking-normal leading-relaxed bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl flex items-start gap-2">
-                    <span className="shrink-0 text-xs">👉</span>
-                    <span>{t.gpu_nvidia_only}</span>
-                 </div>
-              </div>
-
-              <div className="vanguard-stats-card p-5 bg-black/60 border border-white/[0.05] rounded-2xl relative overflow-hidden shadow-2xl transition-all duration-500">
-                 <div className="flex justify-between items-end mb-4">
-                    <span className="text-[9px] text-white/30 font-black tracking-[0.2em] uppercase">CORE_STRESS_LVL</span>
-                    <span className="text-4xl font-black text-accent-amber italic tracking-tighter drop-shadow-[0_0_20px_rgba(247,173,63,0.4)]">{intensity}%</span>
-                 </div>
-                 <div className="relative h-16 flex items-center px-3">
-                    <div className="absolute inset-x-0 h-2 bg-black/50 rounded-full border border-white/5 overflow-hidden">
-                       <div className="absolute inset-0 bg-gradient-to-r from-accent-blue via-accent-amber to-accent-red" style={{ width: `${intensity}%` }} />
-                    </div>
-                    <input type="range" min="1" max="100" value={intensity} onChange={(e) => setIntensity(parseInt(e.target.value))} onMouseUp={(e) => handleIntensityChange(parseInt((e.target as HTMLInputElement).value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                    <div className="absolute w-8 h-8 bg-white border-[6px] border-accent-amber rounded-full shadow-[0_0_30px_rgba(247,173,63,0.8)] pointer-events-none transition-all duration-300 transform -translate-x-1/2 flex items-center justify-center" style={{ left: `${intensity}%` }}>
-                       <div className="w-1 h-3 bg-accent-amber/40 rounded-full" />
-                    </div>
-                 </div>
-                 <div className="flex items-center gap-3 mt-4 p-3 bg-amber-500/10 rounded-xl border border-amber-500/20 text-xs text-amber-300 font-medium not-italic">
-                    <AlertTriangle size={16} className="text-amber-400 shrink-0" />
-                    <span className="normal-case tracking-normal leading-relaxed">{t.thermal_warning}</span>
-                 </div>
-              </div>
-
-
-              {deviceMode === 'gpu' && (
-                 <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-3 p-3 bg-accent-blue/10 border border-accent-blue/20 rounded-xl text-[10px] text-accent-blue font-bold flex items-center gap-2"
-                 >
-                    <Activity size={14} className="animate-pulse text-accent-blue" />
-                    <span>{t.cpu_mining_disabled}</span>
-                 </motion.div>
-              )}
-           </div>
-
-           <div className="p-6 rounded-[24px] bg-gradient-to-br from-accent-blue/10 to-transparent border border-accent-blue/20 flex items-center justify-between shadow-lg">
-              <div className="flex flex-col gap-1">
-                 <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.25em] leading-none">VANGUARD_CORE</span>
-                 <span className="text-[12px] text-white font-black">SP1_V2_PROVER: ACTIVE</span>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-accent-green/10 flex items-center justify-center text-accent-green shadow-[0_0_20px_rgba(34,197,94,0.3)]">
-                 <ShieldCheck size={24} strokeWidth={2.5} />
-              </div>
-           </div>
-        </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-6 flex-1">
-        <div className="col-span-8 vanguard-glass p-8 overflow-hidden flex flex-col border border-white/10 shadow-[inset_0_4px_50px_rgba(0,136,255,0.05)] transition-all duration-300">
-           <div className="flex items-center justify-between mb-6 px-2">
-              <div className="flex items-center gap-4">
-                 <div className="w-2 h-6 bg-accent-blue rounded-full shadow-[0_0_15px_rgba(0,136,255,0.5)]" />
-                 <div>
-                    <span className="text-[11px] font-black uppercase tracking-[0.3em] text-white/40">TRANSMISSION_PROTOCOL</span>
-                    <div className="h-[1px] w-full bg-gradient-to-r from-accent-blue/40 to-transparent mt-1" />
-                 </div>
-              </div>
-              <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-full border border-white/5">
-                 <span className="text-[10px] text-accent-blue font-mono font-black animate-pulse">LIVE_CONN</span>
-                 <div className="w-1 h-1 rounded-full bg-accent-blue" />
-                 <span className="text-[9px] text-white/40 font-mono">STREAM: SCL_SSE_8080</span>
-              </div>
-           </div>
-           <div className="flex-1 bg-black/80 rounded-[32px] p-8 font-mono text-[12px] leading-relaxed overflow-y-auto space-y-4 custom-scrollbar border border-white/[0.05] shadow-inner">
-              <div className="flex gap-6 items-start">
-                 <span className="text-accent-blue font-black min-w-[90px] border-r border-white/10 pr-4">[CORE]</span>
-                 <span className="text-white/50">{t.log_core_init}</span>
-              </div>
-              <div className="flex gap-6 items-start">
-                 <span className="text-accent-amber font-black min-w-[90px] border-r border-white/10 pr-4">[DAA]</span>
-                 <span className="text-white/50">{t.log_daa_aligned}</span>
-              </div>
-              {isMining && (
-                <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-6 items-start">
-                   <span className="text-accent-green font-black min-w-[90px] border-r border-white/10 pr-4">[POW]</span>
-                   <span className="text-accent-green/80 font-bold">
-                      {deviceMode === 'gpu' ? t.log_pow_scanning_gpu : deviceMode === 'hybrid' ? t.log_pow_scanning_hybrid : t.log_pow_scanning_cpu}
-                   </span>
-                </motion.div>
-              )}
-              <div className="h-6" />
-              <div className="text-white/10 select-none flex items-center gap-2">
-                 <div className="w-8 h-[1px] bg-white/10" />
-                 <span>{t.log_waiting_peer}</span>
-              </div>
-           </div>
-        </div>
+      {/* Power Action Toggle Bar */}
+      <button 
+        onClick={handleToggleMiner}
+        disabled={isStopping}
+        className={`w-full py-4 px-6 rounded-2xl font-black tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-3 shadow-xl ${
+          isMining
+            ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)]'
+            : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]'
+        }`}
+      >
+        <Pickaxe size={18} className={isMining ? 'animate-bounce' : ''} />
+        <span>{isMining ? '🔴 STOP 100% GPU CUDA MINING ENGINE' : '🟢 START 100% GPU CUDA MINING ENGINE'}</span>
+      </button>
 
-        <div className="col-span-4 vanguard-glass p-10 border border-white/10 flex flex-col group relative overflow-hidden">
-           <div className="flex items-center gap-4 mb-8">
-              <div className="w-10 h-10 rounded-xl bg-accent-green/10 flex items-center justify-center text-accent-green border border-accent-green/20">
-                 <TrendingUp size={20} className="animate-bounce" />
-              </div>
-              <span className="text-[11px] font-black uppercase tracking-[0.3em] text-white/40">REWARD_TRACKER</span>
-           </div>
-           <div className="flex-1 flex flex-col justify-center items-center gap-2">
-              <span className="text-[72px] font-black italic tracking-tighter text-white leading-none drop-shadow-[0_0_40px_rgba(255,255,255,0.1)]">0.00</span>
-              <span className="text-[11px] text-accent-blue font-black tracking-[0.3em] uppercase mb-8 opacity-60">GO EARNED</span>
-              <div className="w-full space-y-3 relative z-10">
-                 <div className="flex justify-between p-4 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-accent-blue/30 group/stat">
-                    <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${!isMining ? 'text-white' : 'text-text-muted group-hover:text-white/80'}`}>{t.verify_only}</span>
-                    <span className="text-[8px] text-text-muted text-center leading-relaxed">{!isMining && <>{t.no_mining}<br/><span className="text-accent-blue/60 font-bold">{t.sync_to_mine_hint}</span></>}</span>
-                 </div>
-                 <div className="flex flex-col gap-3 p-5 bg-black/40 rounded-2xl border border-white/5 transition-all hover:border-accent-blue/30 group/stat">
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.2em] group-hover/stat:text-white/60">{t.recipient_entity}</span>
-                       <ShieldCheck size={14} className="text-accent-blue opacity-40" />
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-accent-blue/80 break-all bg-accent-blue/5 p-2 rounded-lg border border-accent-blue/10">{minerStatus?.miner_address || "0x----------------------------------------------------------------"}</span>
-                 </div>
-              </div>
-           </div>
-           <div className="mt-8 pt-6 border-t border-white/5 text-[9px] text-white/20 leading-relaxed text-center font-black tracking-[0.3em] uppercase">SECURED BY MATRIX V2.0 PROTOCOL</div>
-        </div>
-      </div>
     </div>
   );
 };

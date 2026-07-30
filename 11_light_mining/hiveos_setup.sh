@@ -2,7 +2,7 @@
 # =====================================================================
 # YonaCode ($YGO) GPU Miner - HiveOS Auto-Configuration & CLI Installer
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/duyvn878-ui/YonaCode/main/hiveos_setup.sh | bash -s -- --node 110.172.28.103:8080
+#   bash hiveos_setup.sh --node 110.172.28.103:8080
 # =====================================================================
 
 set -e
@@ -47,22 +47,14 @@ else
 fi
 
 MINER_DIR="/hive/miners/custom/yona_gpu_miner"
-RELEASE_URL="https://github.com/duyvn878-ui/YonaCode/releases/download/v2.0.0/YonaCode_Linux.zip"
 
-echo -e "${YELLOW}[1/4] Khởi tạo thư mục HiveOS Custom Miner tại: ${MINER_DIR}...${NC}"
+echo -e "${YELLOW}[1/3] Khởi tạo thư mục HiveOS Custom Miner tại: ${MINER_DIR}...${NC}"
 mkdir -p "$MINER_DIR"
 cd "$MINER_DIR"
 
-echo -e "${YELLOW}[2/4] Tải xuống bộ cài đặt GPU Miner nguyên bản từ GitHub Releases...${NC}"
-curl -sSL -o YonaCode_Linux.zip "$RELEASE_URL" || true
+echo -e "${YELLOW}[2/3] Cấu hình các tệp h-manifest.conf, h-run.sh, h-stats.sh...${NC}"
 
-echo -e "${YELLOW}[3/4] Giải nén và cấu hình các script vận hành HiveOS (h-manifest, h-run, h-stats)...${NC}"
-if [ -f "YonaCode_Linux.zip" ]; then
-  unzip -o YonaCode_Linux.zip -d "$MINER_DIR" > /dev/null 2>&1 || true
-  rm -f YonaCode_Linux.zip
-fi
-
-# Tạo/Cập nhật tệp h-manifest.conf với cấu hình Node IP:PORT
+# 1. Tạo tệp h-manifest.conf
 cat << EOF > h-manifest.conf
 # =====================================================================
 # YonaCode GPU Miner HiveOS Manifest Configuration (Auto-Generated)
@@ -75,6 +67,7 @@ CUSTOM_LOG_BASENAME=/var/log/miner/custom/\$CUSTOM_NAME
 CUSTOM_URL="${NODE_IP}:${NODE_PORT}"
 EOF
 
+# 2. Tạo tệp h-run.sh
 cat << 'EOF' > h-run.sh
 #!/usr/bin/env bash
 . h-manifest.conf
@@ -86,6 +79,7 @@ mkdir -p $(dirname $CUSTOM_LOG_BASENAME)
 ./yona_gpu_miner $NODE_IP $NODE_PORT > ${CUSTOM_LOG_BASENAME}.log 2>&1
 EOF
 
+# 3. Tạo tệp h-stats.sh
 cat << 'EOF' > h-stats.sh
 #!/usr/bin/env bash
 . h-manifest.conf
@@ -101,17 +95,15 @@ echo "khs: $khs"
 echo "stats: $stats"
 EOF
 
-chmod +x yona_gpu_miner h-run.sh h-stats.sh 2>/dev/null || true
+chmod +x h-run.sh h-stats.sh 2>/dev/null || true
 
-echo -e "${GREEN}[4/4] Khởi chạy thợ đào GPU yona_gpu_miner kết nối tới Node ${NODE_IP}:${NODE_PORT}...${NC}"
+echo -e "${GREEN}[3/3] Kích hoạt dịch vụ Custom Miner trong HiveOS...${NC}"
 
 if [ -f "/hive/bin/custom" ]; then
-  echo -e "${CYAN}[HIVEOS] Kích hoạt dịch vụ Custom Miner trong HiveOS...${NC}"
   /hive/bin/custom stop || true
   /hive/bin/custom config "${NODE_IP}:${NODE_PORT}" || true
   /hive/bin/custom start
 else
-  echo -e "${CYAN}[LINUX] Khởi chạy trực tiếp tiến trình đào GPU Solo...${NC}"
   ./h-run.sh &
 fi
 
@@ -119,7 +111,5 @@ echo -e "${GREEN}"
 echo "======================================================================="
 echo "       🎉 ĐÃ TỰ ĐỘNG CẤU HÌNH VÀ KHỞI CHẠY THÀNH CÔNG HIVEOS MINER!     "
 echo "   Solo Mining Node: ${NODE_IP}:${NODE_PORT}"
-echo "   Để xem nhật ký đào realtime, gõ lệnh:"
-echo "   tail -f /var/log/miner/custom/yona_gpu_miner/yona_gpu_miner.log"
 echo "======================================================================="
 echo -e "${NC}"

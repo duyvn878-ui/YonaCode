@@ -311,6 +311,9 @@ var nodeStartCmd = &cobra.Command{
 		poolDiffMult, _ := cmd.Flags().GetUint64("pool-diff-mult")
 		app.EnablePool(poolEnable, poolAddress, poolKey, poolFee, poolDiffMult)
 
+		lightMinerServer, _ := cmd.Flags().GetBool("light-miner-server")
+		app.EnableLightMinerServer(lightMinerServer)
+
 		// [VANGUARD-CONTROL] Thiết lập chế độ Node dựa trên cờ lệnh
 		if mining {
 			app.SetNodeMode("full-mining")
@@ -836,6 +839,7 @@ func init() {
 	nodeStartCmd.Flags().String("pool-key", "", "Khóa riêng tư ví Pool để payout tự động (Hex 32 bytes)")
 	nodeStartCmd.Flags().Float64("pool-fee", 0.01, "Phí Bể đào (ví dụ 0.01 = 1%)")
 	nodeStartCmd.Flags().Uint64("pool-diff-mult", 100, "Bội số giảm độ khó của Bể (ví dụ 100 lần dễ hơn mạng)")
+	nodeStartCmd.Flags().Bool("light-miner-server", false, "Kích hoạt Chế độ máy chủ cho thợ đào nhẹ (Light Mining Server)")
 
 	// Đăng ký các lệnh con vào nodeCmd
 	nodeCmd.AddCommand(nodeStartCmd, nodeStatusCmd, nodeInfoCmd, nodeConnectCmd, nodeRepairCmd)

@@ -94,6 +94,10 @@ type CLIApp struct {
 	poolFee      float64
 	poolDiffMult uint64
 	miningDevice        string // "cpu", "gpu", or "hybrid"
+
+	activeBlockTemplates   map[uint64]*pb_block.Block // [LIGHT-MINING]
+	activeBlockTemplatesMu sync.RWMutex
+	lightMinerServer       bool
 }
 
 func (c *CLIApp) SetMiningDevice(device string) {
@@ -101,6 +105,22 @@ func (c *CLIApp) SetMiningDevice(device string) {
 	defer c.mu.Unlock()
 	c.miningDevice = device
 }
+
+func (c *CLIApp) EnableLightMinerServer(enable bool) {
+	c.mu.Lock()
+	c.lightMinerServer = enable
+	c.mu.Unlock()
+	if enable {
+		log.Println("[MINER-SERVER] 🚀 Đã kích hoạt Chế độ máy chủ hỗ trợ Đào Nhẹ (Light Mining Server Mode)")
+	}
+}
+
+func (c *CLIApp) IsLightMinerServerEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lightMinerServer
+}
+
 
 func (c *CLIApp) EnableWalletServer(enabled bool, token string) {
 	c.walletServerEnabled = enabled
@@ -155,14 +175,15 @@ func NewCLIApp(dbPath string, minerAddr []byte, minerKey ed25519.PrivateKey, scl
 	bridge := go_bridge.NewBridge(sclPort)
 
 	return &CLIApp{
-		minerAddr:        minerAddr,
-		minerKey:         minerKey,
-		dbPath:           dbPath,
-		bridge:           bridge,
-		nodeMode:         "verify-only", // [Vanguard] Khởi chạy an toàn ở chế độ xác thực
-		banMgr:           node_p2p.NewBanManager(dbPath),
-		lastHashTime:     time.Now(),
-		miningResultChan: make(chan *pb_block.MinerMessage, 100),
+		minerAddr:            minerAddr,
+		minerKey:             minerKey,
+		dbPath:               dbPath,
+		bridge:               bridge,
+		nodeMode:             "verify-only", // [Vanguard] Khởi chạy an toàn ở chế độ xác thực
+		banMgr:               node_p2p.NewBanManager(dbPath),
+		lastHashTime:         time.Now(),
+		miningResultChan:     make(chan *pb_block.MinerMessage, 100),
+		activeBlockTemplates: make(map[uint64]*pb_block.Block),
 	}
 }
 
@@ -909,6 +930,10 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 			app.activeMiningMu.Unlock()
 
 			// Dọn dẹp hàng đợi kết quả cũ trước khi đợi
+			app.activeBlockTemplatesMu.Lock()
+			app.activeBlockTemplates = make(map[uint64]*pb_block.Block)
+			app.activeBlockTemplatesMu.Unlock()
+
 			for len(app.miningResultChan) > 0 {
 				<-app.miningResultChan
 			}
@@ -933,7 +958,11 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 					currentActiveSid := app.activeSessionId
 					app.activeMiningMu.Unlock()
 
-					if msg.SessionId == sid {
+					app.activeBlockTemplatesMu.RLock()
+					_, isCustomSid := app.activeBlockTemplates[msg.SessionId]
+					app.activeBlockTemplatesMu.RUnlock()
+
+					if msg.SessionId == sid || isCustomSid {
 						log.Printf("[MINER-POLL] ✨ TÌM THẤY KẾT QUẢ TỪ MINER ĐỘC LẬP (SID: %d)!", msg.SessionId)
 						result.Nonce = msg.FoundNonce
 						result.BlockHash = msg.BlockHash
@@ -1001,16 +1030,24 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 			// [V5.4] CHỐT CHẶN CUỐI CÙNG: Tuyệt đối không gọi BuildVanguardBlockTemplate lại!
 			// Tại sao: Việc gọi lại có thể sinh ra TxRoot khác nếu logic Rust không deterministic.
 			// Giải pháp: Sử dụng đúng bản Template đã dùng để tạo MiningTask (Immutable Template).
-			app.activeMiningMu.Lock()
-			if app.activeBlock == nil {
-				app.activeMiningMu.Unlock()
-				log.Printf("[MINER-ERROR] ❌ activeBlock bị mất! Không thể nộp khối #%d.", capturedHeight)
-				continue
-			}
+			app.activeBlockTemplatesMu.RLock()
+			customBlock, ok := app.activeBlockTemplates[result.SessionId]
+			app.activeBlockTemplatesMu.RUnlock()
 
-			// Deep clone để tránh race condition nếu template bị xoá/thay đổi
-			minedBlockBytes, _ := proto.Marshal(app.activeBlock)
-			app.activeMiningMu.Unlock()
+			var minedBlockBytes []byte
+			if ok && customBlock != nil {
+				log.Printf("[MINER] 🏆 Tìm thấy template tùy chỉnh trong cache cho Session ID: %d", result.SessionId)
+				minedBlockBytes, _ = proto.Marshal(customBlock)
+			} else {
+				app.activeMiningMu.Lock()
+				if app.activeBlock == nil {
+					app.activeMiningMu.Unlock()
+					log.Printf("[MINER-ERROR] ❌ activeBlock bị mất! Không thể nộp khối #%d.", capturedHeight)
+					continue
+				}
+				minedBlockBytes, _ = proto.Marshal(app.activeBlock)
+				app.activeMiningMu.Unlock()
+			}
 
 			var minedBlock pb_block.Block
 			proto.Unmarshal(minedBlockBytes, &minedBlock)
@@ -1224,6 +1261,152 @@ func (c *CLIApp) getMiningHistory() ([]uint64, [][]byte, error) {
 
 	return timestamps, difficulties, nil
 }
+
+func (c *CLIApp) BuildCustomTemplateForAddress(workerAddr []byte) ([]byte, uint64, error) {
+	// 1. Lấy thông tin block cha và cao độ mạng từ Rust
+	h := c.bridge.GetCurrentVersion()
+	var nextHeight uint64
+	genHash := c.bridge.GetBlockHash(0)
+	if h == 0 && len(genHash) == 0 {
+		nextHeight = 0
+	} else {
+		nextHeight = h + 1
+	}
+
+	var parentHash []byte
+	if nextHeight > 0 {
+		parentHash = c.bridge.GetBlockHash(nextHeight - 1)
+	}
+	if parentHash == nil || len(parentHash) != 32 {
+		parentHash = make([]byte, 32)
+	}
+
+	// 2. Gom các giao dịch thực tế từ mempool (BẮT BUỘC: gom giao dịch thực tế, không để khối trống)
+	var pendingTxs []*pb_block.Transaction
+	if c.mempool != nil {
+		pendingTxs = c.mempool.GetPartitionedTransactions(node_p2p.DefaultBlockMaxSize)
+	}
+
+	txsBytes := make([][]byte, 0, len(pendingTxs))
+	for _, tx := range pendingTxs {
+		d, _ := proto.Marshal(tx)
+		txsBytes = append(txsBytes, d)
+	}
+
+	// 3. Tính toán độ khó cho khối tiếp theo
+	hTimestamps, hDifficulties, err := c.getMiningHistory()
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get mining history: %v", err)
+	}
+	nowTs := uint64(time.Now().Unix())
+	difficulty := c.bridge.CalculateNextDifficultyV2(hTimestamps, hDifficulties, nowTs, nextHeight)
+
+	// 4. Yêu cầu RUST CORE xây dựng Block Template chuẩn cho ví thợ đào nhẹ
+	var blockRaw []byte
+	var failIdx int32
+	var errMsg string
+	blockRaw, failIdx, errMsg = c.bridge.BuildVanguardBlockTemplate(nextHeight, parentHash, workerAddr, txsBytes, nowTs, difficulty)
+
+	if blockRaw == nil || len(blockRaw) == 0 {
+		return nil, 0, fmt.Errorf("Rust core template error: %s (idx: %d)", errMsg, failIdx)
+	}
+
+	// 5. Giải mã khối từ Rust
+	var finalBlock pb_block.Block
+	if err := proto.Unmarshal(blockRaw, &finalBlock); err != nil {
+		return nil, 0, fmt.Errorf("Failed to unmarshal block: %v", err)
+	}
+
+	// Generate a unique session ID for this light miner's template
+	sid := uint64(time.Now().UnixNano())
+
+	// Pack header for GPU miner
+	header := finalBlock.Header
+	headerRaw, _ := proto.Marshal(header)
+	headerHash := c.bridge.CalculateBlockHeaderHash(headerRaw)
+	targetBytes := difficultyToTarget(header.Difficulty)
+
+	parentHashHex := ""
+	if header.ParentHash != nil {
+		parentHashHex = hex.EncodeToString(header.ParentHash.Value)
+	}
+	txRootHex := ""
+	if header.TxRoot != nil {
+		txRootHex = hex.EncodeToString(header.TxRoot.Value)
+	}
+
+	// Store in activeBlockTemplates map
+	c.activeBlockTemplatesMu.Lock()
+	// TTL Inline Clean up: tự động dọn dẹp các template cũ hơn 2 phút
+	nowNano := uint64(time.Now().UnixNano())
+	twoMinutesNano := uint64(2 * time.Minute)
+	for oldSid := range c.activeBlockTemplates {
+		if nowNano-oldSid > twoMinutesNano {
+			delete(c.activeBlockTemplates, oldSid)
+		}
+	}
+	c.activeBlockTemplates[sid] = &finalBlock
+	c.activeBlockTemplatesMu.Unlock()
+
+	responseMap := map[string]interface{}{
+		"header_hash": hex.EncodeToString(headerHash),
+		"target":      hex.EncodeToString(targetBytes),
+		"height":      header.Height,
+		"session_id":  sid,
+		"intensity":   100,
+		"parent_hash": parentHashHex,
+		"merkle_root": txRootHex,
+	}
+
+	resBytes, err := json.Marshal(responseMap)
+	return resBytes, sid, err
+}
+
+func (c *CLIApp) SubmitSolvedBlock(nonce, sessionId uint64) (bool, error) {
+	c.activeBlockTemplatesMu.RLock()
+	customBlock, ok := c.activeBlockTemplates[sessionId]
+	c.activeBlockTemplatesMu.RUnlock()
+
+	if !ok || customBlock == nil {
+		return false, fmt.Errorf("block template not found for session %d", sessionId)
+	}
+
+	// Deep clone the block template to avoid race condition
+	minedBlockBytes, err := proto.Marshal(customBlock)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal block template: %v", err)
+	}
+
+	var minedBlock pb_block.Block
+	if err := proto.Unmarshal(minedBlockBytes, &minedBlock); err != nil {
+		return false, fmt.Errorf("failed to unmarshal block template: %v", err)
+	}
+
+	minedBlock.Header.Nonce = nonce
+
+	finalBlockRaw, err := proto.Marshal(&minedBlock)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal final block: %v", err)
+	}
+
+	if c.rpcSrv != nil && !c.rpcSrv.isMiningAllowed() {
+		return false, fmt.Errorf("mining not allowed (unsynced or offline)")
+	}
+
+	log.Printf("[MINER-SERVER] ⛓️ Đang gửi khối mới #%d (Nonce: %d) lên Consensus Engine...", minedBlock.Header.Height, nonce)
+	resp, err := c.bridge.ProcessChain([][]byte{finalBlockRaw})
+	if err != nil {
+		return false, fmt.Errorf("ProcessChain error: %v", err)
+	}
+
+	if resp.Status == 0 || resp.Status == 1 {
+		log.Printf("[MINER-SERVER] 🎉 Khối mới #%d được chấp nhận thành công từ thợ đào nhẹ! (Trạng thái: %d)", minedBlock.Header.Height, resp.Status)
+		return true, nil
+	} else {
+		return false, fmt.Errorf("block rejected by Consensus Engine (status: %d)", resp.Status)
+	}
+}
+
 
 func (c *CLIApp) buildAndSubmitTemplate(nextHeight uint64, txs []*pb_block.Transaction) ([]byte, uint64) {
 	c.minerResetMu.Lock()

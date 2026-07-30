@@ -16,6 +16,7 @@ Author / Founder: **Vo Nhat Thien**
 > The release zip files already contain the `node/scl` folder with the ledger data, allowing you to synchronize extremely quickly without having to download everything from Block 0 via P2P.
 > 
 > * ⚡ **Fast Ledger Sync Guide:** [BOOST_SYNC_LEDGER_GUIDE_VI.md](https://github.com/duyvn878-ui/YonaCode/blob/main/BOOST_SYNC_LEDGER_GUIDE_VI.md) (Bản Tiếng Việt) | [BOOST_SYNC_LEDGER_GUIDE_EN.md](https://github.com/duyvn878-ui/YonaCode/blob/main/BOOST_SYNC_LEDGER_GUIDE_EN.md) (English)
+> * ⛏️ **Solo Mining Proxy Guide:** [SOLO_MINING_PROXY_GUIDE_VI.md](https://github.com/duyvn878-ui/YonaCode/blob/main/SOLO_MINING_PROXY_GUIDE_VI.md) (Bản Tiếng Việt) | [SOLO_MINING_PROXY_GUIDE_EN.md](https://github.com/duyvn878-ui/YonaCode/blob/main/SOLO_MINING_PROXY_GUIDE_EN.md) (English)
 > * 🚀 **HiveOS GPU Mining Guide:** [HIVEOS_CONFIG_GUIDE_VI.md](https://github.com/duyvn878-ui/YonaCode/blob/main/HIVEOS_CONFIG_GUIDE_VI.md) (Bản Tiếng Việt) | [HIVEOS_CONFIG_GUIDE_EN.md](https://github.com/duyvn878-ui/YonaCode/blob/main/HIVEOS_CONFIG_GUIDE_EN.md) (English)
 > * 🛠️ **CLI Commands Guide:** [cli_commands_vi.md](https://github.com/duyvn878-ui/YonaCode/blob/main/cli_commands_vi.md) (Bản Tiếng Việt) | [cli_commands_en.md](https://github.com/duyvn878-ui/YonaCode/blob/main/cli_commands_en.md) (English)
 > 
