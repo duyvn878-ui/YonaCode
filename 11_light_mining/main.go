@@ -362,6 +362,14 @@ func main() {
 		defer ticker.Stop()
 
 		lastLogIndex := 0
+		var (
+			lastConnected bool
+			lastHeight    uint64
+			lastIsMining  bool
+			lastFound     uint64
+			isFirstTick   = true
+			tickCounter   int
+		)
 
 		for {
 			select {
@@ -379,25 +387,41 @@ func main() {
 				hr := st["hashrate"].(uint64)
 				found := st["blocks_found"].(uint64)
 
-				// 1. Print connection state line
-				if isConnected {
-					color.Green("[NODE-STATUS] 🟢 VPS Node Live (110.172.28.103:9090) | Network Height: #%d", height)
-				} else {
-					color.Red("[NODE-STATUS] 🔴 VPS Node Disconnected (110.172.28.103:9090) | Retrying...")
+				// 1. Print connection state line only when state changes or on first tick
+				if isFirstTick || isConnected != lastConnected || (isConnected && height != lastHeight) {
+					if isConnected {
+						color.Green("[NODE-STATUS] 🟢 VPS Node Live (110.172.28.103:9090) | Network Height: #%d", height)
+					} else {
+						color.Red("[NODE-STATUS] 🔴 VPS Node Disconnected (110.172.28.103:9090) | Retrying...")
+					}
+					lastConnected = isConnected
+					lastHeight = height
 				}
 
-				// 2. Print mining state line if mining
+				// 2. Print mining state line (every 5 ticks / 10s if active, or immediately on block found / state transitions)
 				if isMining {
-					hrStr := fmt.Sprintf("%d H/s", hr)
-					if hr >= 1000000000 {
-						hrStr = fmt.Sprintf("%.2f GH/s", float64(hr)/1000000000.0)
-					} else if hr >= 1000000 {
-						hrStr = fmt.Sprintf("%.2f MH/s", float64(hr)/1000000.0)
-					} else if hr >= 1000 {
-						hrStr = fmt.Sprintf("%.2f KH/s", float64(hr)/1000.0)
+					if isFirstTick || !lastIsMining || found != lastFound || tickCounter%5 == 0 {
+						hrStr := fmt.Sprintf("%d H/s", hr)
+						if hr >= 1000000000 {
+							hrStr = fmt.Sprintf("%.2f GH/s", float64(hr)/1000000000.0)
+						} else if hr >= 1000000 {
+							hrStr = fmt.Sprintf("%.2f MH/s", float64(hr)/1000000.0)
+						} else if hr >= 1000 {
+							hrStr = fmt.Sprintf("%.2f KH/s", float64(hr)/1000.0)
+						}
+						color.Cyan("[GPU-ENGINE] ⚡ Mining Speed: %s | Blocks Found: %d", hrStr, found)
+						lastIsMining = isMining
+						lastFound = found
 					}
-					color.Cyan("[GPU-ENGINE] ⚡ Mining Speed: %s | Blocks Found: %d", hrStr, found)
+				} else {
+					if lastIsMining {
+						color.Yellow("[GPU-ENGINE] 💤 Mining Stopped")
+						lastIsMining = false
+					}
 				}
+
+				isFirstTick = false
+				tickCounter++
 
 				// 3. Print new log entries to console
 				logsRaw, ok := st["logs"].([]LogEntry)

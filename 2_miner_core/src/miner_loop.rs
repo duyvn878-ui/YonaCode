@@ -59,10 +59,16 @@ impl MiningTask {
             material[0..32].copy_from_slice(&header_hash);
             material[32..40].copy_from_slice(&nonce.to_le_bytes());
 
-            let mut hasher = blake3::Hasher::new_derive_key(btc_genz_scl::crypto_primitives::GENZ_POW_CONTEXT);
-            hasher.update(&material);
-            let hash_result = hasher.finalize();
-            let hash_u256 = U256::from_little_endian(hash_result.as_bytes());
+            // [YONA-HASH-HARD-FORK] Tự động chuyển đổi hạt băm tại mốc khối #38500
+            let hash_result = if self.height >= 38500 {
+                btc_genz_scl::crypto_primitives::yona_hash(&material)
+            } else {
+                let mut hasher = blake3::Hasher::new_derive_key(btc_genz_scl::crypto_primitives::GENZ_POW_CONTEXT);
+                hasher.update(&material);
+                let res: [u8; 32] = hasher.finalize().into();
+                res
+            };
+            let hash_u256 = U256::from_little_endian(&hash_result);
 
             if hash_u256 < target {
                 println!("[SUCCESS] Tìm thấy Anchor PoW: nonce={}", nonce);

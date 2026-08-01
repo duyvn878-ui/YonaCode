@@ -7853,12 +7853,12 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 	// Calculates Target U256 (32 bytes) from difficulty
 	targetBytes := difficultyToTarget(activeBlock.Header.Difficulty)
 
-	parentHashHex := ""
-	if activeBlock.Header.ParentHash != nil {
+	parentHashHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	if activeBlock.Header.ParentHash != nil && len(activeBlock.Header.ParentHash.Value) > 0 {
 		parentHashHex = hex.EncodeToString(activeBlock.Header.ParentHash.Value)
 	}
-	txRootHex := ""
-	if activeBlock.Header.TxRoot != nil {
+	txRootHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	if activeBlock.Header.TxRoot != nil && len(activeBlock.Header.TxRoot.Value) > 0 {
 		txRootHex = hex.EncodeToString(activeBlock.Header.TxRoot.Value)
 	}
 
@@ -7870,6 +7870,7 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 		"intensity":   s.GetCpuIntensity(),
 		"parent_hash": parentHashHex,
 		"merkle_root": txRootHex,
+		"difficulty":  hex.EncodeToString(activeBlock.Header.Difficulty),
 	})
 }
 
@@ -8233,12 +8234,12 @@ func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
 	shareBytes := shareTarget.Bytes()
 	copy(targetPadded[32-len(shareBytes):], shareBytes)
 
-	parentHashHex := ""
-	if activeBlock.Header.ParentHash != nil {
+	parentHashHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	if activeBlock.Header.ParentHash != nil && len(activeBlock.Header.ParentHash.Value) > 0 {
 		parentHashHex = hex.EncodeToString(activeBlock.Header.ParentHash.Value)
 	}
-	txRootHex := ""
-	if activeBlock.Header.TxRoot != nil {
+	txRootHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	if activeBlock.Header.TxRoot != nil && len(activeBlock.Header.TxRoot.Value) > 0 {
 		txRootHex = hex.EncodeToString(activeBlock.Header.TxRoot.Value)
 	}
 
@@ -8250,6 +8251,7 @@ func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
 		"intensity":   100,
 		"parent_hash": parentHashHex,
 		"merkle_root": txRootHex,
+		"difficulty":  hex.EncodeToString(activeBlock.Header.Difficulty),
 	})
 }
 

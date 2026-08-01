@@ -12,14 +12,13 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { translations } from './translations';
 import type { TranslationKeys } from './translations';
-
-export type LangType = 'vi' | 'en';
+export type LangType = 'vi' | 'en' | 'zh';
 
 interface LanguageContextProps {
   lang: LangType;
   setLang: (lang: LangType) => void;
   t: TranslationKeys;
-  /** Trả về locale chuẩn BCP-47 tương ứng (vd: 'vi-VN', 'en-US') */
+  /** Trả về locale chuẩn BCP-47 tương ứng (vd: 'vi-VN', 'en-US', 'zh-CN') */
   getLocale: () => string;
 }
 
@@ -33,7 +32,7 @@ const LanguageContext = createContext<LanguageContextProps>({
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const [lang, setLangState] = useState<LangType>(() => {
     const saved = localStorage.getItem('vanguard_lang');
-    return (saved === 'vi' || saved === 'en') ? saved : 'vi';
+    return (saved === 'vi' || saved === 'en' || saved === 'zh') ? saved : 'vi';
   });
 
   // Khi ngôn ngữ thay đổi → cập nhật <html lang="..."> cho SEO + screen readers + lưu vào localStorage
@@ -49,7 +48,9 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   }, [lang]);
 
   const getLocale = (): string => {
-    return lang === 'vi' ? 'vi-VN' : 'en-US';
+    if (lang === 'vi') return 'vi-VN';
+    if (lang === 'zh') return 'zh-CN';
+    return 'en-US';
   };
 
   return (

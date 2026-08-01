@@ -50,6 +50,9 @@ func NewVPSProxyServer(port int, nodeURL string) *VPSProxyServer {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+	if strings.Contains(nodeURL, ":9090") {
+		nodeURL = strings.Replace(nodeURL, ":9090", ":8080", 1)
+	}
 	return &VPSProxyServer{
 		port:       port,
 		nodeURL:    strings.TrimSuffix(nodeURL, "/"),
@@ -368,7 +371,12 @@ func (s *VPSProxyServer) handleGetWork(w http.ResponseWriter, r *http.Request) {
 func (s *VPSProxyServer) handleSubmitWork(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, _ := io.ReadAll(r.Body)
 
-	targetURL := s.nodeURL + r.URL.Path
+	reqPath := r.URL.Path
+	if strings.Contains(reqPath, "/pool/submitwork") {
+		reqPath = "/api/v1/miner/submitwork"
+	}
+
+	targetURL := s.nodeURL + reqPath
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -392,7 +400,7 @@ func (s *VPSProxyServer) handleSubmitWork(w http.ResponseWriter, r *http.Request
 
 func main() {
 	port := flag.Int("port", 28888, "Public VPS Light Proxy Server Port")
-	nodeURL := flag.String("node", "http://127.0.0.1:9090", "Local Full Node RPC Address on VPS")
+	nodeURL := flag.String("node", "http://127.0.0.1:8080", "Local Full Node RPC Address on VPS")
 	flag.Parse()
 
 	color.Cyan(SERVER_BANNER)

@@ -477,5 +477,3 @@ mod tests {
         println!("Successfully validated mined Yona block!");
     }
 }
-
-

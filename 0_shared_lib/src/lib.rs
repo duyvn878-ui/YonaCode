@@ -436,6 +436,8 @@ pub fn evaluate_header_chain(headers_raw: Vec<Vec<u8>>) -> EvaluateHeaderChainRe
         let tx_r = h.tx_root.as_ref().map(|tr| tr.value.clone()).unwrap_or_default();
         let packed = crate::genz_pow::pack_header_v112(h.height, &parent_h, h.timestamp, &tx_r, &h.difficulty);
         let header_hash = crate::crypto_primitives::calculate_blake3_hash(packed.to_vec(), h.height);
+
+
         
         if !crate::genz_pow::verify_pow_raw(header_hash.to_vec(), h.nonce, h.difficulty.clone(), h.height) {
             return EvaluateHeaderChainResponse { status: 2, fork_point: 0, error_msg: format!("Invalid PoW at height {}", h.height) };

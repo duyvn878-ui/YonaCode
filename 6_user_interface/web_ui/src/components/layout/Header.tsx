@@ -187,6 +187,12 @@ const Header: React.FC<HeaderProps> = ({ title, height, syncState = 'SYNCED', sy
                 VN
               </button>
               <button 
+                onClick={() => setLang('zh')}
+                className={`px-3 h-9 text-[9px] uppercase font-black text-center rounded-xl transition-all cursor-pointer ${lang === 'zh' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
+              >
+                ZH
+              </button>
+              <button 
                 onClick={() => setLang('en')}
                 className={`px-3 h-9 text-[9px] uppercase font-black text-center rounded-xl transition-all cursor-pointer ${lang === 'en' ? 'bg-accent-blue text-white shadow-[0_0_10px_rgba(0,136,255,0.4)]' : 'text-white/30 hover:text-white/70'}`}
               >

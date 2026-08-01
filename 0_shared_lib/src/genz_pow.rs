@@ -63,6 +63,8 @@ pub fn verify_pow_raw(
     let mut material = [0u8; 40];
     material[..32].copy_from_slice(&header_hash);
     material[32..].copy_from_slice(&nonce.to_le_bytes());
+
+
     
     // [VANGUARD-CONSENSUS] Sử dụng băm có nhận diện cao độ để chọn thuật toán (Standard vs Derived)
     let hash_result = crate::crypto_primitives::calculate_blake3_hash(material.to_vec(), height);

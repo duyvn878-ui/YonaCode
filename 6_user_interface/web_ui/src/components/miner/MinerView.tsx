@@ -183,28 +183,15 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                            </p>
                         )}
                         
-                        {(status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') && (
-                           <div className="flex flex-col gap-2 mt-2 bg-accent-blue/5 border border-accent-blue/10 p-3 rounded-xl">
-                              <p className="text-[9px] font-bold text-accent-blue/90 leading-relaxed animate-pulse flex items-center gap-1.5">
-                                 ⚡ {t.sync_to_mine_hint}
-                              </p>
-                              <p className="text-[9px] font-semibold text-white/50 leading-relaxed">
-                                 ℹ️ {t.sync_warning}
-                              </p>
-                              <p className="text-[9.5px] font-black text-red-400 border-t border-white/5 pt-2 leading-relaxed">
-                                 {t.mining_sync_warning}
-                              </p>
-                           </div>
-                         )}
                      </div>
                   </div>
               </div>
            </div>
 
            <button 
-             onClick={(!isStopping && gracePeriodRemaining === 0 && status?.sync.state !== 'SYNCING' && status?.sync.state !== 'BOOTSTRAPPING') ? handleToggleMiner : undefined}
+             onClick={(!isStopping && gracePeriodRemaining === 0) ? handleToggleMiner : undefined}
              className={`w-full py-4 px-6 rounded-xl font-black tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-3 relative overflow-hidden group
-               ${(isStopping || gracePeriodRemaining > 0 || status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING')
+               ${(isStopping || gracePeriodRemaining > 0)
                  ? 'bg-white/5 border border-white/10 cursor-not-allowed opacity-60 text-white/40' 
                  : (isMining 
                    ? 'bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.1)] cursor-pointer' 
@@ -218,17 +205,10 @@ const MinerView: React.FC<MinerViewProps> = ({ status, minerStatus, handleToggle
                      <span>SCANNING NETWORK...</span>
                    </>
                  ) : (
-                   (status?.sync.state === 'SYNCING' || status?.sync.state === 'BOOTSTRAPPING') ? (
-                     <>
-                       <Activity size={14} className="animate-spin" />
-                       <span>{t.mining_blocked_sync?.toUpperCase() || "SYNCING..."}</span>
-                     </>
-                   ) : (
-                     <>
-                       <Pickaxe size={14} className={isStopping ? 'animate-spin' : ''} />
-                       <span>{isStopping ? 'STOPPING...' : (isMining ? t.mining_stop_btn : t.mining_start_btn)}</span>
-                     </>
-                   )
+                   <>
+                     <Pickaxe size={14} className={isStopping ? 'animate-spin' : ''} />
+                     <span>{isStopping ? 'STOPPING...' : (isMining ? t.mining_stop_btn : t.mining_start_btn)}</span>
+                   </>
                  )}
               </span>
            </button>

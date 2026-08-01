@@ -149,6 +149,78 @@ var translations = map[string]map[string]string{
 		"openpool_pass":                "  🔐 Auth Password / Token  : %s",
 		"openpool_connect_instructions": "👉 COMMANDS FOR REMOTE MINERS / RIGS TO JOIN THIS POOL:",
 	},
+	"zho": {
+		"welcome": "🚀 YonaCode Go Lite v1.0 - 极简、不可变、超轻量",
+		"dashboard_title": "=== 📊 YonaCode Go 控制面板 ===",
+		"network_synced": "🟢 网络状态: 已同步 (Synced)",
+		"network_offline": "🔴 网络状态: 离线 (Offline)",
+		"peers": "🔗 已连接节点数: %d Nodes",
+		"height": "🧱 区块高度  : #%d",
+		"next_block": "⏳ 下一个区块  : ~ %d 秒",
+		"finality_title": "🛡️ 不可变防火墙 (Finality Firewall)",
+		"finalized_height": "   - 已确认区块 (不可变) : #%d (Rule of 5)",
+		"mining_active": "   - 挖矿状态     : 🟢 正在挖矿 (%d H/s)",
+		"mining_paused": "   - 挖矿状态     : 🟡 暂停",
+		"wallet_title": "💎 当前账户 (默认钱包)",
+		"wallet_addr": "   - 钱包地址 : %s...",
+		"version": "   - 版本: %s",
+		"start_node": "🚀 正在启动节点服务器...",
+		"bootstrap_1": "[1/5] 🌐 寻找对等节点 (DHT Discovery)",
+		"bootstrap_2": "[2/5] ⚡ 算力评估 (下载区块头)",
+		"bootstrap_3": "[3/5] 📸 现实耦合 (下载状态快照)",
+		"bootstrap_4": "[4/5] 🔄 实时同步 (实时区块同步)",
+		"bootstrap_5": "[5/5] ✅ 成功接入网络！",
+		"wallet_send_title": "🛸 YonaCode Go 安全转账界面",
+		"wallet_send_confirm": "--- 🛡️ 确认交易 ---",
+		"wallet_send_success": "✅ [成功] 交易已提交至交易池 (Mempool)！",
+		"wallet_send_fail": "❌ 广播失败: %v",
+		"mining_start": "⛏️ 正在激活矿工...",
+		"mining_stop": "🛑 正在停止矿工...",
+
+		// Nhóm Khởi động & Mạng P2P (Startup & P2P Network)
+		"log_node_storage":             "📂 基础设施已标准化于: %s",
+		"log_db_trace_success":         "✅ RocksDB 成功打开。",
+		"log_p2p_listening":            "📡 节点监听地址: %s",
+		"log_p2p_bootstrap_success":    "✅ 成功连接种子 IP %s！",
+		"log_nat_audit_public_detected": "✅ 检测到公网地址: %s",
+
+		// Nhóm Đồng bộ & Sổ cái (Sync Engine & Ledger)
+		"log_sync_success":    "🎉 网络已同步至区块高度 #%d。",
+		"log_sync_catchup":    "🚀 检测到网络分叉较大。激活 CatchUpSync！",
+		"log_sync_orphan":     "🧩 检测到短链分叉。正在激活孤块链校对...",
+		"log_fast_sync_start": "⚡ 开始跳跃至锚点区块 #%d...",
+		"log_reorg_success":   "🔄 成功原子重组 (Reorg) 至区块高度 #%d！",
+		"log_sync_stalled":    "🛑 检测到同步卡顿，在区块 #%d 处停留超过 20 秒！",
+
+		// Nhóm An ninh & Trừng phạt (Security & Ban Manager)
+		"log_peer_ban":            "🚫 %s 封禁对等节点 %s 持续 %v (惩罚分数: %d)。原因: %s",
+		"log_peer_forgiven":       "🕊️ 宽恕对等节点 %s: 惩罚分数从 %d → %d (持续 %v 未违规扣减 %d 分)",
+		"log_security_alert_pow":  "🛑 拦截来自 %s 的垃圾 PoW。区块高度=#%d",
+		"log_firewall_deep_reorg": "💀 检测到来自 %s 的深度重组 (DEEP REORG) 攻击！断开连接！",
+		"log_time_warp_violation": "🚨 #%d 处违反时间防火墙 (MTP-11)",
+
+		// Nhóm Khai thác & Mempool (Miner & Mempool)
+		"log_miner_preparing":       "🚀 矿工正准备计算区块 #%d 的哈希...",
+		"log_miner_block_found":     "🎉 恭喜！找到区块 #%d！Nonce: %d",
+		"log_mempool_spam_rejected": "🛑 Rust Core 已拒绝 %d 笔垃圾交易。",
+		"log_mempool_eviction":      "🚮 已清理 %d 笔尾部交易以防内存溢出 (OOM)。",
+
+		// Nhóm Pool Mining CLI
+		"pool_mining_short":   "⛏️ 矿池挖矿自动连接到默认 VPS",
+		"pool_err_no_address": "❌ 错误: 请输入您的钱包地址以接收奖励。例如: YonaCode pool-mine 0xYourAddress",
+		"pool_err_no_miner":   "❌ 未找到独立矿工程序 (%s)。请先使用 build_all.bat 重新编译项目。",
+		"pool_start_gpu":      "[POOL-MINE] 🚀 正在启动 GPU 矿工，自动连接到默认矿池 VPS (%s)...",
+		"pool_start_cpu":      "[POOL-MINE] 🚀 正在启动 CPU 矿工 (Rust Core)，连接到矿池 VPS (%s)...",
+		"pool_wallet_info":    "[POOL-MINE] 🏦 奖励接收钱包: %s",
+		"pool_err_run":        "❌ 矿工运行错误: %v",
+
+		"openpool_success_title":       "🚀 联合矿池网关 (MINING POOL GATEWAY) 激活成功！",
+		"openpool_lan_ip":              "  📡 局域网 IP 地址 (LAN IP)   : %s",
+		"openpool_wan_ip":              "  🌐 公网 IP 地址 (WAN IP): %s",
+		"openpool_port":                "  ⚓ 挖矿端口 (Mining Port) : %d",
+		"openpool_pass":                "  🔐 认证密码 / Auth Passphrase   : %s",
+		"openpool_connect_instructions": "👉 其他矿机/矿工连接此矿池的命令语法:",
+	},
 }
 
 // T thực hiện dịch một key sang ngôn ngữ hiện tại.
@@ -169,9 +241,9 @@ func T(key string, args ...interface{}) string {
 	return val
 }
 
-// SetLang thiết lập ngôn ngữ hiện tại (vnm hoặc eng).
+// SetLang thiết lập ngôn ngữ hiện tại (vnm, eng hoặc zho).
 func SetLang(lang string) {
-	if lang == "eng" || lang == "vnm" {
+	if lang == "eng" || lang == "vnm" || lang == "zho" {
 		CurrentLang = lang
 	}
 }

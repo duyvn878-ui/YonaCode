@@ -45,7 +45,13 @@ func GetGlobalProxyServer(engine *MinerEngine, port int) *GUIServer {
 		globalProxyServer = &GUIServer{
 			engine:     engine,
 			port:       port,
-			httpClient: &http.Client{Transport: tr, Timeout: 5 * time.Second},
+			httpClient: &http.Client{
+				Transport: tr,
+				Timeout:   5 * time.Second,
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			},
 		}
 		go globalProxyServer.EnsureStarted()
 	})
@@ -310,6 +316,9 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for k, vv := range resp.Header {
+		if strings.EqualFold(k, "Content-Length") {
+			continue
+		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
@@ -324,6 +333,8 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 				Height     uint64 `json:"height"`
 				ParentHash string `json:"parent_hash"`
 				SessionID  int64  `json:"session_id"`
+				MerkleRoot string `json:"merkle_root"`
+				Difficulty string `json:"difficulty"`
 			}
 			if json.Unmarshal(bodyBytes, &workData) == nil {
 				newResp := struct {
@@ -334,6 +345,8 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 					SessionID    int64  `json:"session_id"`
 					Intensity    int    `json:"intensity"`
 					CPUIntensity int    `json:"cpu_intensity"`
+					MerkleRoot   string `json:"merkle_root"`
+					Difficulty   string `json:"difficulty"`
 				}{
 					HeaderHash:   workData.HeaderHash,
 					Target:       workData.Target,
@@ -342,6 +355,8 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 					SessionID:    workData.SessionID,
 					Intensity:    100,
 					CPUIntensity: 100,
+					MerkleRoot:   workData.MerkleRoot,
+					Difficulty:   workData.Difficulty,
 				}
 				if newBody, mErr := json.Marshal(newResp); mErr == nil {
 					bodyBytes = newBody
@@ -406,6 +421,9 @@ func (s *GUIServer) handleWalletCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cập nhật địa chỉ ví mới tạo vào engine và lưu lại cấu hình ngay lập tức để tránh bị ghi đè bởi địa chỉ cũ khi UI tải lại
+	s.engine.SetWallet(address)
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"mnemonic": mnemonic,
@@ -428,6 +446,9 @@ func (s *GUIServer) handleWalletRecover(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
+
+	// Lưu địa chỉ ví khôi phục vào engine và đồng bộ xuống miner_config.json để duy trì trạng thái nhất quán sau khi đóng/mở lại trình duyệt
+	s.engine.SetWallet(address)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,

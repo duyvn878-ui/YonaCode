@@ -28,15 +28,14 @@ extern "C" bool run_cuda_miner_on_device(
 extern "C" bool init_yona_cuda_device_id(int device_id);
 extern "C" bool run_yona_cuda_miner_on_device(
     int device_id,
-    uint64_t height,
-    const uint8_t* parent_hash,
-    const uint8_t* merkle_root,
+    const uint8_t* header_hash,
     const uint8_t* target,
     uint64_t base_nonce,
     uint32_t threads_per_block,
     uint32_t number_of_blocks,
     uint64_t* out_nonce
 );
+
 
 // Forward declarations of backward compatibility wrappers
 extern "C" bool init_cuda_device();
@@ -274,16 +273,19 @@ int main(int argc, char* argv[]) {
 
         uint8_t parent_hash[32] = {0};
         uint8_t merkle_root[32] = {0};
+        uint8_t difficulty[32] = {0};
         if (height >= 38500) {
             std::string parent_hash_hex = extract_string_field(res.body, "parent_hash");
             std::string merkle_root_hex = extract_string_field(res.body, "merkle_root");
-            if (parent_hash_hex.empty() || merkle_root_hex.empty()) {
-                std::cerr << "[GPU-MINER] ⚠️ Mining Yona Hash at Height >= 38500 requires parent_hash and merkle_root, but received none. Retrying..." << std::endl;
+            std::string difficulty_hex = extract_string_field(res.body, "difficulty");
+            if (parent_hash_hex.empty() || merkle_root_hex.empty() || difficulty_hex.empty()) {
+                std::cerr << "[GPU-MINER] ⚠️ Mining Yona Hash at Height >= 38500 requires parent_hash, merkle_root, and difficulty, but received none. Retrying..." << std::endl;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }
             hex_to_bytes(parent_hash_hex, parent_hash);
             hex_to_bytes(merkle_root_hex, merkle_root);
+            hex_to_bytes(difficulty_hex, difficulty);
         }
 
         uint8_t target_le[32];
@@ -316,7 +318,7 @@ int main(int argc, char* argv[]) {
 
                     if (height >= 38500) {
                         success = run_yona_cuda_miner_on_device(
-                            dev_id, height, parent_hash, merkle_root, target_le,
+                            dev_id, header_hash, target_le,
                             local_nonce_offset, THREADS_PER_BLOCK, NUMBER_OF_BLOCKS, &found_nonce
                         );
                     } else {
@@ -377,8 +379,8 @@ int main(int argc, char* argv[]) {
                 last_hashrate_time = now;
             }
 
-            // Periodic task update check
-            if (checks_counter >= 10) {
+            // Periodic task update check (Polls every 1 second: 2 * 500ms)
+            if (checks_counter >= 2) {
                 checks_counter = 0;
                 httplib::Response check_res = client.Get(getwork_path.c_str());
                 if (check_res.status == 200) {
@@ -393,7 +395,7 @@ int main(int argc, char* argv[]) {
                         break;
                     }
                 } else {
-                    std::cout << "[MULTI-GPU-MINER] 💤 Node template no longer available. Pausing..." << std::endl;
+                    std::cout << "[MULTI-GPU-MINER] 💤 Node template transition in progress (Status: " << check_res.status << "). Pausing current task..." << std::endl;
                     stop_mining_task.store(true);
                     break;
                 }

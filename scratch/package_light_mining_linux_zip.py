@@ -23,12 +23,13 @@ with open(run_sh_path, "w", newline="\n") as f:
     f.write(run_sh_content)
 
 files_to_pack = [
-    ("yona_light_miner_linux", os.path.join(staging_dir, "yona_light_miner_linux")),
-    ("yona_light_miner_cli", os.path.join(staging_dir, "yona_light_miner_cli")),
+    ("yona_light_miner_linux", os.path.join(root_dir, "bin", "yona_light_miner_linux")),
+    ("yona_light_miner_cli", os.path.join(root_dir, "bin", "yona_light_miner_cli")),
+    ("genz_miner", os.path.join(root_dir, "bin", "genz_miner")),
+    ("vps_server", os.path.join(root_dir, "bin", "vps_server")),
     ("yona_gpu_miner", os.path.join(root_dir, "bin", "linux", "yona_gpu_miner")),
-    ("genz_miner", os.path.join(root_dir, "bin", "linux", "genz_miner")),
-    ("yona_gpu_setup", os.path.join(root_dir, "bin", "linux", "yona_gpu_setup")),
-    ("hiveos_setup.sh", os.path.join(staging_dir, "hiveos_setup.sh")),
+    ("yona_gpu_setup", os.path.join(root_dir, "bin", "yona_gpu_setup")),
+    ("hiveos_setup.sh", os.path.join(root_dir, "hiveos_setup.sh")),
     ("run_light_mining.sh", run_sh_path),
 ]
 

@@ -102,6 +102,12 @@ echo ===================================================
 python scratch\package_light_mining_zip.py
 
 echo ===================================================
+echo [CLEANUP] Cleaning intermediate binaries from bbuild...
+echo ===================================================
+if exist bbuild del /Q bbuild\*.exe
+if exist bbuild del /Q bbuild\*.dll
+
+echo ===================================================
 echo [BUILD-WIN] SUCCESS: WINDOWS BUILD COMPLETED!
 echo ===================================================
 pause

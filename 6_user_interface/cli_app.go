@@ -929,9 +929,15 @@ func (app *CLIApp) minerLoop(ctx context.Context) {
 			capturedHeight := nextHeight
 			app.activeMiningMu.Unlock()
 
-			// Dọn dẹp hàng đợi kết quả cũ trước khi đợi
+			// TTL Inline Cleanup: Dọn dẹp các template cũ hơn 2 phút để không làm mất template khi thợ đào gửi Nonce muộn
 			app.activeBlockTemplatesMu.Lock()
-			app.activeBlockTemplates = make(map[uint64]*pb_block.Block)
+			nowNano := uint64(time.Now().UnixNano())
+			twoMinutesNano := uint64(2 * time.Minute)
+			for oldSid := range app.activeBlockTemplates {
+				if nowNano-oldSid > twoMinutesNano {
+					delete(app.activeBlockTemplates, oldSid)
+				}
+			}
 			app.activeBlockTemplatesMu.Unlock()
 
 			for len(app.miningResultChan) > 0 {
@@ -1356,6 +1362,7 @@ func (c *CLIApp) BuildCustomTemplateForAddress(workerAddr []byte) ([]byte, uint6
 		"intensity":   100,
 		"parent_hash": parentHashHex,
 		"merkle_root": txRootHex,
+		"difficulty":  hex.EncodeToString(header.Difficulty),
 	}
 
 	resBytes, err := json.Marshal(responseMap)

@@ -135,6 +135,6 @@ func init() {
 	
 	rootCmd.PersistentFlags().StringVar(&nodeAddr, "node-addr", "localhost:18080", "Địa chỉ gRPC của Node (Node RPC Address)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Xuất kết quả dưới dạng JSON (JSON Output)")
-	rootCmd.PersistentFlags().StringVar(&lang, "lang", "vnm", "Ngôn ngữ / Language (vnm/eng)")
+	rootCmd.PersistentFlags().StringVar(&lang, "lang", "vnm", "Ngôn ngữ / Language (vnm/eng/zho)")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "node", "Đường dẫn thư mục Database của Node")
 }
