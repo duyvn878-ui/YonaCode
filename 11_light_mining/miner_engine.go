@@ -871,7 +871,9 @@ func (m *MinerEngine) fetchRealNodeStatus() {
 					orphanedCount++
 				}
 			}
-			m.blocksFound = confirmedCount
+			if confirmedCount > m.blocksFound {
+				m.blocksFound = confirmedCount
+			}
 			m.orphanedBlocks = orphanedCount
 
 			// Calculate session coins (goEarned): sum of all blocks in finalHistory that were found in the current session and not orphaned

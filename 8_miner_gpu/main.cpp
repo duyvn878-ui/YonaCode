@@ -384,13 +384,14 @@ int main(int argc, char* argv[]) {
                 checks_counter = 0;
                 httplib::Response check_res = client.Get(getwork_path.c_str());
                 if (check_res.status == 200) {
-                    uint64_t active_session = extract_number_field(check_res.body, "session_id");
+                    uint64_t active_height = extract_number_field(check_res.body, "height");
+                    std::string active_header = extract_string_field(check_res.body, "header_hash");
                     uint64_t updated_intensity = extract_number_field(check_res.body, "intensity");
                     if (updated_intensity > 0 && updated_intensity <= 100) {
                         intensity.store(updated_intensity);
                     }
-                    if (active_session != session_id) {
-                        std::cout << "[MULTI-GPU-MINER] 🔄 Node published new block template (New SID: " << active_session << "). Switching task..." << std::endl;
+                    if ((active_height > 0 && active_height != height) || (!active_header.empty() && active_header != header_hash_hex)) {
+                        std::cout << "[MULTI-GPU-MINER] 🔄 Node published new block template (New Height: #" << active_height << "). Switching task..." << std::endl;
                         stop_mining_task.store(true);
                         break;
                     }
