@@ -195,6 +195,8 @@ const App: React.FC = () => {
           <RewardsPanel 
             blocksFound={status?.blocks_found || 0}
             walletBalance={status?.wallet_balance || 0}
+            sessionCoins={status?.go_earned || 0}
+            orphanedBlocks={status?.orphaned_blocks || 0}
             t={t}
           />
           <ConsoleTerminal 

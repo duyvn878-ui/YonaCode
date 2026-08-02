@@ -16,7 +16,8 @@ export interface Translations {
   rewardsBlocks: string;
   minedBlocks: string;
   totalRewards: string;
-  pendingRewards: string;
+  sessionRewards: string;
+  orphanedBlocks: string;
   consoleOutput: string;
   btnStart: string;
   btnStop: string;
@@ -53,8 +54,9 @@ export const translations: Record<Language, Translations> = {
     networkHashrate: "Tốc độ băm Toàn mạng:",
     rewardsBlocks: "Phần thưởng & Khối",
     minedBlocks: "Số Khối đã đào:",
-    totalRewards: "Tổng Phần thưởng $YGO:",
-    pendingRewards: "Đang xử lý:",
+    totalRewards: "Số dư Ví trên Sổ cái:",
+    sessionRewards: "Đào trong phiên này:",
+    orphanedBlocks: "Khối bị rẻ nhánh (mồ côi):",
     consoleOutput: "Nhật ký Console Live",
     btnStart: "🟢 KÍCH HOẠT ĐỘNG CƠ ĐÀO GPU CUDA 100%",
     btnStop: "🔴 DỪNG ĐỘNG CƠ ĐÀO GPU CUDA",
@@ -89,8 +91,9 @@ export const translations: Record<Language, Translations> = {
     networkHashrate: "全网总算力:",
     rewardsBlocks: "奖励与出块",
     minedBlocks: "已爆块数:",
-    totalRewards: "总 $YGO 挖矿奖励:",
-    pendingRewards: "待结算:",
+    totalRewards: "钱包地址账本余额:",
+    sessionRewards: "本会话挖出数量:",
+    orphanedBlocks: "孤块 (分叉/mồ côi):",
     consoleOutput: "控制台输出日志",
     btnStart: "🟢 启动 100% GPU CUDA 算力引擎",
     btnStop: "🔴 停止 GPU CUDA 算力引擎",
@@ -125,8 +128,9 @@ export const translations: Record<Language, Translations> = {
     networkHashrate: "Network Hashrate:",
     rewardsBlocks: "Rewards & Blocks",
     minedBlocks: "Mined Blocks:",
-    totalRewards: "Total $YGO Rewards:",
-    pendingRewards: "Pending:",
+    totalRewards: "On-Chain Wallet Balance:",
+    sessionRewards: "Mined in this session:",
+    orphanedBlocks: "Orphaned Blocks:",
     consoleOutput: "Console Output",
     btnStart: "🟢 START 100% GPU CUDA MINING ENGINE",
     btnStop: "🔴 STOP GPU CUDA MINING ENGINE",

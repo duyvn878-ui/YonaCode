@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +52,7 @@ type MinerEngine struct {
 	networkHashrate     uint64
 	networkHeight       uint64
 	blocksFound         uint64
+	orphanedBlocks      uint64
 	walletBalance       float64
 	goEarned            float64
 	logs                []LogEntry
@@ -61,6 +63,7 @@ type MinerEngine struct {
 	lastWorkBytes       []byte
 	lastWorkMu          sync.RWMutex
 	wsStopChan          chan struct{}
+	sessionBlocks       map[uint64]bool
 }
 
 type MinerConfig struct {
@@ -281,6 +284,7 @@ func (m *MinerEngine) Start(nodeAddr, wallet, device string, threads int) error 
 	m.isMining = true
 	m.startTime = time.Now()
 	m.hashrate = 0
+	m.sessionBlocks = make(map[uint64]bool)
 	m.mu.Unlock()
 
 	m.addLog(fmt.Sprintf("🚀 Kích hoạt động cơ đào GPU CUDA | Ví nhận thưởng: %s", wallet), "info")
@@ -458,6 +462,14 @@ func (m *MinerEngine) RecordMinedBlock(height uint64, reward float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.blocksFound++
+	if m.sessionBlocks == nil {
+		m.sessionBlocks = make(map[uint64]bool)
+	}
+	m.sessionBlocks[height] = true
+
+	if reward == 0 {
+		reward = CalculateBlockReward(height)
+	}
 	if reward > 0 {
 		m.walletBalance += reward
 		m.goEarned += reward
@@ -473,6 +485,76 @@ func (m *MinerEngine) RecordMinedBlock(height uint64, reward float64) {
 	if len(m.minedBlocksHistory) > 50 {
 		m.minedBlocksHistory = m.minedBlocksHistory[:50]
 	}
+}
+
+func CalculateBlockReward(height uint64) float64 {
+	if height <= 99 {
+		return 10000.0
+	}
+	if height <= 420579 {
+		if height < 17000 {
+			return 0.475647
+		}
+		if height == 17000 {
+			return float64(121899404+159680) / 1e8
+		}
+		return 1.21899404
+	}
+	if height <= 841059 {
+		return 3.864631
+	}
+	if height <= 1261539 {
+		return 5.053748
+	}
+	if height <= 1682019 {
+		return 6.242865
+	}
+	if height <= 2102499 {
+		return 7.431982
+	}
+	if height <= 2522979 {
+		start_reward := uint64(743198200)
+		end_reward := uint64(347222200)
+		start_height := uint64(2102500)
+		end_height := uint64(2522979)
+
+		h_delta := height - start_height
+		h_total := end_height - start_height
+		r_delta := start_reward - end_reward
+
+		reduction := (r_delta * h_delta) / h_total
+		return float64(start_reward-reduction) / 1e8
+	}
+	if height <= 2943459 {
+		start_reward := uint64(347222200)
+		end_reward := uint64(9513000)
+		start_height := uint64(2522980)
+		end_height := uint64(2943459)
+
+		h_delta := height - start_height
+		h_total := end_height - start_height
+		r_delta := start_reward - end_reward
+
+		reduction := (r_delta * h_delta) / h_total
+		return float64(start_reward-reduction) / 1e8
+	}
+	if height <= 105694901 {
+		if height == 105694901 {
+			return 1434078.0 / 1e8
+		}
+		start_reward := uint64(9513000)
+		end_reward := uint64(0)
+		start_height := uint64(2943460)
+		end_height := uint64(134500269)
+
+		h_delta := height - start_height
+		h_total := end_height - start_height
+		r_delta := start_reward - end_reward
+
+		reduction := (r_delta * h_delta) / h_total
+		return float64(start_reward-reduction) / 1e8
+	}
+	return 0.0
 }
 
 func (m *MinerEngine) pollNodeStatsLoop() {
@@ -616,12 +698,13 @@ func (m *MinerEngine) fetchRealNodeStatus() {
 			m.addLog(fmt.Sprintf("🟢 Kết nối VPS Node (%s) thành công! Khối mạng: #%d", activeURL, currentH), "success")
 		}
 
-		// Query REAL Wallet balance if wallet specified
+		// Query REAL Wallet balance and block history if wallet specified
 		m.mu.Lock()
 		wallet := m.wallet
 		m.mu.Unlock()
 
 		if wallet != "" {
+			// 1. Fetch balance
 			balURL := fmt.Sprintf("%s/api/v1/balance/%s", activeURL, wallet)
 			balResp, err := m.httpClient.Get(balURL)
 			if err == nil {
@@ -640,6 +723,168 @@ func (m *MinerEngine) fetchRealNodeStatus() {
 					}
 				}
 			}
+
+			// 2. Query address history to rebuild mined blocks list (coinbase transactions)
+			var onChainMined []MinedBlockEntry
+			walletClean := strings.ToLower(strings.TrimPrefix(wallet, "0x"))
+
+			histURL := fmt.Sprintf("%s/api/v1/address/%s/history", activeURL, wallet)
+			histResp, err := m.httpClient.Get(histURL)
+			if err == nil {
+				body, err := io.ReadAll(histResp.Body)
+				histResp.Body.Close()
+				if err == nil {
+					var histData struct {
+						History []struct {
+							TxID        string `json:"txid"`
+							ID          string `json:"id"`
+							Sender      string `json:"sender"`
+							Receiver    string `json:"receiver"`
+							BlockHeight uint64 `json:"blockHeight"`
+							Height      uint64 `json:"height"`
+							Timestamp   uint64 `json:"timestamp"`
+						} `json:"history"`
+					}
+					if json.Unmarshal(body, &histData) == nil && histData.History != nil {
+						for _, tx := range histData.History {
+							// Coinbase transaction: sender is empty or "0x"
+							senderClean := strings.ToLower(strings.TrimPrefix(tx.Sender, "0x"))
+							if senderClean == "" {
+								h := tx.BlockHeight
+								if h == 0 {
+									h = tx.Height
+								}
+								if h > 0 {
+									txHash := tx.TxID
+									if txHash == "" {
+										txHash = tx.ID
+									}
+									shortHash := txHash
+									if len(shortHash) > 16 {
+										shortHash = shortHash[:16]
+									}
+									if !strings.HasPrefix(shortHash, "0x") {
+										shortHash = "0x" + shortHash
+									}
+									onChainMined = append(onChainMined, MinedBlockEntry{
+										Height:    h,
+										Reward:    CalculateBlockReward(h),
+										Hash:      shortHash,
+										Timestamp: time.Unix(int64(tx.Timestamp), 0).Format("15:04:05"),
+										Status:    "Confirmed",
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// 3. Query recent blocks to catch any blocks mined recently by this address
+			recentURL := fmt.Sprintf("%s/api/v1/recent/blocks?limit=250", activeURL)
+			recentResp, err := m.httpClient.Get(recentURL)
+			if err == nil {
+				body, err := io.ReadAll(recentResp.Body)
+				recentResp.Body.Close()
+				if err == nil {
+					var recentData []struct {
+						Height    uint64 `json:"height"`
+						Hash      string `json:"hash"`
+						Timestamp uint64 `json:"timestamp"`
+						Miner     string `json:"miner"`
+					}
+					if json.Unmarshal(body, &recentData) == nil {
+						for _, b := range recentData {
+							minerClean := strings.ToLower(strings.TrimPrefix(b.Miner, "0x"))
+							if minerClean == walletClean {
+								shortHash := b.Hash
+								if len(shortHash) > 16 {
+									shortHash = shortHash[:16]
+								}
+								if !strings.HasPrefix(shortHash, "0x") {
+									shortHash = "0x" + shortHash
+								}
+								onChainMined = append(onChainMined, MinedBlockEntry{
+									Height:    b.Height,
+									Reward:    CalculateBlockReward(b.Height),
+									Hash:      shortHash,
+									Timestamp: time.Unix(int64(b.Timestamp), 0).Format("15:04:05"),
+									Status:    "Confirmed",
+								})
+							}
+						}
+					}
+				}
+			}
+
+			// 4. Merge all on-chain blocks and local in-memory history
+			m.mu.Lock()
+			currentHeight := m.networkHeight
+			merged := make(map[uint64]MinedBlockEntry)
+
+			// Add on-chain ones (these are 100% Confirmed)
+			for _, b := range onChainMined {
+				merged[b.Height] = b
+			}
+
+			// Add in-memory ones found in current session
+			for _, b := range m.minedBlocksHistory {
+				if b.Reward == 0 {
+					b.Reward = CalculateBlockReward(b.Height)
+				}
+				if _, exists := merged[b.Height]; !exists {
+					// This block was found locally but is NOT on-chain (yet).
+					// If the network height has advanced beyond this block's height (e.g. by 2 or more blocks),
+					// it means the block was orphaned / rejected!
+					if currentHeight > b.Height + 2 {
+						b.Status = "Orphaned"
+						b.Reward = 0.0
+					} else {
+						b.Status = "Confirming"
+					}
+					merged[b.Height] = b
+				}
+			}
+
+			// Reconstruct sorted slice
+			var finalHistory []MinedBlockEntry
+			for _, b := range merged {
+				finalHistory = append(finalHistory, b)
+			}
+			sort.Slice(finalHistory, func(i, j int) bool {
+				return finalHistory[i].Height > finalHistory[j].Height
+			})
+
+			if len(finalHistory) > 50 {
+				finalHistory = finalHistory[:50]
+			}
+
+			m.minedBlocksHistory = finalHistory
+
+			// Count only confirmed and confirming blocks as mined
+			confirmedCount := uint64(0)
+			orphanedCount := uint64(0)
+			for _, b := range merged {
+				if b.Status == "Confirmed" || b.Status == "Confirming" {
+					confirmedCount++
+				} else if b.Status == "Orphaned" {
+					orphanedCount++
+				}
+			}
+			m.blocksFound = confirmedCount
+			m.orphanedBlocks = orphanedCount
+
+			// Calculate session coins (goEarned): sum of all blocks in finalHistory that were found in the current session and not orphaned
+			sessionCoins := 0.0
+			if m.sessionBlocks != nil {
+				for _, b := range finalHistory {
+					if m.sessionBlocks[b.Height] && b.Status != "Orphaned" {
+						sessionCoins += b.Reward
+					}
+				}
+			}
+			m.goEarned = sessionCoins
+			m.mu.Unlock()
 		}
 	}
 }
@@ -674,6 +919,7 @@ func (m *MinerEngine) GetStatus() map[string]interface{} {
 		"network_hashrate":     m.networkHashrate,
 		"network_height":       m.networkHeight,
 		"blocks_found":         m.blocksFound,
+		"orphaned_blocks":      m.orphanedBlocks,
 		"wallet_balance":       m.walletBalance,
 		"go_earned":            m.goEarned,
 		"uptime":               uptimeStr,

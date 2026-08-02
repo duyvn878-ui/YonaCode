@@ -40,8 +40,13 @@ const MinedBlocksHistory: React.FC<MinedBlocksHistoryProps> = ({ blocks, t }) =>
                   <td className="py-2 px-3 text-amber-400 font-bold">+{b.reward.toFixed(4)} $YGO</td>
                   <td className="py-2 px-3 text-slate-500">{b.timestamp}</td>
                   <td className="py-2 px-3">
-                    <span className="bg-green-500/15 text-green-400 px-2 py-0.5 rounded text-[10px] font-bold">
-                      {b.status}
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      b.status === "Confirmed" ? "bg-green-500/15 text-green-400" :
+                      b.status === "Orphaned" ? "bg-red-500/15 text-red-400" :
+                      "bg-amber-500/15 text-amber-400"
+                    }`}>
+                      {b.status === "Confirmed" ? "Confirmed" :
+                       b.status === "Orphaned" ? "Orphaned" : "Confirming"}
                     </span>
                   </td>
                 </tr>

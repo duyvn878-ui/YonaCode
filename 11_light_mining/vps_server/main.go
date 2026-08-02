@@ -419,6 +419,8 @@ func main() {
 	mux.HandleFunc("/api/v1/miner/submitwork", srv.handleSubmitWork)
 	mux.HandleFunc("/api/v1/pool/submitwork", srv.handleSubmitWork)
 	mux.HandleFunc("/api/v1/balance/", srv.handleGetWork)
+	mux.HandleFunc("/api/v1/recent/blocks", srv.handleGetWork)
+	mux.HandleFunc("/api/v1/address/", srv.handleGetWork)
 	mux.HandleFunc("/ws/mining", srv.handleWebSocket)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", *port)

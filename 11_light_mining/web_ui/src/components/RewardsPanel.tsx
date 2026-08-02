@@ -5,11 +5,14 @@ import type { Translations } from '../i18n/translations';
 interface RewardsPanelProps {
   blocksFound: number;
   walletBalance: number;
+  sessionCoins: number;
+  orphanedBlocks: number;
   t: Translations;
 }
 
-const RewardsPanel: React.FC<RewardsPanelProps> = ({ blocksFound, walletBalance, t }) => {
+const RewardsPanel: React.FC<RewardsPanelProps> = ({ blocksFound, walletBalance, sessionCoins, orphanedBlocks, t }) => {
   const balStr = (walletBalance || 0).toFixed(4);
+  const sessionStr = (sessionCoins || 0).toFixed(4);
 
   return (
     <article className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-5 rounded-2xl flex flex-col gap-3.5 shadow-xl hover:border-sky-500/30 transition-all">
@@ -40,8 +43,13 @@ const RewardsPanel: React.FC<RewardsPanelProps> = ({ blocksFound, walletBalance,
       </div>
 
       <div className="flex justify-between items-center text-xs font-mono text-slate-400">
-        <span>{t.pendingRewards}</span>
-        <strong className="text-amber-400 font-mono">0.00 $YGO</strong>
+        <span>{t.sessionRewards}</span>
+        <strong className="text-green-400 font-mono">+{sessionStr} $YGO</strong>
+      </div>
+
+      <div className="flex justify-between items-center text-xs font-mono text-slate-400 border-t border-slate-800/60 pt-2">
+        <span>{t.orphanedBlocks}</span>
+        <strong className="text-red-400 font-mono">{orphanedBlocks}</strong>
       </div>
     </article>
   );
