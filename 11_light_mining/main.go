@@ -42,6 +42,28 @@ type CLITranslation struct {
 	StopNotice   string
 	Stopping     string
 	Goodbye      string
+	// Menu dieu khien tuong tac
+	MenuHeader     string
+	MenuStart      string
+	MenuStop       string
+	MenuGenWallet  string
+	MenuStatus     string
+	MenuLang       string
+	MenuExit       string
+	// Thong bao trang thai chay
+	MiningStarted  string
+	MiningStopped  string
+	NewWalletAddr  string
+	NewWalletMn    string
+	StatusLine     string
+	LangChanged    string
+	ShuttingDown   string
+	// Trang thai node va dong co
+	NodeLive       string
+	NodeDisconn    string
+	EngineSpeed    string
+	EnginePaused   string
+	EngineStopped  string
 }
 
 var cliTranslations = map[string]CLITranslation{
@@ -57,11 +79,30 @@ var cliTranslations = map[string]CLITranslation{
 		ErrEmpty:     "❌ Địa chỉ ví không được để trống!",
 		NodeTarget:   "   Node Target: %s",
 		RewardWallet: "   Ví nhận thưởng: %s",
-		DeviceType:   "   Thiết bị đào: GPU CUDA 100%",
+		DeviceType:   "   Thiết bị đào: GPU CUDA 100%%",
 		StartMining:  "🚀 Đã khởi chạy tiến trình băm GPU CUDA Solo Mining!",
 		StopNotice:   "   Nhấn Ctrl+C để dừng thợ đào an toàn.\n",
 		Stopping:     "\n🛑 Đang phát lệnh dừng GPU CUDA Miner...",
 		Goodbye:      "✅ Đã dừng hoàn toàn. Tạm biệt!",
+		MenuHeader:     "📋 BẢNG ĐIỀU KHIỂN CLI & CÁC LỆNH TƯƠNG TÁC",
+		MenuStart:      "  [1/b] 🚀 Bắt đầu đào GPU  |  [2/x] 🛑 Dừng đào",
+		MenuStop:       "  [3/w] 🔑 Tạo ví BIP39 mới  |  [4/s] 📊 Xem trạng thái",
+		MenuGenWallet:  "  [5/l] 🌐 Đổi ngôn ngữ (VN/EN/ZH)  |  [q/Ctrl+C] 🚪 Thoát",
+		MenuStatus:     "",
+		MenuLang:       "",
+		MenuExit:       "",
+		MiningStarted:  "🚀 Động cơ đào GPU CUDA đã khởi chạy!",
+		MiningStopped:  "🛑 Động cơ đào GPU CUDA đã dừng.",
+		NewWalletAddr:  "🔑 Địa chỉ ví BIP39 mới: %s",
+		NewWalletMn:    "   Cụm từ khôi phục: %s",
+		StatusLine:     "📊 TRẠNG THÁI: Kết nối: %v | Khối: #%v | Tốc độ: %v H/s | Đã đào: %v",
+		LangChanged:    "✅ Đã đổi ngôn ngữ sang: %s",
+		ShuttingDown:   "🛑 Đang tắt bảng điều khiển CLI...",
+		NodeLive:       "[TRẠNG-THÁI] 🟢 VPS Node Hoạt động (110.172.28.103:9090) | Chiều cao: #%d",
+		NodeDisconn:    "[TRẠNG-THÁI] 🔴 VPS Node Mất kết nối (110.172.28.103:9090) | Đang thử lại...",
+		EngineSpeed:    "[ĐỘNG-CƠ] ⚡ Tốc độ: %s | Đã đào: %d khối",
+		EnginePaused:   "[ĐỘNG-CƠ] ⏸️ Đang tạm dừng | VPS Node: %s | Nhấn [1] để bắt đầu đào",
+		EngineStopped:  "[ĐỘNG-CƠ] 💤 Đã dừng đào",
 	},
 	"en": {
 		Title:        "💻 ACTIVATING CLI TERMINAL INTERFACE ON LINUX/WINDOWS",
@@ -75,11 +116,30 @@ var cliTranslations = map[string]CLITranslation{
 		ErrEmpty:     "❌ Wallet address cannot be empty!",
 		NodeTarget:   "   Target Node: %s",
 		RewardWallet: "   Reward Wallet: %s",
-		DeviceType:   "   Mining Hardware: 100% CUDA GPU",
+		DeviceType:   "   Mining Hardware: 100%% CUDA GPU",
 		StartMining:  "🚀 GPU CUDA Solo Mining Engine Started Successfully!",
 		StopNotice:   "   Press Ctrl+C to safely stop miner.\n",
 		Stopping:     "\n🛑 Issuing stop signal to GPU CUDA Miner...",
 		Goodbye:      "✅ Stopped completely. Goodbye!",
+		MenuHeader:     "📋 CLI CONFIGURATION SUMMARY & INTERACTIVE CONTROLS",
+		MenuStart:      "  [1/b] 🚀 Start GPU Mining  |  [2/x] 🛑 Stop Mining",
+		MenuStop:       "  [3/w] 🔑 Gen New BIP39 Wallet  |  [4/s] 📊 Print Status",
+		MenuGenWallet:  "  [5/l] 🌐 Change Language (VN/EN/ZH)  |  [q/Ctrl+C] 🚪 Exit Application",
+		MenuStatus:     "",
+		MenuLang:       "",
+		MenuExit:       "",
+		MiningStarted:  "🚀 GPU CUDA Mining Engine Started!",
+		MiningStopped:  "🛑 GPU CUDA Mining Engine Stopped.",
+		NewWalletAddr:  "🔑 New BIP39 Wallet Address: %s",
+		NewWalletMn:    "   Mnemonic: %s",
+		StatusLine:     "📊 STATUS: Connected: %v | Height: #%v | Hashes: %v H/s | Blocks Found: %v",
+		LangChanged:    "✅ Language changed to: %s",
+		ShuttingDown:   "🛑 Shutting down CLI Console...",
+		NodeLive:       "[NODE-STATUS] 🟢 VPS Node Live (110.172.28.103:9090) | Network Height: #%d",
+		NodeDisconn:    "[NODE-STATUS] 🔴 VPS Node Disconnected (110.172.28.103:9090) | Retrying...",
+		EngineSpeed:    "[GPU-ENGINE] ⚡ Mining Speed: %s | Blocks Found: %d",
+		EnginePaused:   "[GPU-ENGINE] ⏸️ Engine Paused | VPS Node: %s | Enter [1] to start mining",
+		EngineStopped:  "[GPU-ENGINE] 💤 Mining Stopped",
 	},
 	"zh": {
 		Title:        "💻 在 LINUX/WINDOWS 上启动 CLI 命令行界面",
@@ -93,11 +153,30 @@ var cliTranslations = map[string]CLITranslation{
 		ErrEmpty:     "❌ 钱包地址不能为空！",
 		NodeTarget:   "   目标节点: %s",
 		RewardWallet: "   奖励钱包: %s",
-		DeviceType:   "   挖矿设备: 100% CUDA GPU",
+		DeviceType:   "   挖矿设备: 100%% CUDA GPU",
 		StartMining:  "🚀 GPU CUDA 独挖引擎已成功启动！",
 		StopNotice:   "   按 Ctrl+C 安全停止矿机。\n",
 		Stopping:     "\n🛑 正在向 GPU CUDA 矿机发送停止信号...",
 		Goodbye:      "✅ 已完全停止。再见！",
+		MenuHeader:     "📋 CLI 配置摘要与交互控制面板",
+		MenuStart:      "  [1/b] 🚀 启动GPU挖矿  |  [2/x] 🛑 停止挖矿",
+		MenuStop:       "  [3/w] 🔑 生成新BIP39钱包  |  [4/s] 📊 查看状态",
+		MenuGenWallet:  "  [5/l] 🌐 切换语言 (VN/EN/ZH)  |  [q/Ctrl+C] 🚪 退出应用",
+		MenuStatus:     "",
+		MenuLang:       "",
+		MenuExit:       "",
+		MiningStarted:  "🚀 GPU CUDA 挖矿引擎已启动！",
+		MiningStopped:  "🛑 GPU CUDA 挖矿引擎已停止。",
+		NewWalletAddr:  "🔑 新 BIP39 钱包地址: %s",
+		NewWalletMn:    "   助记词: %s",
+		StatusLine:     "📊 状态: 已连接: %v | 区块高度: #%v | 算力: %v H/s | 已挖区块: %v",
+		LangChanged:    "✅ 语言已切换为: %s",
+		ShuttingDown:   "🛑 正在关闭 CLI 控制台...",
+		NodeLive:       "[节点状态] 🟢 VPS节点在线 (110.172.28.103:9090) | 网络高度: #%d",
+		NodeDisconn:    "[节点状态] 🔴 VPS节点断开 (110.172.28.103:9090) | 正在重试...",
+		EngineSpeed:    "[挖矿引擎] ⚡ 算力: %s | 已挖区块: %d",
+		EnginePaused:   "[挖矿引擎] ⏸️ 引擎暂停 | VPS节点: %s | 按 [1] 开始挖矿",
+		EngineStopped:  "[挖矿引擎] 💤 挖矿已停止",
 	},
 }
 
@@ -199,14 +278,14 @@ func main() {
 		}
 
 		color.Yellow("---------------------------------------------------------------")
-		color.Green("📋 CLI CONFIGURATION SUMMARY & INTERACTIVE CONTROLS")
+		color.Green(t.MenuHeader)
 		color.Yellow(t.NodeTarget, *nodeAddr)
 		color.Yellow(t.RewardWallet, targetWallet)
 		color.Yellow(t.DeviceType)
 		color.Cyan("---------------------------------------------------------------")
-		color.White("  [1/b] 🚀 Start GPU Mining  |  [2/x] 🛑 Stop Mining")
-		color.White("  [3/w] 🔑 Gen New BIP39 Wallet  |  [4/s] 📊 Print Status")
-		color.White("  [5/l] 🌐 Change Language (VN/EN/ZH)  |  [q/Ctrl+C] 🚪 Exit Application")
+		color.White(t.MenuStart)
+		color.White(t.MenuStop)
+		color.White(t.MenuGenWallet)
 		color.Cyan("---------------------------------------------------------------\n")
 		// Mining engine is kept OFF by default on startup. User must press [1] or [b] to activate.
 		engine.SetCPUIntensity(100)
@@ -246,22 +325,22 @@ func main() {
 				switch cmdStr {
 				case "1", "b", "start":
 					_ = engine.Start(*nodeAddr, targetWallet, *device, runtime.NumCPU())
-					color.Green("🚀 GPU CUDA Mining Engine Started!")
+					color.Green(t.MiningStarted)
 				case "2", "x", "stop":
 					engine.Stop()
-					color.Yellow("🛑 GPU CUDA Mining Engine Stopped.")
+					color.Yellow(t.MiningStopped)
 				case "3", "w", "wallet":
 					mn, ad, err := GenerateNewBIP39Wallet()
 					if err == nil {
-						color.Green("🔑 New BIP39 Wallet Address: %s", ad)
-						color.Cyan("   Mnemonic: %s", mn)
+						color.Green(t.NewWalletAddr, ad)
+						color.Cyan(t.NewWalletMn, mn)
 					}
 				case "4", "s", "status":
 					st := engine.GetStatus()
-					color.Cyan("📊 STATUS: Connected: %v | Height: #%v | Hashes: %v H/s | Blocks Found: %v",
+					color.Cyan(t.StatusLine,
 						st["is_connected"], st["network_height"], st["hashrate"], st["blocks_found"])
 				case "5", "l", "lang", "language":
-					color.Cyan("🌐 SELECT LANGUAGE / CHỌN NGÔN NGỮ: [1] VN | [2] EN | [3] ZH: ")
+					color.Cyan("🌐 SELECT LANGUAGE / CHỌN NGÔN NGỮ / 选择语言: [1] VN | [2] EN | [3] ZH: ")
 					inL, _ := reader.ReadString('\n')
 					inL = strings.TrimSpace(inL)
 					switch inL {
@@ -273,9 +352,9 @@ func main() {
 						selectedLang = "vn"
 					}
 					t = cliTranslations[selectedLang]
-					color.Green("✅ Language changed to: %s", strings.ToUpper(selectedLang))
+					color.Green(t.LangChanged, strings.ToUpper(selectedLang))
 				case "q", "exit", "quit":
-					color.Yellow("🛑 Shutting down CLI Console...")
+					color.Yellow(t.ShuttingDown)
 					engine.Stop()
 					color.Green(t.Goodbye)
 					os.Exit(0)
@@ -323,12 +402,12 @@ func main() {
 						hrStr = fmt.Sprintf("%.2f KH/s", float64(hr)/1000.0)
 					}
 
-					color.Cyan("[CLI-CONSOLE] ⚡ Speed: %s | VPS Node: %s | Blocks: %d | Earned: %.4f $YGO",
+					color.Cyan("[CLI] ⚡ %s | %s | %d | %.4f $YGO",
 						hrStr, nodeStatusStr, found, earned)
 					lastIsMiningState = 1
 				} else {
 					if lastIsMiningState != 0 {
-						color.Yellow("[CLI-CONSOLE] ⏸️ Engine Paused | VPS Node: %s | Enter [1] to start mining", nodeStatusStr)
+						color.Yellow(t.EnginePaused, nodeStatusStr)
 						lastIsMiningState = 0
 					}
 				}
@@ -390,9 +469,9 @@ func main() {
 				// 1. Print connection state line only when state changes or on first tick
 				if isFirstTick || isConnected != lastConnected || (isConnected && height != lastHeight) {
 					if isConnected {
-						color.Green("[NODE-STATUS] 🟢 VPS Node Live (110.172.28.103:9090) | Network Height: #%d", height)
+						color.Green(t.NodeLive, height)
 					} else {
-						color.Red("[NODE-STATUS] 🔴 VPS Node Disconnected (110.172.28.103:9090) | Retrying...")
+						color.Red(t.NodeDisconn)
 					}
 					lastConnected = isConnected
 					lastHeight = height
@@ -409,13 +488,13 @@ func main() {
 						} else if hr >= 1000 {
 							hrStr = fmt.Sprintf("%.2f KH/s", float64(hr)/1000.0)
 						}
-						color.Cyan("[GPU-ENGINE] ⚡ Mining Speed: %s | Blocks Found: %d", hrStr, found)
+						color.Cyan(t.EngineSpeed, hrStr, found)
 						lastIsMining = isMining
 						lastFound = found
 					}
 				} else {
 					if lastIsMining {
-						color.Yellow("[GPU-ENGINE] 💤 Mining Stopped")
+						color.Yellow(t.EngineStopped)
 						lastIsMining = false
 					}
 				}
