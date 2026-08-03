@@ -230,15 +230,6 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, _ := io.ReadAll(r.Body)
 
-	if isGetWork {
-		if cachedWork := s.engine.GetCachedWork(); cachedWork != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write(cachedWork)
-			return
-		}
-	}
-
 	var resp *http.Response
 	var err error
 
@@ -269,6 +260,12 @@ func (s *GUIServer) handleProxyV1(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (err != nil || resp == nil || resp.StatusCode != 200) && isGetWork {
+		if cachedWork := s.engine.GetCachedWork(); cachedWork != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(cachedWork)
+			return
+		}
 		errMsg := "VPS Node is not ready or mining template is currently unavailable."
 		if resp != nil && resp.StatusCode == 204 {
 			errMsg = "VPS Node returned 204 (No Content) - Wallet might not be recovered/ready on node."
