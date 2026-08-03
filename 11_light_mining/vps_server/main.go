@@ -395,6 +395,24 @@ func (s *VPSProxyServer) handleSubmitWork(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
+
+	if resp.StatusCode == 200 {
+		// Nút vừa chấp nhận khối mới! Lập tức thông báo cho TOÀN BỘ thợ đào đang kết nối qua WebSocket ngắt khối cũ
+		go func() {
+			time.Sleep(20 * time.Millisecond) // Chờ lõi Node cập nhật trạng thái đỉnh chuỗi
+			s.clientsMu.Lock()
+			activeAddresses := make([]string, 0, len(s.clients))
+			for addr := range s.clients {
+				activeAddresses = append(activeAddresses, addr)
+			}
+			s.clientsMu.Unlock()
+
+			for _, addr := range activeAddresses {
+				go s.pushTemplateToAddress(addr)
+			}
+		}()
+	}
+
 	io.Copy(w, resp.Body)
 }
 
