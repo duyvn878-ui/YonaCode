@@ -724,147 +724,96 @@ func (m *MinerEngine) fetchRealNodeStatus() {
 				}
 			}
 
-			// 2. Query address history to rebuild mined blocks list (coinbase transactions)
-			var onChainMined []MinedBlockEntry
+			// 2. Xac minh trang thai tung khoi da dao bang cach truy van truc tiep /api/v1/block/{height}
+			// Tai sao: API address/history khong tra ve giao dich Coinbase (phan thuong dao),
+			// va API recent/blocks chi tra ve 250 khoi gan nhat nen bo sot khoi cu.
+			// Cach duy nhat dang tin cay la truy van truc tiep tung khoi theo chieu cao.
 			walletClean := strings.ToLower(strings.TrimPrefix(wallet, "0x"))
+			var onChainMined []MinedBlockEntry
 
-			histURL := fmt.Sprintf("%s/api/v1/address/%s/history", activeURL, wallet)
-			histResp, err := m.httpClient.Get(histURL)
-			if err == nil {
-				body, err := io.ReadAll(histResp.Body)
-				histResp.Body.Close()
-				if err == nil {
-					var histData struct {
-						History []struct {
-							TxID        string `json:"txid"`
-							ID          string `json:"id"`
-							Sender      string `json:"sender"`
-							Receiver    string `json:"receiver"`
-							BlockHeight uint64 `json:"blockHeight"`
-							Height      uint64 `json:"height"`
-							Timestamp   uint64 `json:"timestamp"`
-						} `json:"history"`
-					}
-					if json.Unmarshal(body, &histData) == nil && histData.History != nil {
-						for _, tx := range histData.History {
-							// Coinbase transaction: sender is empty or "0x"
-							senderClean := strings.ToLower(strings.TrimPrefix(tx.Sender, "0x"))
-							if senderClean == "" {
-								h := tx.BlockHeight
-								if h == 0 {
-									h = tx.Height
-								}
-								if h > 0 {
-									txHash := tx.TxID
-									if txHash == "" {
-										txHash = tx.ID
-									}
-									shortHash := txHash
-									if len(shortHash) > 16 {
-										shortHash = shortHash[:16]
-									}
-									if !strings.HasPrefix(shortHash, "0x") {
-										shortHash = "0x" + shortHash
-									}
-									onChainMined = append(onChainMined, MinedBlockEntry{
-										Height:    h,
-										Reward:    CalculateBlockReward(h),
-										Hash:      shortHash,
-										Timestamp: time.Unix(int64(tx.Timestamp), 0).Format("15:04:05"),
-										Status:    "Confirmed",
-									})
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// 3. Query recent blocks to catch any blocks mined recently by this address
-			recentURL := fmt.Sprintf("%s/api/v1/recent/blocks?limit=250", activeURL)
-			recentResp, err := m.httpClient.Get(recentURL)
-			if err == nil {
-				body, err := io.ReadAll(recentResp.Body)
-				recentResp.Body.Close()
-				if err == nil {
-					var recentData []struct {
-						Height    uint64 `json:"height"`
-						Hash      string `json:"hash"`
-						Timestamp uint64 `json:"timestamp"`
-						Miner     string `json:"miner"`
-					}
-					if json.Unmarshal(body, &recentData) == nil {
-						for _, b := range recentData {
-							minerClean := strings.ToLower(strings.TrimPrefix(b.Miner, "0x"))
-							if minerClean == walletClean {
-								shortHash := b.Hash
-								if len(shortHash) > 16 {
-									shortHash = shortHash[:16]
-								}
-								if !strings.HasPrefix(shortHash, "0x") {
-									shortHash = "0x" + shortHash
-								}
-								onChainMined = append(onChainMined, MinedBlockEntry{
-									Height:    b.Height,
-									Reward:    CalculateBlockReward(b.Height),
-									Hash:      shortHash,
-									Timestamp: time.Unix(int64(b.Timestamp), 0).Format("15:04:05"),
-									Status:    "Confirmed",
-								})
-							}
-						}
-					}
-				}
-			}
-
-			// 4. Merge all on-chain blocks and local in-memory history
 			m.mu.Lock()
+			localBlocks := make([]MinedBlockEntry, len(m.minedBlocksHistory))
+			copy(localBlocks, m.minedBlocksHistory)
 			currentHeight := m.networkHeight
-			merged := make(map[uint64]MinedBlockEntry)
+			m.mu.Unlock()
 
-			// Add on-chain ones (these are 100% Confirmed)
-			for _, b := range onChainMined {
-				merged[b.Height] = b
-			}
-
-			// Add in-memory ones found in current session
-			for _, b := range m.minedBlocksHistory {
-				if b.Reward == 0 {
-					b.Reward = CalculateBlockReward(b.Height)
+			for _, lb := range localBlocks {
+				// Neu mang chua vuot qua khoi nay, giu trang thai Confirming
+				if currentHeight <= lb.Height+2 {
+					onChainMined = append(onChainMined, MinedBlockEntry{
+						Height:    lb.Height,
+						Reward:    CalculateBlockReward(lb.Height),
+						Hash:      lb.Hash,
+						Timestamp: lb.Timestamp,
+						Status:    "Confirming",
+					})
+					continue
 				}
-				if _, exists := merged[b.Height]; !exists {
-					// This block was found locally but is NOT on-chain (yet).
-					// If the network height has advanced beyond this block's height (e.g. by 2 or more blocks),
-					// it means the block was orphaned / rejected!
-					if currentHeight > b.Height + 2 {
-						b.Status = "Orphaned"
-						b.Reward = 0.0
-					} else {
-						b.Status = "Confirming"
-					}
-					merged[b.Height] = b
+
+				// Truy van truc tiep khoi tren so cai
+				blockURL := fmt.Sprintf("%s/api/v1/block/%d", activeURL, lb.Height)
+				blockResp, err := m.httpClient.Get(blockURL)
+				if err != nil {
+					// Khong ket noi duoc, giu trang thai hien tai
+					onChainMined = append(onChainMined, lb)
+					continue
+				}
+				blockBody, err := io.ReadAll(blockResp.Body)
+				blockResp.Body.Close()
+				if err != nil {
+					onChainMined = append(onChainMined, lb)
+					continue
+				}
+
+				var blockData struct {
+					Miner string `json:"miner"`
+				}
+				if json.Unmarshal(blockBody, &blockData) != nil {
+					onChainMined = append(onChainMined, lb)
+					continue
+				}
+
+				// So khop miner cua khoi tren so cai voi dia chi vi cua minh
+				blockMiner := strings.ToLower(strings.TrimPrefix(blockData.Miner, "0x"))
+				if blockMiner == walletClean {
+					// Khoi nay tren so cai thuoc ve minh -> Confirmed
+					onChainMined = append(onChainMined, MinedBlockEntry{
+						Height:    lb.Height,
+						Reward:    CalculateBlockReward(lb.Height),
+						Hash:      lb.Hash,
+						Timestamp: lb.Timestamp,
+						Status:    "Confirmed",
+					})
+				} else {
+					// Khoi nay tren so cai thuoc ve nguoi khac -> Orphaned (bi re nhanh that)
+					onChainMined = append(onChainMined, MinedBlockEntry{
+						Height:    lb.Height,
+						Reward:    0.0,
+						Hash:      lb.Hash,
+						Timestamp: lb.Timestamp,
+						Status:    "Orphaned",
+					})
 				}
 			}
 
-			// Reconstruct sorted slice
-			var finalHistory []MinedBlockEntry
-			for _, b := range merged {
-				finalHistory = append(finalHistory, b)
-			}
-			sort.Slice(finalHistory, func(i, j int) bool {
-				return finalHistory[i].Height > finalHistory[j].Height
+			// 3. Cap nhat lai lich su khoi da dao voi ket qua xac minh truc tiep
+			m.mu.Lock()
+
+			// onChainMined da chua ket qua xac minh chinh xac cho tung khoi cuc bo
+			sort.Slice(onChainMined, func(i, j int) bool {
+				return onChainMined[i].Height > onChainMined[j].Height
 			})
 
-			if len(finalHistory) > 50 {
-				finalHistory = finalHistory[:50]
+			if len(onChainMined) > 50 {
+				onChainMined = onChainMined[:50]
 			}
 
-			m.minedBlocksHistory = finalHistory
+			m.minedBlocksHistory = onChainMined
 
 			// Count only confirmed and confirming blocks as mined
 			confirmedCount := uint64(0)
 			orphanedCount := uint64(0)
-			for _, b := range merged {
+			for _, b := range onChainMined {
 				if b.Status == "Confirmed" || b.Status == "Confirming" {
 					confirmedCount++
 				} else if b.Status == "Orphaned" {
@@ -876,10 +825,10 @@ func (m *MinerEngine) fetchRealNodeStatus() {
 			}
 			m.orphanedBlocks = orphanedCount
 
-			// Calculate session coins (goEarned): sum of all blocks in finalHistory that were found in the current session and not orphaned
+			// Calculate session coins (goEarned): sum of all blocks in onChainMined that were found in the current session and not orphaned
 			sessionCoins := 0.0
 			if m.sessionBlocks != nil {
-				for _, b := range finalHistory {
+				for _, b := range onChainMined {
 					if m.sessionBlocks[b.Height] && b.Status != "Orphaned" {
 						sessionCoins += b.Reward
 					}
