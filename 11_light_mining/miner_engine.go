@@ -559,7 +559,7 @@ func CalculateBlockReward(height uint64) float64 {
 
 func (m *MinerEngine) pollNodeStatsLoop() {
 	m.fetchRealNodeStatus()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {

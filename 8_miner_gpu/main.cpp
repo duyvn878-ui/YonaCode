@@ -355,7 +355,7 @@ int main(int argc, char* argv[]) {
         // Monitoring and submission thread
         int checks_counter = 0;
         while (!solution_found.load() && !stop_mining_task.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
             checks_counter++;
 
             // Hashrate reporting every 2 seconds
@@ -379,8 +379,8 @@ int main(int argc, char* argv[]) {
                 last_hashrate_time = now;
             }
 
-            // Periodic task update check (Polls every 1 second: 2 * 500ms)
-            if (checks_counter >= 2) {
+            // Periodic task update check (Polls every 200ms for fast template switching)
+            if (checks_counter >= 1) {
                 checks_counter = 0;
                 httplib::Response check_res = client.Get(getwork_path.c_str());
                 if (check_res.status == 200) {
@@ -408,8 +408,8 @@ int main(int argc, char* argv[]) {
             if (th.joinable()) th.join();
         }
 
-        // Submit block solution if found by any GPU
-        if (solution_found.load()) {
+        // Submit block solution if found by any GPU AND task was not aborted/stale
+        if (solution_found.load() && !stop_mining_task.load()) {
             uint64_t found_nonce = winning_nonce.load();
             int dev_id = winning_gpu_id.load();
             std::cout << "[MULTI-GPU-MINER] 🏆 Success! GPU #" << dev_id << " found valid nonce: "

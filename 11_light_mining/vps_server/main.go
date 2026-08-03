@@ -161,7 +161,7 @@ func (s *VPSProxyServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *VPSProxyServer) startBlockMonitor() {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(250 * time.Millisecond)
 	go func() {
 		for range ticker.C {
 			resp, err := s.httpClient.Get(s.nodeURL + "/api/v1/status")
