@@ -1406,11 +1406,12 @@ func (c *CLIApp) SubmitSolvedBlock(nonce, sessionId uint64) (bool, error) {
 		return false, fmt.Errorf("ProcessChain error: %v", err)
 	}
 
-	if resp.Status == 0 || resp.Status == 1 {
+	if resp.Status == 1 {
 		log.Printf("[MINER-SERVER] 🎉 Khối mới #%d được chấp nhận thành công từ thợ đào nhẹ! (Trạng thái: %d)", minedBlock.Header.Height, resp.Status)
 		return true, nil
 	} else {
-		return false, fmt.Errorf("block rejected by Consensus Engine (status: %d)", resp.Status)
+		log.Printf("[MINER-SERVER] ⚠️ Khối #%d bị Consensus Engine từ chối (Trạng thái: %d - Chain Unchanged/Stale)", minedBlock.Header.Height, resp.Status)
+		return false, fmt.Errorf("block rejected by Consensus Engine (status: %d - stale or competing block)", resp.Status)
 	}
 }
 
