@@ -172,9 +172,6 @@ func (m *MinerEngine) findMinerBinary() string {
 		"yona_gpu_miner.exe",
 		"../yona_gpu_miner.exe",
 		"bin/yona_gpu_miner.exe",
-		"genz_miner.exe",
-		"../genz_miner.exe",
-		"bin/genz_miner.exe",
 		"yona_gpu_miner",
 		"../yona_gpu_miner",
 		"bin/yona_gpu_miner",
@@ -185,8 +182,6 @@ func (m *MinerEngine) findMinerBinary() string {
 		candidates = append([]string{
 			filepath.Join(execDir, "yona_gpu_miner.exe"),
 			filepath.Join(execDir, "..", "yona_gpu_miner.exe"),
-			filepath.Join(execDir, "genz_miner.exe"),
-			filepath.Join(execDir, "..", "genz_miner.exe"),
 			filepath.Join(execDir, "yona_gpu_miner"),
 			filepath.Join(execDir, "..", "yona_gpu_miner"),
 		}, candidates...)
@@ -337,12 +332,7 @@ func (m *MinerEngine) launchMinerAsync(nodeAddr, wallet, device string, threads 
 		targetIP := "127.0.0.1"
 		targetPort := "28888"
 
-		var cmd *exec.Cmd
-		if strings.Contains(binaryPath, "genz_miner") {
-			cmd = exec.Command(binaryPath, "--node", "127.0.0.1:28888", "--wallet", wallet, "--device", "gpu")
-		} else {
-			cmd = exec.Command(binaryPath, targetIP, targetPort, wallet)
-		}
+		cmd := exec.Command(binaryPath, targetIP, targetPort, wallet)
 
 		stdout, err := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
