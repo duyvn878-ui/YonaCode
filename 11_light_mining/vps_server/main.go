@@ -25,7 +25,7 @@ const SERVER_BANNER = `
  ===============================================================
    Y O N A C O D E   V P S   P R O X Y   S E R V E R   ( v 1 . 0 )
  ---------------------------------------------------------------
-   Lightweight Gateway • Isolates Full Node Core • 100% Secure
+   Cổng kết nối nhẹ • Cách ly lõi Full Node • Bảo mật 100%
  ===============================================================
 `
 
@@ -35,6 +35,11 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type WSClient struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
 type VPSProxyServer struct {
 	port       int
 	nodeURL    string
@@ -42,7 +47,7 @@ type VPSProxyServer struct {
 	mu         sync.Mutex
 	lastHeight uint64
 	lastTip    string
-	clients    map[string][]*websocket.Conn
+	clients    map[string][]*WSClient
 	clientsMu  sync.Mutex
 }
 
@@ -57,25 +62,25 @@ func NewVPSProxyServer(port int, nodeURL string) *VPSProxyServer {
 		port:       port,
 		nodeURL:    strings.TrimSuffix(nodeURL, "/"),
 		httpClient: &http.Client{Transport: tr, Timeout: 5 * time.Second},
-		clients:    make(map[string][]*websocket.Conn),
+		clients:    make(map[string][]*WSClient),
 	}
 }
 
-func (s *VPSProxyServer) registerClient(address string, conn *websocket.Conn) {
+func (s *VPSProxyServer) registerClient(address string, client *WSClient) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
-	s.clients[address] = append(s.clients[address], conn)
-	log.Printf("[VPS-PROXY] 👤 Client connected for address %s (Total clients for this wallet: %d)", address, len(s.clients[address]))
+	s.clients[address] = append(s.clients[address], client)
+	log.Printf("[VPS-PROXY] 👤 Client đã kết nối cho địa chỉ %s (Tổng số client cho ví này: %d)", address, len(s.clients[address]))
 }
 
-func (s *VPSProxyServer) unregisterClient(address string, conn *websocket.Conn) {
+func (s *VPSProxyServer) unregisterClient(address string, client *WSClient) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 	conns := s.clients[address]
 	for i, c := range conns {
-		if c == conn {
+		if c == client {
 			s.clients[address] = append(conns[:i], conns[i+1:]...)
-			log.Printf("[VPS-PROXY] 👤 Client disconnected for address %s", address)
+			log.Printf("[VPS-PROXY] 👤 Client đã ngắt kết nối cho địa chỉ %s", address)
 			break
 		}
 	}
@@ -88,14 +93,14 @@ func (s *VPSProxyServer) pushTemplateToAddress(address string) {
 	targetURL := fmt.Sprintf("%s/api/v1/miner/getwork?address=%s", s.nodeURL, address)
 	resp, err := s.httpClient.Get(targetURL)
 	if err != nil {
-		log.Printf("[VPS-PROXY] ❌ Error fetching template for %s: %v", address, err)
+		log.Printf("[VPS-PROXY] ❌ Lỗi khi lấy mẫu khối cho %s: %v", address, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil || resp.StatusCode != 200 {
-		log.Printf("[VPS-PROXY] ❌ Node returned status %d for template %s", resp.StatusCode, address)
+		log.Printf("[VPS-PROXY] ❌ Node trả về trạng thái %d cho mẫu khối %s", resp.StatusCode, address)
 		return
 	}
 
@@ -105,16 +110,18 @@ func (s *VPSProxyServer) pushTemplateToAddress(address string) {
 		s.clientsMu.Unlock()
 		return
 	}
-	connsCopy := make([]*websocket.Conn, len(conns))
+	connsCopy := make([]*WSClient, len(conns))
 	copy(connsCopy, conns)
 	s.clientsMu.Unlock()
 
-	for _, conn := range connsCopy {
-		err := conn.WriteMessage(websocket.TextMessage, body)
+	for _, client := range connsCopy {
+		client.mu.Lock()
+		err := client.conn.WriteMessage(websocket.TextMessage, body)
+		client.mu.Unlock()
 		if err != nil {
-			log.Printf("[VPS-PROXY] ❌ Fail to push template to WS client: %v", err)
-			conn.Close()
-			s.unregisterClient(address, conn)
+			log.Printf("[VPS-PROXY] ❌ Gửi mẫu khối đến WS client thất bại: %v", err)
+			client.conn.Close()
+			s.unregisterClient(address, client)
 		}
 	}
 }
@@ -122,17 +129,18 @@ func (s *VPSProxyServer) pushTemplateToAddress(address string) {
 func (s *VPSProxyServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	address := r.URL.Query().Get("address")
 	if address == "" {
-		http.Error(w, "Missing address parameter", http.StatusBadRequest)
+		http.Error(w, "Thiếu tham số địa chỉ (address)", http.StatusBadRequest)
 		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[VPS-PROXY] ❌ WebSocket Upgrade failed: %v", err)
+		log.Printf("[VPS-PROXY] ❌ Nâng cấp WebSocket thất bại: %v", err)
 		return
 	}
 
-	s.registerClient(address, conn)
+	client := &WSClient{conn: conn}
+	s.registerClient(address, client)
 
 	// Send initial template
 	go s.pushTemplateToAddress(address)
@@ -141,7 +149,7 @@ func (s *VPSProxyServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 	go func() {
 		defer func() {
 			conn.Close()
-			s.unregisterClient(address, conn)
+			s.unregisterClient(address, client)
 		}()
 		for {
 			_, message, err := conn.ReadMessage()
@@ -184,7 +192,7 @@ func (s *VPSProxyServer) startBlockMonitor() {
 					s.mu.Unlock()
 
 					if height > oldHeight && oldHeight > 0 {
-						log.Printf("[VPS-PROXY] 🔔 New height detected: #%d (was #%d). Pushing new templates to all clients...", height, oldHeight)
+						log.Printf("[VPS-PROXY] 🔔 Phát hiện chiều cao mới: #%d (cũ là #%d). Đang đẩy mẫu khối mới tới tất cả các client...", height, oldHeight)
 						s.clientsMu.Lock()
 						activeAddresses := make([]string, 0, len(s.clients))
 						for addr := range s.clients {
@@ -208,7 +216,7 @@ func (s *VPSProxyServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":  "YonaCode Core Full Node unreachable on local VPS port 9090",
+			"error":  "Không thể kết nối YonaCode Core Full Node trên cổng VPS nội bộ 9090",
 			"status": "node_offline",
 		})
 		return
@@ -324,7 +332,7 @@ func (s *VPSProxyServer) handleGetWork(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "reject",
-			"message": "Failed to create proxy request: " + err.Error(),
+			"message": "Không thể tạo yêu cầu ủy quyền: " + err.Error(),
 		})
 		return
 	}
@@ -342,7 +350,7 @@ func (s *VPSProxyServer) handleGetWork(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "reject",
-			"message": "YonaCode Core Full Node unreachable: " + err.Error(),
+			"message": "Không thể kết nối YonaCode Core Full Node: " + err.Error(),
 		})
 		return
 	}
@@ -387,7 +395,7 @@ func (s *VPSProxyServer) handleSubmitWork(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "reject",
-			"message": "VPS Full Node connection failed: " + err.Error(),
+			"message": "Kết nối VPS Full Node thất bại: " + err.Error(),
 		})
 		return
 	}
@@ -417,14 +425,14 @@ func (s *VPSProxyServer) handleSubmitWork(w http.ResponseWriter, r *http.Request
 }
 
 func main() {
-	port := flag.Int("port", 28888, "Public VPS Light Proxy Server Port")
-	nodeURL := flag.String("node", "http://127.0.0.1:8080", "Local Full Node RPC Address on VPS")
+	port := flag.Int("port", 28888, "Cổng Public VPS Light Proxy Server")
+	nodeURL := flag.String("node", "http://127.0.0.1:8080", "Địa chỉ Local Full Node RPC trên VPS")
 	flag.Parse()
 
 	color.Cyan(SERVER_BANNER)
-	color.Green("📡 STARTING STANDALONE VPS LIGHT MINING PROXY SERVER")
-	color.Yellow("   Listening Public Port : :%d", *port)
-	color.Yellow("   Target Full Node RPC : %s\n", *nodeURL)
+	color.Green("📡 ĐANG KHỞI ĐỘNG VPS LIGHT MINING PROXY SERVER ĐỘC LẬP")
+	color.Yellow("   Đang lắng nghe ở Cổng Public : :%d", *port)
+	color.Yellow("   Mục tiêu Full Node RPC : %s\n", *nodeURL)
 
 	srv := NewVPSProxyServer(*port, *nodeURL)
 	srv.startBlockMonitor()
@@ -443,18 +451,18 @@ func main() {
 	mux.HandleFunc("/ws/mining", srv.handleWebSocket)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", *port)
-	log.Printf("[VPS-PROXY] 🚀 Light Mining Proxy Server active on %s", addr)
+	log.Printf("[VPS-PROXY] 🚀 Light Mining Proxy Server đang hoạt động trên %s", addr)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
-			log.Fatalf("[VPS-PROXY] ❌ Server Error: %v", err)
+			log.Fatalf("[VPS-PROXY] ❌ Lỗi Máy chủ: %v", err)
 		}
 	}()
 
 	<-sigChan
-	color.Yellow("\n🛑 Shutting down VPS Light Mining Proxy Server...")
+	color.Yellow("\n🛑 Đang tắt VPS Light Mining Proxy Server...")
 	os.Exit(0)
 }
