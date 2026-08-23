@@ -7819,24 +7819,6 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workerAddrHex := r.URL.Query().Get("address")
-	if workerAddrHex != "" && s.cliApp.IsLightMinerServerEnabled() {
-		cleanAddr := strings.TrimPrefix(workerAddrHex, "0x")
-		addrBytes, err := hex.DecodeString(cleanAddr)
-		if err == nil && len(addrBytes) == 32 {
-			resBytes, sid, err := s.cliApp.BuildCustomTemplateForAddress(addrBytes)
-			if err == nil {
-				log.Printf("[MINER-GETWORK] 🏗️ Đã cấp Block Template tùy chỉnh cho thợ đào nhẹ (Ví: 0x%s, SID: %d)", cleanAddr[:12], sid)
-				w.Write(resBytes)
-				return
-			} else {
-				log.Printf("[MINER-GETWORK] ⚠️ Lỗi tạo Template tùy chỉnh: %v. Fallback về ví Node.", err)
-			}
-		} else {
-			log.Printf("[MINER-GETWORK] ⚠️ Ví thợ đào không hợp lệ: '%s'. Fallback về ví Node.", workerAddrHex)
-		}
-	}
-
 	s.cliApp.activeMiningMu.Lock()
 	activeBlock := s.cliApp.activeBlock
 	activeSessionId := s.cliApp.activeSessionId
@@ -7863,9 +7845,29 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 				s.cliApp.activeMiningMu.Unlock()
 			case <-time.After(30 * time.Second):
 				// Timeout 30s
+				w.WriteHeader(http.StatusNoContent)
+				return
 			case <-r.Context().Done():
 				return // Client ngắt kết nối
 			}
+		}
+	}
+
+	workerAddrHex := r.URL.Query().Get("address")
+	if workerAddrHex != "" && s.cliApp.IsLightMinerServerEnabled() {
+		cleanAddr := strings.TrimPrefix(workerAddrHex, "0x")
+		addrBytes, err := hex.DecodeString(cleanAddr)
+		if err == nil && len(addrBytes) == 32 {
+			resBytes, sid, err := s.cliApp.BuildCustomTemplateForAddress(addrBytes)
+			if err == nil {
+				log.Printf("[MINER-GETWORK] 🏗️ Đã cấp Block Template tùy chỉnh cho thợ đào nhẹ (Ví: 0x%s, SID: %d)", cleanAddr[:12], sid)
+				w.Write(resBytes)
+				return
+			} else {
+				log.Printf("[MINER-GETWORK] ⚠️ Lỗi tạo Template tùy chỉnh: %v. Fallback về ví Node.", err)
+			}
+		} else {
+			log.Printf("[MINER-GETWORK] ⚠️ Ví thợ đào không hợp lệ: '%s'. Fallback về ví Node.", workerAddrHex)
 		}
 	}
 
@@ -8265,6 +8267,8 @@ func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
 				s.cliApp.activeMiningMu.Unlock()
 			case <-time.After(30 * time.Second):
 				// Timeout 30s
+				w.WriteHeader(http.StatusNoContent)
+				return
 			case <-r.Context().Done():
 				return // Client ngắt kết nối
 			}
