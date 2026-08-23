@@ -206,6 +206,47 @@ const api = {
     }
   },
 
+  // [V3] Bắt đầu stream giao dịch ví (SSE)
+  watchWallet(
+    address: string,
+    direction: string,
+    searchTerm: string,
+    callback: (history: any) => void
+  ): () => void {
+    let eventSource: EventSource | null = null;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      const url = new URL('/api/v1/wallet/stream', window.location.origin);
+      url.searchParams.set('address', address);
+      if (direction) url.searchParams.set('direction', direction);
+      if (searchTerm) url.searchParams.set('search', searchTerm);
+
+      eventSource = new EventSource(url.toString());
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          callback(data);
+        } catch (e) {
+          console.error("Lỗi parse dữ liệu Wallet Stream:", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource?.close();
+        retryTimeout = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  },
+
   // [V2.1] WATCH STATUS STREAM (SSE REAL-TIME) — Loại bỏ Hardcoded Network/Consensus
   watchStatus(
     callback: (status: NodeStatus) => void,

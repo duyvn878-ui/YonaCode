@@ -95,15 +95,14 @@ const UnifiedWalletPanel: React.FC<UnifiedWalletPanelProps> = ({
   // [V6.5 ELITE] Tải lịch sử giao dịch thực tế từ API (Lọc + Tìm kiếm + Sắp xếp)
   useEffect(() => {
     if (!address) return;
+    setIsLoadingHistory(true);
 
-    const fetchHistory = async () => {
-      setIsLoadingHistory(true);
+    let direction = '';
+    if (activeSubTab === 'received') direction = 'in';
+    if (activeSubTab === 'sent') direction = 'out';
+    
+    const unwatch = api.watchWallet(address, direction, searchTerm, (res: any) => {
       try {
-        let direction = '';
-        if (activeSubTab === 'received') direction = 'in';
-        if (activeSubTab === 'sent') direction = 'out';
-        
-        const res = await api.getAddressHistory(address, direction, searchTerm);
         let apiHistory = res.history || [];
         
         try {
@@ -168,13 +167,13 @@ const UnifiedWalletPanel: React.FC<UnifiedWalletPanelProps> = ({
 
         setLocalTransactions(apiHistory);
       } catch (e) {
-        console.error("Failed to fetch history:", e);
+        console.error("Failed to process history update:", e);
       } finally {
         setIsLoadingHistory(false);
       }
-    };
+    });
 
-    fetchHistory();
+    return () => unwatch();
   }, [address, activeSubTab, searchTerm, balance, pendingTxCount, txRefreshCounter]);
 
   useEffect(() => {

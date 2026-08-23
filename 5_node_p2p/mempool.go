@@ -1490,6 +1490,37 @@ func (m *Mempool) processBusBatch(batch [][]byte) {
 
 		items = append(items, busItem{isLocal: isLocal, raw: raw, tx: tx})
 	}
+
+	// [BẢN VÁ LỖI STATELESS] Prepend các giao dịch đang chờ trong Mempool của các ví gửi có trong lô này.
+	// Mục đích: Giúp Rust Core (Vốn là stateless giữa các lô) tái tạo lại chính xác Nonce và Balance
+	// bằng cách chạy lại các giao dịch đang treo trước khi tới các giao dịch mới, triệt tiêu lỗi 106/107 oan.
+	var prependedItems []busItem
+	m.mu.RLock()
+	for _, item := range items {
+		if item.tx != nil && item.tx.Sender != nil {
+			senderHex := "0x" + strings.TrimPrefix(strings.ToLower(hex.EncodeToString(item.tx.Sender.Value)), "0x")
+			if pendingTxs, ok := m.txBySender[senderHex]; ok {
+				for _, pTx := range pendingTxs {
+					// Chỉ thêm nếu chưa có trong batch
+					if !seenInBatch[pTx.hash] {
+						seenInBatch[pTx.hash] = true
+						
+						// Tạo Tx proto object để thêm vào
+						txObj := new(pb_tx.Transaction)
+						if err := proto.Unmarshal(pTx.data, txObj); err == nil {
+							prependedItems = append(prependedItems, busItem{isLocal: false, raw: pTx.data, tx: txObj})
+						}
+					}
+				}
+			}
+		}
+	}
+	m.mu.RUnlock()
+
+	// Gộp prependedItems và items mới vào nhau
+	if len(prependedItems) > 0 {
+		items = append(prependedItems, items...)
+	}
 	// Lọc bỏ các giao dịch có Nonce quá thấp so với sổ cái thực tế trước khi gửi xuống Rust Core
 	ledgerNonces := make(map[string]uint64)
 	for _, item := range items {

@@ -353,6 +353,38 @@ int main(int argc, char* argv[]) {
         }
 
         // Monitoring and submission thread
+        std::atomic<bool> poll_thread_exit{false};
+        std::thread poll_thread([&]() {
+            httplib::Client poll_client(node_ip, node_port);
+            if (!local_port.empty()) {
+                poll_client = httplib::Client("127.0.0.1", std::stoi(local_port));
+            }
+            std::string poll_url = getwork_path;
+            if (poll_url.find("?") != std::string::npos) {
+                poll_url += "&current_height=" + std::to_string(height);
+            } else {
+                poll_url += "?current_height=" + std::to_string(height);
+            }
+            while (!solution_found.load() && !stop_mining_task.load() && !poll_thread_exit.load()) {
+                httplib::Response check_res = poll_client.Get(poll_url.c_str());
+                if (check_res.status == 200) {
+                    uint64_t active_height = extract_number_field(check_res.body, "height");
+                    std::string active_header = extract_string_field(check_res.body, "header_hash");
+                    uint64_t updated_intensity = extract_number_field(check_res.body, "intensity");
+                    if (updated_intensity > 0 && updated_intensity <= 100) {
+                        intensity.store(updated_intensity);
+                    }
+                    if ((active_height > 0 && active_height != height) || (!active_header.empty() && active_header != header_hash_hex)) {
+                        std::cout << "[MULTI-GPU-MINER] 🔄 Node published new block template (New Height: #" << active_height << "). Switching task..." << std::endl;
+                        stop_mining_task.store(true);
+                        break;
+                    }
+                } else if (check_res.status == 204 || check_res.status != 200) {
+                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                }
+            }
+        });
+        
         int checks_counter = 0;
         while (!solution_found.load() && !stop_mining_task.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -379,28 +411,13 @@ int main(int argc, char* argv[]) {
                 last_hashrate_time = now;
             }
 
-            // Periodic task update check (Polls every 200ms for fast template switching)
-            if (checks_counter >= 1) {
-                checks_counter = 0;
-                httplib::Response check_res = client.Get(getwork_path.c_str());
-                if (check_res.status == 200) {
-                    uint64_t active_height = extract_number_field(check_res.body, "height");
-                    std::string active_header = extract_string_field(check_res.body, "header_hash");
-                    uint64_t updated_intensity = extract_number_field(check_res.body, "intensity");
-                    if (updated_intensity > 0 && updated_intensity <= 100) {
-                        intensity.store(updated_intensity);
-                    }
-                    if ((active_height > 0 && active_height != height) || (!active_header.empty() && active_header != header_hash_hex)) {
-                        std::cout << "[MULTI-GPU-MINER] 🔄 Node published new block template (New Height: #" << active_height << "). Switching task..." << std::endl;
-                        stop_mining_task.store(true);
-                        break;
-                    }
-                } else {
-                    std::cout << "[MULTI-GPU-MINER] 💤 Node template transition in progress (Status: " << check_res.status << "). Pausing current task..." << std::endl;
-                    stop_mining_task.store(true);
-                    break;
-                }
-            }
+            // Periodic task update check is now handled by a dedicated Long-Polling thread
+            // to avoid blocking the hashrate reporter.
+        }
+
+        poll_thread_exit.store(true);
+        if (poll_thread.joinable()) {
+            poll_thread.detach();
         }
 
         // Wait for all GPU threads to finish

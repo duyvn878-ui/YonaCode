@@ -24,6 +24,7 @@ import (
 	"math/big"
 	"mime"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,6 +210,7 @@ type RPCServer struct {
 	// [V5.0 ELITE] Kênh thông báo cập nhật giao diện tức thì
 	txUpdateChan    chan struct{}
 	blockUpdateChan chan struct{} // [REALTIME-BLOCK-FIX] Đánh thức UI khi có khối mới
+	newBlockCond    *sync.Cond    // [MINER-LONG-POLL] Điều phối Long-Polling cho thợ đào
 
 	// [V7.0 PERFORMANCE] Seed Cache: Lưu tạm seed đã giải mã để tránh Argon2id lặp lại
 	seedCache   map[string][]byte
@@ -292,6 +294,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 		launchTime:         time.Now(),
 		txUpdateChan:       make(chan struct{}, 100),
 		blockUpdateChan:    make(chan struct{}, 100), // [REALTIME-BLOCK-FIX]
+		newBlockCond:       sync.NewCond(&sync.Mutex{}), // [MINER-LONG-POLL]
 		historyWriteChan:   make(chan struct{}, 1),
 		dbPath:             filepath.Clean(app.dbPath), // [V1.65 PORTABLE] Chuẩn hóa đường dẫn để hoạt động trên mọi máy
 		rateLimiters:       make(map[string]*tokenBucket),
@@ -466,6 +469,7 @@ func NewRPCServer(br *go_bridge.Bridge, netMgr *node_p2p.NetworkManager, port in
 			case s.blockUpdateChan <- struct{}{}:
 			default:
 			}
+			s.newBlockCond.Broadcast() // [MINER-LONG-POLL] Đánh thức các thợ đào đang chờ
 
 			// [VANGUARD-CACHE] Cập nhật bộ đệm khối tức thì
 			go s.updateRecentBlocksCache(height)
@@ -2916,6 +2920,7 @@ func (s *RPCServer) Start() {
 	r.HandleFunc("/api/v1/recent/blocks", s.handleRecentBlocks).Methods("GET")
 	r.HandleFunc("/api/v1/recent/txs", s.handleRecentTransactions).Methods("GET")
 	r.HandleFunc("/api/v1/address/{address}/history", s.handleAddressHistory).Methods("GET")
+	r.HandleFunc("/api/v1/wallet/stream", s.handleWalletStream).Methods("GET")
 	r.HandleFunc("/api/v1/supply", s.handleSupply).Methods("GET")
 	r.HandleFunc("/api/v1/miner/status", s.handleMinerStatus).Methods("GET")
 	r.HandleFunc("/api/v1/miner/getwork", s.handleMinerGetWork).Methods("GET")
@@ -7837,6 +7842,33 @@ func (s *RPCServer) handleMinerGetWork(w http.ResponseWriter, r *http.Request) {
 	activeSessionId := s.cliApp.activeSessionId
 	s.cliApp.activeMiningMu.Unlock()
 
+	// [MINER-LONG-POLL] Logic: Nếu client gửi current_height bằng chiều cao hiện tại, chặn chờ khối mới.
+	currentHeightStr := r.URL.Query().Get("current_height")
+	if currentHeightStr != "" && activeBlock != nil && activeBlock.Header != nil {
+		if clientHeight, err := strconv.ParseUint(currentHeightStr, 10, 64); err == nil && clientHeight == activeBlock.Header.Height {
+			doneCh := make(chan struct{})
+			go func() {
+				s.newBlockCond.L.Lock()
+				s.newBlockCond.Wait()
+				s.newBlockCond.L.Unlock()
+				close(doneCh)
+			}()
+
+			select {
+			case <-doneCh:
+				// Đã có khối mới, tải lại activeBlock
+				s.cliApp.activeMiningMu.Lock()
+				activeBlock = s.cliApp.activeBlock
+				activeSessionId = s.cliApp.activeSessionId
+				s.cliApp.activeMiningMu.Unlock()
+			case <-time.After(30 * time.Second):
+				// Timeout 30s
+			case <-r.Context().Done():
+				return // Client ngắt kết nối
+			}
+		}
+	}
+
 	if activeBlock == nil || activeBlock.Header == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -8211,6 +8243,33 @@ func (s *RPCServer) handlePoolGetWork(w http.ResponseWriter, r *http.Request) {
 	activeBlock := s.cliApp.activeBlock
 	activeSessionId := s.cliApp.activeSessionId
 	s.cliApp.activeMiningMu.Unlock()
+
+	// [MINER-LONG-POLL] Logic: Nếu client gửi current_height bằng chiều cao hiện tại, chặn chờ khối mới.
+	currentHeightStr := r.URL.Query().Get("current_height")
+	if currentHeightStr != "" && activeBlock != nil && activeBlock.Header != nil {
+		if clientHeight, err := strconv.ParseUint(currentHeightStr, 10, 64); err == nil && clientHeight == activeBlock.Header.Height {
+			doneCh := make(chan struct{})
+			go func() {
+				s.newBlockCond.L.Lock()
+				s.newBlockCond.Wait()
+				s.newBlockCond.L.Unlock()
+				close(doneCh)
+			}()
+
+			select {
+			case <-doneCh:
+				// Đã có khối mới, tải lại activeBlock
+				s.cliApp.activeMiningMu.Lock()
+				activeBlock = s.cliApp.activeBlock
+				activeSessionId = s.cliApp.activeSessionId
+				s.cliApp.activeMiningMu.Unlock()
+			case <-time.After(30 * time.Second):
+				// Timeout 30s
+			case <-r.Context().Done():
+				return // Client ngắt kết nối
+			}
+		}
+	}
 
 	if activeBlock == nil || activeBlock.Header == nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -8612,4 +8671,45 @@ func (s *RPCServer) handlePoolMinerToggle(w http.ResponseWriter, r *http.Request
 		"status":         "Success",
 		"is_pool_mining": true,
 	})
+}
+func (s *RPCServer) handleWalletStream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
+	addrStr := r.URL.Query().Get("address")
+	ticker := time.NewTicker(1500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastBody string
+	sendUpdate := func() {
+		rec := httptest.NewRecorder()
+		req := r.Clone(r.Context())
+		req = mux.SetURLVars(req, map[string]string{"address": addrStr})
+		s.handleAddressHistory(rec, req)
+		if rec.Code == 200 {
+			bodyStr := rec.Body.String()
+			if bodyStr != lastBody {
+				fmt.Fprintf(w, "data: %s\n\n", bodyStr)
+				w.(http.Flusher).Flush()
+				lastBody = bodyStr
+			}
+		}
+	}
+	sendUpdate()
+	for {
+		select {
+		case <-ticker.C:
+			sendUpdate()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
